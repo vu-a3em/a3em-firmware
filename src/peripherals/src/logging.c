@@ -27,8 +27,6 @@ void logging_init(void)
       if (!(ui32dcuVal & AM_HAL_DCU_CPUTRC_TPIU_SWO) && (am_hal_dcu_update(true, AM_HAL_DCU_CPUTRC_TPIU_SWO) != AM_HAL_STATUS_SUCCESS))
          configASSERT0(1);
    }
-   else
-      configASSERT0(1);
 
    // Enable the ITM interface and the SWO pin
    am_hal_itm_enable();

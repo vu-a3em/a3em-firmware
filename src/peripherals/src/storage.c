@@ -341,7 +341,19 @@ void storage_deinit(void)
    am_hal_gpio_pinconfig(PIN_SD_CARD_DAT3, am_hal_gpio_pincfg_default);
 }
 
-bool storage_open(const char *file_name, bool writeable)
+bool storage_chdir(const char *directory)
+{
+   return (f_chdir(directory) == FR_OK);
+}
+
+bool storage_mkdir(const char *directory)
+{
+   // Attempt to create the specified directory if it does not exist
+   static FILINFO file_info;
+   return (f_stat(directory, &file_info) == FR_OK) ? true : (f_mkdir(directory) == FR_OK);
+}
+
+bool storage_open(const char *file_path, bool writeable)
 {
    // Close an already-opened file
    if (file_open)
@@ -349,7 +361,7 @@ bool storage_open(const char *file_name, bool writeable)
 
    // Open the requested file
    data_size = 0;
-   file_open = (f_open(&current_file, file_name, writeable ? (FA_CREATE_ALWAYS | FA_WRITE) : FA_READ) == FR_OK);
+   file_open = (f_open(&current_file, file_path, writeable ? (FA_CREATE_ALWAYS | FA_WRITE) : FA_READ) == FR_OK);
    return file_open;
 }
 
@@ -415,6 +427,12 @@ uint32_t storage_read_line(char *read_buffer, uint32_t buffer_len)
          }
    }
    return 0;
+}
+
+void storage_delete(const char *file_path)
+{
+   // Attempt to unlink the existing file
+   f_unlink(file_path);
 }
 
 void storage_close(void)

@@ -36,6 +36,8 @@ int main(void)
    else
       print("Deployment End Time: Unspecified\n");
    print("RTC set to Deployment Start Time upon Magnet Detect: %s\n", config_set_rtc_at_magnet_detect() ? "Yes" : "No");
+   print("Magnetic Activation: %s\n", config_awake_on_magnet() ? "Enabled" : "Disabled");
+   print("GPS Available: %s\n", config_gps_available() ? "Yes" : "No");
    if (config_get_leds_enabled())
    {
       uint32_t active_seconds = config_get_leds_active_seconds();
@@ -59,10 +61,10 @@ int main(void)
       print("VHF Transmitter Enabled: Never\n");
    switch (config_get_mic_amplification())
    {
-      case LOW:
+      case AMP_LOW:
          print("Microphone Amplification: Low\n");
          break;
-      case MEDIUM:
+      case AMP_MEDIUM:
          print("Microphone Amplification: Medium\n");
          break;
       default:

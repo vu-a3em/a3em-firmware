@@ -11,7 +11,7 @@ int main(void)
    // Set up the system hardware
    setup_hardware();
    storage_init();
-   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_MIC_BIAS_VOLTAGE);
+   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AMP_HIGH, AUDIO_MIC_BIAS_VOLTAGE);
    system_enable_interrupts(true);
 
    // Open a new WAV file and immediately begin reading continuous audio

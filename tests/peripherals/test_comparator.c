@@ -9,7 +9,7 @@ int main(void)
 {
    // Set up system hardware
    setup_hardware();
-   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_MIC_BIAS_VOLTAGE);
+   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AMP_HIGH, AUDIO_MIC_BIAS_VOLTAGE);
    comparator_init(false, 0, AUDIO_TRIGGER_THRESHOLD_PERCENT, true);
    system_enable_interrupts(true);
 

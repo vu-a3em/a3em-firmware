@@ -94,6 +94,7 @@ SRC += audio.c
 SRC += battery.c
 SRC += comparator.c
 SRC += digipot.c
+SRC += henrik.c
 SRC += imu.c
 SRC += led.c
 SRC += logging.c
@@ -103,6 +104,7 @@ SRC += runtime_config.c
 SRC += storage.c
 SRC += system.c
 SRC += vhf.c
+SRC += active_main.c
 SRC += main.c
 
 CSRC = $(filter %.c,$(SRC))

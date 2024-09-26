@@ -103,6 +103,7 @@ SRC += audio.c
 SRC += battery.c
 SRC += comparator.c
 SRC += digipot.c
+SRC += henrik.c
 SRC += imu.c
 SRC += led.c
 SRC += logging.c
@@ -124,7 +125,6 @@ SRC += vhf.c
 all:
 	$(error Make targets include: audio audio_continuous battery comparator configuration digipot full imu led logging magnet power_off rtc_set rtc storage system vhf)
 
-# TODO: Create separate targets for non-flashing versions
 program:
 ifneq ($(BUILT_BY), eclipse)
 	printf "r\n" > $(CONFIG)/flash.jlink
@@ -157,8 +157,8 @@ digipot: SRC += test_digipot.c
 digipot: $(CONFIG) $(CONFIG)/test_digipot.o $(CONFIG)/$$(TARGET).bin program
 
 full: TARGET = TestFull
-full: SRC += main.c
-full: $(CONFIG) $(CONFIG)/main.o $(CONFIG)/$$(TARGET).bin program
+full: SRC += active_main.c main.c
+full: $(CONFIG) $(CONFIG)/active_main.o $(CONFIG)/main.o $(CONFIG)/$$(TARGET).bin program
 
 imu: TARGET = TestIMU
 imu: SRC += test_imu.c

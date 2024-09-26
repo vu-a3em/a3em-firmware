@@ -34,6 +34,27 @@ int main(void)
          success = false;
    print("Test Status: %s\n", success ? "SUCCESS" : "FAILURE");
 
+   // Attempt to create a new directory on the SD card
+   if (!storage_mkdir("TestDirectory"))
+      print("ERROR: Unable to create the \"TestDirectory\" directory on the SD card!\n");
+   if (!storage_chdir("TestDirectory"))
+      print("ERROR: Unable to chdir to \"TestDirectory\" on the SD card!\n");
+
+   // Attempt to write a file to the new directory on the SD card
+   if (!storage_open("dirtest.txt", true))
+      print("ERROR: Unable to create a new file \"test.txt\" in \"TestDirectory\" on the SD card!\n");
+   else if (!storage_write(write_buffer, sizeof(write_buffer)))
+      print("ERROR: Unable to write data to the SD card file!\n");
+   storage_close();
+
+   // Attempt to re-open the same file and read back its contents
+   bytes_read = 0;
+   if (!storage_open("dirtest.txt", false))
+      print("ERROR: Unable to open existing SD card file \"test.txt\" in \"TestDirectory\"!\n");
+   else if (!(bytes_read = storage_read(read_buffer, sizeof(read_buffer))))
+      print("ERROR: Unable to read data from the SD card file!\n");
+   storage_close();
+
    // Put the CPU into deep sleep forever
    while (true)
       am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);

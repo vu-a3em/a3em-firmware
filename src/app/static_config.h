@@ -27,6 +27,7 @@
 #define MAX_AUDIO_TRIGGER_TIMES                     12
 #define MAX_NUM_DEPLOYMENT_PHASES                   6
 #define MAX_CFG_FILE_LINE_LENGTH                    80
+#define ACTIVATION_FILE_NAME                        "_a3em.active"
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 
 #ifdef AM_DEBUG_PRINTF
@@ -54,7 +55,6 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define AUDIO_NUM_CHANNELS                              1
 #define AUDIO_MIC_BIAS_VOLTAGE                          0.0f
 #define AUDIO_BUFFER_NUM_SAMPLES                        16384
-#define AUDIO_BUFFER_READ_TRIGGER                       COMPARATOR_THRESHOLD
 #define AUDIO_DEFAULT_SAMPLING_RATE_HZ                  20000
 #define AUDIO_DEFAULT_CLIP_LENGTH_SECONDS               10
 

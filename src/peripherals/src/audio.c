@@ -89,7 +89,7 @@ void am_audadc0_isr(void)
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
-void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float mic_bias_voltage)
+void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, mic_amp_level_t amplification, float mic_bias_voltage)
 {
    // Turn on the external microphone
    const am_hal_gpio_pincfg_t mic_en_config = AM_HAL_GPIO_PINCFG_OUTPUT;
@@ -97,6 +97,7 @@ void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float mic_bias_v
    am_hal_gpio_output_set(PIN_MICROPHONE_ENABLE);
 
    // Power up two programmable gain amplifiers per requested channel
+   // TODO: Use the "amplification" parameter instead of PREAMP_FULL_GAIN
    num_audio_channels = num_channels;
    configASSERT0(am_hal_audadc_refgen_powerup());
    for (uint32_t i = 0; i < num_channels; ++i)
@@ -217,7 +218,7 @@ bool audio_data_available(void)
    // Determine if time to trigger an AUDADC conversion
    if (comparator_triggered())
    {
-      print("Audio threshold triggered...beginning audio read\n");
+      print("INFO: Audio threshold triggered...beginning audio read\n");
       audio_adc_start();
    }
    return dma_complete;

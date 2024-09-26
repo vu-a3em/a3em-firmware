@@ -22,11 +22,11 @@ typedef struct {
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
 static char device_label[1 + MAX_DEVICE_LABEL_LEN];
-static bool set_rtc_at_magnet_detect, leds_enabled;
-static mic_amp_level_t microphone_amplification_level;
-static uint32_t leds_active_seconds, vhf_start_timestamp;
 static uint32_t magnetic_field_validation_length_ms;
+static uint32_t leds_active_seconds, vhf_start_timestamp;
+static bool set_rtc_at_magnet_detect, leds_enabled, device_activated, gps_available, awake_on_magnet;
 static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES];
+static mic_amp_level_t microphone_amplification_level;
 static start_end_time_t deployment_time;
 static int32_t num_deployment_phases;
 
@@ -68,11 +68,11 @@ static time_scale_t parse_time_scale(const char *value)
 static mic_amp_level_t parse_mic_amp_level(const char *value)
 {
    if (memcmp(value, "LOW", sizeof("LOW")) == 0)
-      return LOW;
+      return AMP_LOW;
    else if (memcmp(value, "MEDIUM", sizeof("MEDIUM")) == 0)
-      return MEDIUM;
+      return AMP_MEDIUM;
    else
-      return HIGH;
+      return AMP_HIGH;
 }
 
 static void parse_line(char *line, uint32_t line_length)
@@ -106,6 +106,10 @@ static void parse_line(char *line, uint32_t line_length)
       deployment_time.start_time = strtoul(value, NULL, 10);
    else if (memcmp(key, "DEPLOYMENT_END_TIME", sizeof("DEPLOYMENT_END_TIME")-1) == 0)
       deployment_time.end_time = strtoul(value, NULL, 10);
+   else if (memcmp(key, "GPS_AVAILABLE", sizeof("GPS_AVAILABLE")-1) == 0)
+      gps_available = (memcmp(value, "True", sizeof("True")) == 0);
+   else if (memcmp(key, "AWAKE_ON_MAGNET", sizeof("AWAKE_ON_MAGNET")-1) == 0)
+      awake_on_magnet = (memcmp(value, "True", sizeof("True")) == 0);
    else if (memcmp(key, "LEDS_ENABLED", sizeof("LEDS_ENABLED")-1) == 0)
       leds_enabled = (memcmp(value, "True", sizeof("True")) == 0);
    else if (memcmp(key, "LEDS_ACTIVE_SECONDS", sizeof("LEDS_ACTIVE_SECONDS")-1) == 0)
@@ -164,10 +168,11 @@ static void parse_line(char *line, uint32_t line_length)
 bool fetch_runtime_configuration(void)
 {
    // Set default configuration values
+   awake_on_magnet = true;
    num_deployment_phases = -1;
-   microphone_amplification_level = HIGH;
+   microphone_amplification_level = AMP_HIGH;
    leds_active_seconds = vhf_start_timestamp = 0;
-   set_rtc_at_magnet_detect = leds_enabled = false;
+   set_rtc_at_magnet_detect = leds_enabled = device_activated = gps_available = false;
    magnetic_field_validation_length_ms = MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS;
    memset(device_label, 0, sizeof(device_label));
    memset(&deployment_time, 0, sizeof(deployment_time));
@@ -199,6 +204,11 @@ bool fetch_runtime_configuration(void)
       parse_line(line_buffer, line_length);
    storage_close();
 
+   // Check whether the device activation file exists
+   device_activated = storage_open(ACTIVATION_FILE_NAME, false);
+   if (device_activated)
+      storage_close();
+
    // Return whether configuration parsing was successful
    ++num_deployment_phases;
    return success;
@@ -209,6 +219,33 @@ void config_get_device_label(char *label, uint32_t max_size)
    memset(label, 0, max_size);
    for (uint32_t i = 0; (i < max_size) && (i <= MAX_DEVICE_LABEL_LEN) && (device_label[i] != 0); ++i)
       label[i] = device_label[i];
+}
+
+bool config_is_device_activated(void)
+{
+   return device_activated;
+}
+
+void config_set_activation_status(bool active)
+{
+   if (active)
+   {
+      storage_open(ACTIVATION_FILE_NAME, false);
+      storage_write("OPEN", 4);
+      storage_close();
+   }
+   else
+      storage_delete(ACTIVATION_FILE_NAME);
+}
+
+bool config_gps_available(void)
+{
+   return gps_available;
+}
+
+bool config_awake_on_magnet(void)
+{
+   return awake_on_magnet;
 }
 
 int32_t config_get_num_deployment_phases(void)

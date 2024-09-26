@@ -16,7 +16,7 @@
 void henrik_init(void)
 {
    // TODO: Create an I2C configuration structure
-   const am_hal_ios_config_t i2c_config =
+   /*const am_hal_ios_config_t i2c_config =
    {
       .ui32InterfaceSelect = AM_HAL_IOS_USE_I2C | AM_HAL_IOS_I2C_ADDRESS(EXT_HW_I2C_ADDRESS),
       .ui32ROBase = 0,
@@ -26,7 +26,7 @@ void henrik_init(void)
       .pui8SRAMBuffer = NULL,
       .ui32SRAMBufferCap = 0,
       .ui8WrapEnabled = false
-   };
+   };*/
 
    // TODO: Initialize the I2C module and enable all relevant I2C pins
 }
@@ -37,6 +37,17 @@ void henrik_deinit(void)
 }
 
 void henrik_get_gps_reading(void)
+{
+   // TODO: Request GPS reading
+}
+
+uint32_t henrik_get_gps_timestamp(void)
+{
+   // TODO: Request GPS timestamp  (ensure in UTC and not GPS time)
+   return 0;
+}
+
+void henrik_get_gps_location(float *lat, float *lon, float *height)
 {
    // TODO: Request GPS reading
 }

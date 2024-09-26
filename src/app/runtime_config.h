@@ -13,13 +13,17 @@ typedef struct { uint32_t start_time, end_time; } start_end_time_t;
 typedef enum { AMPLITUDE, SCHEDULED, INTERVAL, CONTINUOUS } audio_recording_mode_t;
 typedef enum { ACTIVITY, AUDIO } imu_recording_mode_t;
 typedef enum { SECONDS, MINUTES, HOURS, DAYS } time_scale_t;
-typedef enum { LOW, MEDIUM, HIGH } mic_amp_level_t;
+typedef enum { AMP_LOW, AMP_MEDIUM, AMP_HIGH } mic_amp_level_t;
 
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
 bool fetch_runtime_configuration(void);
 void config_get_device_label(char *label, uint32_t max_size);
+bool config_is_device_activated(void);
+void config_set_activation_status(bool active);
+bool config_gps_available(void);
+bool config_awake_on_magnet(void);
 int32_t config_get_num_deployment_phases(void);
 int32_t config_get_active_deployment_phase_index(uint32_t current_time);
 int32_t config_get_next_deployment_phase_index(uint32_t current_time, uint32_t *next_start_time);

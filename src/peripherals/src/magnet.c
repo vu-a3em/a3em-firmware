@@ -1,6 +1,7 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
 #include "magnet.h"
+#include "system.h"
 
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
@@ -12,6 +13,7 @@ static magnet_sensor_callback_t detection_callback;
 static magnetic_field_validation_callback_t validation_callback;
 static volatile uint32_t validation_tick_count;
 static uint32_t validation_ticks_requested;
+static bool sensor_enabled;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -42,6 +44,16 @@ void am_timer02_isr(void)
       am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
 }
 
+static void enable_sensor(bool enable)
+{
+   // Clear or set the DISABLE pin to wake up or shut down the sensor
+   if (enable)
+      am_hal_gpio_output_clear(PIN_MAG_SENSOR_DIS);
+   else
+      am_hal_gpio_output_set(PIN_MAG_SENSOR_DIS);
+   sensor_enabled = enable;
+}
+
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
@@ -59,8 +71,8 @@ void magnet_sensor_init(void)
    configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_INP2, input_pin_config));
    configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_DIS, disable_pin_config));
 
-   // Set the DISABLE pin to ensure the sensor is asleep
-   am_hal_gpio_output_set(PIN_MAG_SENSOR_DIS);
+   // Ensure that the sensor is asleep
+   enable_sensor(false);
 
    // Initialize the magnetic field validation timer
    am_hal_timer_config_t field_validation_timer_config;
@@ -87,7 +99,27 @@ void magnet_sensor_deinit(void)
    detection_callback = NULL;
 
    // Put the sensor into sleep mode
-   am_hal_gpio_output_set(PIN_MAG_SENSOR_DIS);
+   enable_sensor(false);
+}
+
+void magnet_sensor_enable_for_wakeup(void)
+{
+   // Simply power on the sensor without any interrupt machinery
+   enable_sensor(true);
+}
+
+bool magnet_sensor_field_present(void)
+{
+   // Temporarily enable the sensor to make a measurement if not already active
+   if (!sensor_enabled)
+   {
+      am_hal_gpio_output_clear(PIN_MAG_SENSOR_DIS);
+      system_delay(1050);
+   }
+   bool field_present = am_hal_gpio_input_read(PIN_MAG_SENSOR_INP);
+   if (!sensor_enabled)
+      am_hal_gpio_output_set(PIN_MAG_SENSOR_DIS);
+   return field_present;
 }
 
 void magnet_sensor_register_callback(magnet_sensor_callback_t callback)
@@ -101,8 +133,8 @@ void magnet_sensor_register_callback(magnet_sensor_callback_t callback)
    configASSERT0(am_hal_gpio_interrupt_register(AM_HAL_GPIO_INT_CHANNEL_0, PIN_MAG_SENSOR_INP, magnet_sensor_isr, (void*)input_pin));
    configASSERT0(am_hal_gpio_interrupt_control(AM_HAL_GPIO_INT_CHANNEL_0, AM_HAL_GPIO_INT_CTRL_INDV_ENABLE, (void*)&input_pin));
 
-   // Clear the DISABLE pin to wake up the sensor
-   am_hal_gpio_output_clear(PIN_MAG_SENSOR_DIS);
+   // Wake up the sensor
+   enable_sensor(true);
 }
 
 void magnet_sensor_verify_field(uint32_t milliseconds, magnetic_field_validation_callback_t callback)
