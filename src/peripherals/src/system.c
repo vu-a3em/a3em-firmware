@@ -1,6 +1,7 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
 #include "audio.h"
+#include "battery.h"
 #include "comparator.h"
 #include "henrik.h"
 #include "imu.h"
@@ -208,6 +209,7 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
    imu_deinit();
    storage_deinit();
    magnet_sensor_deinit();
+   battery_monitor_deinit();
    leds_deinit();
    logging_disable();
    if (disable_vhf)

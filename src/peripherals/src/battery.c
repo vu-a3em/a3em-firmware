@@ -1,13 +1,15 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
 #include "battery.h"
+#include "logging.h"
 
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
 #define BATTERY_ADC_SLOT 0
+#define TEMPERATURE_ADC_SLOT 7
 
-static volatile uint32_t battery_voltage_code;
+static volatile uint32_t battery_voltage_code, temperature_code;
 static volatile bool conversion_complete;
 static void *adc_handle;
 
@@ -30,6 +32,8 @@ void am_adc_isr(void)
       am_hal_adc_samples_read(adc_handle, true, NULL, &samples_to_read, &sample);
       if (sample.ui32Slot == BATTERY_ADC_SLOT)
          battery_voltage_code = AM_HAL_ADC_FIFO_SAMPLE(sample.ui32Sample);
+      else if (sample.ui32Slot == TEMPERATURE_ADC_SLOT)
+         temperature_code = AM_HAL_ADC_FIFO_SAMPLE(sample.ui32Sample);
    }
 
    // Set the conversion complete flag
@@ -61,7 +65,7 @@ void battery_monitor_init(void)
       .ui32TrkCyc = AM_HAL_ADC_MIN_TRKCYC,
       .eMeasToAvg = AM_HAL_ADC_SLOT_AVG_1
    };
-   am_hal_adc_slot_config_t used_slot_config =
+   am_hal_adc_slot_config_t battery_slot_config =
    {
       .bEnabled = true,
       .bWindowCompare = false,
@@ -70,10 +74,19 @@ void battery_monitor_init(void)
       .ui32TrkCyc = AM_HAL_ADC_MIN_TRKCYC,
       .eMeasToAvg = AM_HAL_ADC_SLOT_AVG_1
    };
+   am_hal_adc_slot_config_t temperature_slot_config =
+   {
+      .bEnabled = true,
+      .bWindowCompare = false,
+      .eChannel = AM_HAL_ADC_SLOT_CHSEL_TEMP,
+      .ePrecisionMode = AM_HAL_ADC_SLOT_10BIT,
+      .ui32TrkCyc = AM_HAL_ADC_MIN_TRKCYC,
+      .eMeasToAvg = AM_HAL_ADC_SLOT_AVG_1
+   };
 
    // Initialize all static variables
    conversion_complete = false;
-   battery_voltage_code = 0;
+   battery_voltage_code = temperature_code = 0;
 
    // Initialize the voltage input pin
    am_hal_gpio_pincfg_t voltage_pin_config = AM_HAL_GPIO_PINCFG_INPUT;
@@ -88,7 +101,9 @@ void battery_monitor_init(void)
    // Configure all ADC conversion slots
    for (int slot = 0; slot < AM_HAL_ADC_MAX_SLOTS; ++slot)
       if (slot == BATTERY_ADC_SLOT)
-         am_hal_adc_configure_slot(adc_handle, slot, &used_slot_config);
+         am_hal_adc_configure_slot(adc_handle, slot, &battery_slot_config);
+      else if (slot == TEMPERATURE_ADC_SLOT)
+         am_hal_adc_configure_slot(adc_handle, slot, &temperature_slot_config);
       else
          am_hal_adc_configure_slot(adc_handle, slot, &unused_slot_config);
 
@@ -103,13 +118,14 @@ void battery_monitor_deinit(void)
    am_hal_adc_deinitialize(adc_handle);
 }
 
-uint32_t battery_monitor_get_level_mV(void)
+battery_result_t battery_monitor_get_details(void)
 {
    // Wake up the ADC
-   battery_voltage_code = 0;
    conversion_complete = false;
+   battery_result_t result = { 0 };
+   battery_voltage_code = temperature_code = 0;
    if (am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_WAKE, true) != AM_HAL_STATUS_SUCCESS)
-      return 0;
+      return result;
 
    // Enable interrupts upon completion of an ADC conversion
    am_hal_adc_interrupt_enable(adc_handle, AM_HAL_ADC_INT_CNVCMP);
@@ -122,7 +138,7 @@ uint32_t battery_monitor_get_level_mV(void)
       am_hal_adc_interrupt_disable(adc_handle, AM_HAL_ADC_INT_CNVCMP);
       am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true);
       NVIC_DisableIRQ(ADC_IRQn);
-      return 0;
+      return result;
    }
 
    // Wait until the conversion has completed
@@ -135,6 +151,10 @@ uint32_t battery_monitor_get_level_mV(void)
    am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true);
    NVIC_DisableIRQ(ADC_IRQn);
 
-   // Calculate and return the battery voltage
-   return (battery_voltage_code * AM_HAL_ADC_VREFMV / 4096) * (VOLTAGE_DIVIDER_UPPER + VOLTAGE_DIVIDER_LOWER) / VOLTAGE_DIVIDER_LOWER;
+   // Calculate and return the battery voltage and temperature
+   float temperature_codes[3] = { (float)temperature_code * AM_HAL_ADC_VREF / 1024.0f, 0.0f, -123.456f };
+   result.millivolts = (battery_voltage_code * AM_HAL_ADC_VREFMV / 4096) * (VOLTAGE_DIVIDER_UPPER + VOLTAGE_DIVIDER_LOWER) / VOLTAGE_DIVIDER_LOWER;
+   if (am_hal_adc_control(adc_handle, AM_HAL_ADC_REQ_TEMP_CELSIUS_GET, temperature_codes) == AM_HAL_STATUS_SUCCESS)
+      result.celcius = temperature_codes[1];
+   return result;
 }

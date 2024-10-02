@@ -1,5 +1,6 @@
 #include <time.h>
 #include "audio.h"
+#include "battery.h"
 #include "comparator.h"
 #include "henrik.h"
 #include "imu.h"
@@ -42,7 +43,7 @@ static void process_audio(uint32_t sampling_rate, uint32_t num_reads_per_clip, t
    // Initialize all necessary local variables
    bool audio_clip_in_progress = false, reading_audio = false;
    uint32_t num_audio_reads = 0, last_audio_read_time = 0;
-   int16_t audio_buffer[2*AUDIO_BUFFER_NUM_SAMPLES];
+   int16_t audio_buffer[AUDIO_BUFFER_NUM_SAMPLES];
 
    // Handling incoming audio clips until the phase has ended
    while (!phase_ended)
@@ -111,7 +112,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
    // TODO: Start timer at now that expires every "max_clips_interval_seconds", ensure that no more than "max_num_clips" clips are stored during each timer interval
    // TODO: FULLY IMPLEMENT THIS
    // Initialize all necessary local variables
-   static int16_t audio_buffer[2*AUDIO_BUFFER_NUM_SAMPLES];
+   int16_t audio_buffer[AUDIO_BUFFER_NUM_SAMPLES];
    bool audio_clip_in_progress = false;
    uint32_t num_audio_reads = 0;
 
@@ -199,7 +200,7 @@ void active_main(int32_t phase_index)
    }*/
 
    // Determine how to schedule audio clip recordings
-   audio_init(AUDIO_NUM_CHANNELS, config_get_audio_sampling_rate_hz(phase_index), config_get_mic_amplification(), AUDIO_MIC_BIAS_VOLTAGE);
+   audio_init(AUDIO_NUM_CHANNELS, config_get_audio_sampling_rate_hz(phase_index), config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE);
    const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(config_get_audio_clip_length_seconds(phase_index));
    const uint32_t audio_sampling_rate_hz = config_get_audio_sampling_rate_hz(phase_index);
    switch (config_get_audio_recording_mode(phase_index))
@@ -269,12 +270,11 @@ void active_main(int32_t phase_index)
 }
 
 
-// TODO: GUI Updates: Add GPS Available, Awake on Magnet, IMU threshold values
+// TODO: GUI Updates: Add GPS Available, Awake on Magnet, fix IMU threshold values, make mic amp levels dB [0, 45]
+// TODO: GUI Updates: ensure for interval audio reading that interval is >= clip_length_seconds, ensure all datetimes make logical sense before storing
 // TODO: Test that VHF stays active in power off mode
 // TODO: Re-route "print" to SD card if not in debug mode (if logfile closed, ignore print)
 // TODO: Reset if RTC is not increasing on each tick (do we need a watchdog for this?)
 // TODO: Try to use DMA audio buffer directly to cut down on memory usage
-// TODO: Fix audio preamp levels
 // TODO: Fix audio to only store/deal with mono output
-// TODO: In GUI, ensure for interval audio reading that interval is >= clip_length_seconds
 // TODO: Add battery monitoring, shut down if too low

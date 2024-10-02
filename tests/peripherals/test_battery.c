@@ -12,12 +12,13 @@ int main(void)
    // Retrieve battery status every 15 seconds
    while (true)
    {
-      uint32_t battery_voltage = battery_monitor_get_level_mV();
-      print("Battery Status: %u mV, Level is %s\n",
-            battery_voltage,
-            (battery_voltage <= BATTERY_EMPTY) ? "EMPTY" :
-               (battery_voltage <= BATTERY_CRITICAL) ? "CRITICAL" :
-                  (battery_voltage <= BATTERY_NOMINAL) ? "NOMINAL" : "FULL");
+      battery_result_t details = battery_monitor_get_details();
+      print("Battery Status: %u mV, Level is %s, Temp is %f\n",
+            details.millivolts,
+            (details.millivolts <= BATTERY_EMPTY) ? "EMPTY" :
+               (details.millivolts <= BATTERY_CRITICAL) ? "CRITICAL" :
+                  (details.millivolts <= BATTERY_LOW) ? "LOW" : "OKAY",
+            details.celcius);
       am_hal_delay_us(15000000);
    }
 

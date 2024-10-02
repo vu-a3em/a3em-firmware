@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "battery.h"
 #include "comparator.h"
 #include "henrik.h"
 #include "imu.h"
@@ -49,6 +50,7 @@ int main(void)
    henrik_init();
    magnet_sensor_init();
    comparator_init(false, 0, 1.0, true);
+   battery_monitor_init();
    storage_init();
    system_enable_interrupts(true);
    print("INFO: Peripherals initialized!\n");
@@ -58,6 +60,19 @@ int main(void)
    print("INFO: Fetching runtime configuration...%s\n", fetch_runtime_configuration() ? "SUCCESS" : "FAILURE (Using defaults)");
    if (!config_get_leds_enabled())
       leds_deinit();
+
+   // Determine if the battery voltage is too low to continue
+   if (battery_monitor_get_details().millivolts <= BATTERY_LOW)
+   {
+      print("WARNING: Battery low...shutting down for 1 hour\n");
+      const uint32_t current_timestamp = rtc_get_timestamp();
+      const uint32_t vhf_enable_timestamp = config_get_vhf_start_timestamp();
+      const bool vhf_enabled = config_is_device_activated() && vhf_enable_timestamp && (current_timestamp >= vhf_enable_timestamp);
+      if (vhf_enabled)
+         vhf_activate();
+      system_enter_power_off_mode(0, current_timestamp + 3600, !vhf_enabled, false);
+      system_reset();
+   }
 
    // Determine whether the device has been activated or not
    if (config_is_device_activated())
