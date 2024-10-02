@@ -411,7 +411,7 @@ uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len)
    return (file_open && (f_read(&current_file, read_buffer, buffer_len, &data_read) == FR_OK)) ? data_read : 0;
 }
 
-uint32_t storage_read_line(char *read_buffer, uint32_t buffer_len)
+int32_t storage_read_line(char *read_buffer, uint32_t buffer_len)
 {
    // Read up to the requested number of bytes from the current file
    UINT data_read = 0;
@@ -423,10 +423,10 @@ uint32_t storage_read_line(char *read_buffer, uint32_t buffer_len)
          if (read_buffer[i] == '\n')
          {
             f_lseek(&current_file, read_start_location + i + 1);
-            return ((i > 0) && (read_buffer[i-1] == '\r')) ? (i - 1) : i;
+            return (int32_t)(((i > 0) && (read_buffer[i-1] == '\r')) ? (i - 1) : i);
          }
    }
-   return 0;
+   return -1;
 }
 
 void storage_delete(const char *file_path)

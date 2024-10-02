@@ -11,7 +11,7 @@ int main(void)
    // Set up the system hardware
    setup_hardware();
    storage_init();
-   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AMP_HIGH, AUDIO_MIC_BIAS_VOLTAGE);
+   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 35.0f, AUDIO_MIC_BIAS_VOLTAGE);
    system_enable_interrupts(true);
 
    // Open a new WAV file and immediately begin reading continuous audio
@@ -24,7 +24,7 @@ int main(void)
 
    // Loop forever handling incoming audio clips
    const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(DESIRED_CLIP_LENGTH_SECONDS);
-   int16_t audio_buffer[2*AUDIO_BUFFER_NUM_SAMPLES];
+   int16_t audio_buffer[AUDIO_BUFFER_NUM_SAMPLES];
    while (true)
    {
       // Sleep while no errors or audio to process

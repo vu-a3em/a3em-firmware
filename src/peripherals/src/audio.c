@@ -8,16 +8,14 @@
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
-#define PREAMP_FULL_GAIN           12
-#define PGA_LG_GAIN_DB             12
-#define PGA_HG_GAIN_DB             12
-
+#define PREAMP_FULL_GAIN           80
 #define MICBIAS_VOLTAGE_MIN        0.9f
 #define MICBIAS_VOLTAGE_MAX        1.5f
 
 AM_SHARED_RW uint32_t sample_buffer[(2*AUDIO_BUFFER_NUM_SAMPLES) + 3];
 
 static void *audadc_handle;
+static float pga_gain_db;
 static uint32_t num_audio_channels, sampling_rate_hz;
 static volatile bool dma_complete = false, dma_error = false;
 static am_hal_offset_cal_coeffs_array_t offset_calibration;
@@ -55,14 +53,13 @@ void audio_adc_start(void)
    configASSERT0(am_hal_audadc_interrupt_enable(audadc_handle, AM_HAL_AUDADC_INT_DERR | AM_HAL_AUDADC_INT_FIFOOVR1));
 
    // Set the desired gain configuration
-   const uint32_t lg_gain = (uint32_t)((float)PGA_LG_GAIN_DB*2 + 12);
    am_hal_audadc_gain_config_t audadc_gain_config =
    {
-      .ui32LGA = lg_gain,
-      .ui32HGADELTA = (uint32_t)((float)PGA_HG_GAIN_DB*2 + 12) - lg_gain,
-      .ui32LGB = lg_gain,
-      .ui32HGBDELTA = (uint32_t)((float)PGA_HG_GAIN_DB*2 + 12) - lg_gain,
-      .eUpdateMode   = AM_HAL_AUDADC_GAIN_UPDATE_IMME
+      .ui32LGA = (uint32_t)((pga_gain_db*2.0f + 10) * 0.8),
+      .ui32HGADELTA = (uint32_t)((pga_gain_db*2.0f + 10) * 0.2),
+      .ui32LGB = 0,
+      .ui32HGBDELTA = 0,
+      .eUpdateMode = AM_HAL_AUDADC_GAIN_UPDATE_IMME
    };
    configASSERT0(am_hal_audadc_internal_pga_config(audadc_handle, &audadc_gain_config));
    configASSERT0(am_hal_audadc_sw_trigger(audadc_handle));
@@ -89,7 +86,7 @@ void am_audadc0_isr(void)
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
-void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, mic_amp_level_t amplification, float mic_bias_voltage)
+void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, float mic_bias_voltage)
 {
    // Turn on the external microphone
    const am_hal_gpio_pincfg_t mic_en_config = AM_HAL_GPIO_PINCFG_OUTPUT;
@@ -97,7 +94,6 @@ void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, mic_amp_level_t 
    am_hal_gpio_output_set(PIN_MICROPHONE_ENABLE);
 
    // Power up two programmable gain amplifiers per requested channel
-   // TODO: Use the "amplification" parameter instead of PREAMP_FULL_GAIN
    num_audio_channels = num_channels;
    configASSERT0(am_hal_audadc_refgen_powerup());
    for (uint32_t i = 0; i < num_channels; ++i)
@@ -107,6 +103,14 @@ void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, mic_amp_level_t 
       configASSERT0(am_hal_audadc_gain_set(2*i, 2*PREAMP_FULL_GAIN));
       configASSERT0(am_hal_audadc_gain_set(2*i + 1, 2*PREAMP_FULL_GAIN));
    }
+
+   // Store the requested microphone amplification level (max gain is 45dB)
+   if (gain_db > 45.0f)
+      pga_gain_db = 45.0f;
+   else if (gain_db < 0.0f)
+      pga_gain_db = 0.0f;
+   else
+      pga_gain_db = gain_db;
 
    // Power up the external microphone bias if requested
    if ((mic_bias_voltage >= MICBIAS_VOLTAGE_MIN) && (mic_bias_voltage <= MICBIAS_VOLTAGE_MAX))
@@ -239,27 +243,16 @@ bool audio_read_data(int16_t *buffer)
       const uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audadc_handle);
       for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
       {
-         buffer[2*i] = AM_HAL_AUDADC_FIFO_LGDATA(data[i]) << 4;
-         buffer[2*i + 1] = AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4;
-         if (offset_calibration.sCalibCoeff[0].bValid)
-         {
-            offset_adjustment = offset_calibration.sCalibCoeff[0].i32DCOffsetAdj << 4;
-            if ((buffer[2*i] >= 0) && (offset_adjustment > (32767 - buffer[2*i])))
-               buffer[2*i] = 32767;
-            else if ((buffer[2*i] < 0) && (offset_adjustment < (-32768 - buffer[2*i])))
-               buffer[2*i] = -32768;
-            else
-               buffer[2*i] += offset_adjustment;
-         }
+         buffer[i] = AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4;
          if (offset_calibration.sCalibCoeff[1].bValid)
          {
             offset_adjustment = offset_calibration.sCalibCoeff[1].i32DCOffsetAdj << 4;
-            if ((buffer[2*i + 1] >= 0) && (offset_adjustment > (32767 - buffer[2*i + 1])))
-               buffer[2*i + 1] = 32767;
-            else if ((buffer[2*i + 1] < 0) && (offset_adjustment < (-32768 - buffer[2*i + 1])))
-               buffer[2*i + 1] = -32768;
+            if ((buffer[i] >= 0) && (offset_adjustment > (32767 - buffer[i])))
+               buffer[i + 1] = 32767;
+            else if ((buffer[i] < 0) && (offset_adjustment < (-32768 - buffer[i])))
+               buffer[i] = -32768;
             else
-               buffer[2*i + 1] += offset_adjustment;
+               buffer[i] += offset_adjustment;
          }
       }
       dma_complete = false;

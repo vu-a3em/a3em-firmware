@@ -59,18 +59,7 @@ int main(void)
    }
    else
       print("VHF Transmitter Enabled: Never\n");
-   switch (config_get_mic_amplification())
-   {
-      case AMP_LOW:
-         print("Microphone Amplification: Low\n");
-         break;
-      case AMP_MEDIUM:
-         print("Microphone Amplification: Medium\n");
-         break;
-      default:
-         print("Microphone Amplification: High\n");
-         break;
-   }
+   print("Microphone Amplification: %f DB\n", config_get_mic_amplification_db());
    int32_t num_phases = config_get_num_deployment_phases();
    for (int32_t i = 0; (num_phases != -1) && (i < num_phases); ++i)
    {

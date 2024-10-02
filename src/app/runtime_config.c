@@ -26,7 +26,7 @@ static uint32_t magnetic_field_validation_length_ms;
 static uint32_t leds_active_seconds, vhf_start_timestamp;
 static bool set_rtc_at_magnet_detect, leds_enabled, device_activated, gps_available, awake_on_magnet;
 static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES];
-static mic_amp_level_t microphone_amplification_level;
+static float microphone_amplification_db;
 static start_end_time_t deployment_time;
 static int32_t num_deployment_phases;
 
@@ -65,20 +65,14 @@ static time_scale_t parse_time_scale(const char *value)
       return MINUTES;
 }
 
-static mic_amp_level_t parse_mic_amp_level(const char *value)
+static void parse_line(char *line, int32_t line_length)
 {
-   if (memcmp(value, "LOW", sizeof("LOW")) == 0)
-      return AMP_LOW;
-   else if (memcmp(value, "MEDIUM", sizeof("MEDIUM")) == 0)
-      return AMP_MEDIUM;
-   else
-      return AMP_HIGH;
-}
+   // Return if not a valid line
+   if (line_length < 4)
+      return;
 
-static void parse_line(char *line, uint32_t line_length)
-{
    // Locate the configuration key and value
-   uint32_t i;
+   int32_t i;
    const char *key = line;
    for (i = 0; (i < line_length) && ((key[0] == ' ') || (key[0] == '\t')); ++i)
       key = line + i;
@@ -115,7 +109,7 @@ static void parse_line(char *line, uint32_t line_length)
    else if (memcmp(key, "LEDS_ACTIVE_SECONDS", sizeof("LEDS_ACTIVE_SECONDS")-1) == 0)
       leds_active_seconds = strtoul(value, NULL, 10);
    else if (memcmp(key, "MIC_AMPLIFICATION", sizeof("MIC_AMPLIFICATION")-1) == 0)
-      microphone_amplification_level = parse_mic_amp_level(value);
+      microphone_amplification_db = strtof(value, NULL);
    else if (memcmp(key, "MAGNET_FIELD_VALIDATION_MS", sizeof("MAGNET_FIELD_VALIDATION_MS")-1) == 0)
       magnetic_field_validation_length_ms = strtoul(value, NULL, 10);
    else if (memcmp(key, "VHF_RADIO_START_TIME", sizeof("VHF_RADIO_START_TIME")-1) == 0)
@@ -170,7 +164,7 @@ bool fetch_runtime_configuration(void)
    // Set default configuration values
    awake_on_magnet = true;
    num_deployment_phases = -1;
-   microphone_amplification_level = AMP_HIGH;
+   microphone_amplification_db = 35.0f;
    leds_active_seconds = vhf_start_timestamp = 0;
    set_rtc_at_magnet_detect = leds_enabled = device_activated = gps_available = false;
    magnetic_field_validation_length_ms = MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS;
@@ -197,10 +191,10 @@ bool fetch_runtime_configuration(void)
    }
 
    // Open and parse the stored runtime configuration file
-   uint32_t line_length;
+   int32_t line_length;
    char line_buffer[MAX_CFG_FILE_LINE_LENGTH];
    bool success = storage_open(CONFIG_FILE_NAME, false);
-   while (success && (line_length = storage_read_line(line_buffer, sizeof(line_buffer))) > 0)
+   while (success && (line_length = storage_read_line(line_buffer, sizeof(line_buffer))) >= 0)
       parse_line(line_buffer, line_length);
    storage_close();
 
@@ -307,9 +301,9 @@ uint32_t config_get_vhf_start_timestamp(void)
    return vhf_start_timestamp;
 }
 
-mic_amp_level_t config_get_mic_amplification(void)
+float config_get_mic_amplification_db(void)
 {
-   return microphone_amplification_level;
+   return microphone_amplification_db;
 }
 
 uint32_t config_get_start_time(int32_t phase_index)

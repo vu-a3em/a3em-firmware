@@ -16,11 +16,11 @@
 #define PIN_MICROPHONE_ENABLE                       27
 
 // Battery
-#define PIN_BATTERY_VOLTAGE                         18  // TODO: Update from Gyuri
-#define PIN_BATTERY_VOLTAGE_FUNCTION                AM_HAL_PIN_18_ADCSE1
-#define PIN_BATTERY_VOLTAGE_ADC_CHANNEL             AM_HAL_ADC_SLOT_CHSEL_SE1
-#define VOLTAGE_DIVIDER_LOWER                       187
-#define VOLTAGE_DIVIDER_UPPER                       510
+#define PIN_BATTERY_VOLTAGE                         15
+#define PIN_BATTERY_VOLTAGE_FUNCTION                AM_HAL_PIN_15_ADCSE4
+#define PIN_BATTERY_VOLTAGE_ADC_CHANNEL             AM_HAL_ADC_SLOT_CHSEL_SE4
+#define VOLTAGE_DIVIDER_LOWER                       330
+#define VOLTAGE_DIVIDER_UPPER                       1000
 
 // External Sensor Board
 #define EXT_HW_I2C_ADDRESS                          0x0  // TODO: Update from Henrik

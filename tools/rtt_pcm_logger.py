@@ -18,7 +18,7 @@ config_file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..
 with open(config_file_path, 'r') as config_file:
   for line in config_file:
     if '#define AUDIO_NUM_CHANNELS' in line:
-      num_channels = 2 * int(line.split()[2])
+      num_channels = int(line.split()[2])
     elif '#define AUDIO_DEFAULT_SAMPLING_RATE_HZ' in line:
       sample_rate = int(line.split()[2])
     elif '#define AUDIO_BUFFER_NUM_SAMPLES' in line:
