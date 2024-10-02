@@ -13,7 +13,7 @@ int main(void)
    while (true)
    {
       battery_result_t details = battery_monitor_get_details();
-      print("Battery Status: %u mV, Level is %s, Temp is %f\n",
+      print("Battery Status: %u mV, Level is %s, Temp is %f C\n",
             details.millivolts,
             (details.millivolts <= BATTERY_EMPTY) ? "EMPTY" :
                (details.millivolts <= BATTERY_CRITICAL) ? "CRITICAL" :

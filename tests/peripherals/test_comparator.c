@@ -3,7 +3,7 @@
 #include "logging.h"
 #include "system.h"
 
-#define AUDIO_GAIN_DB                       12.0        // Max of 45.0
+#define AUDIO_GAIN_DB                       35.0        // Max of 45.0
 #define AUDIO_TRIGGER_THRESHOLD_PERCENT     0.25
 
 int main(void)

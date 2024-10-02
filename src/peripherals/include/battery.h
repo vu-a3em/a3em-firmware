@@ -8,7 +8,7 @@
 
 // Peripheral Type Definitions -----------------------------------------------------------------------------------------
 
-typedef enum { BATTERY_EMPTY = 3500, BATTERY_CRITICAL = 3680, BATTERY_LOW = 3750 } battery_status_t;
+typedef enum { BATTERY_EMPTY = 3000, BATTERY_CRITICAL = 3100, BATTERY_LOW = 3250 } battery_status_t;
 typedef struct { uint32_t millivolts; float celcius; } battery_result_t;
 
 
