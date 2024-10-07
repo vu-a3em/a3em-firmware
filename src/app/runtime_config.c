@@ -1,5 +1,6 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
+#include "logging.h"
 #include "runtime_config.h"
 #include "storage.h"
 
@@ -217,14 +218,14 @@ void config_get_device_label(char *label, uint32_t max_size)
 
 bool config_is_device_activated(void)
 {
-   return device_activated;
+   return device_activated || (gps_available && !awake_on_magnet);
 }
 
 void config_set_activation_status(bool active)
 {
    if (active)
    {
-      storage_open(ACTIVATION_FILE_NAME, false);
+      storage_open(ACTIVATION_FILE_NAME, true);
       storage_write("OPEN", 4);
       storage_close();
    }

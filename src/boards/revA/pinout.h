@@ -23,7 +23,7 @@
 #define VOLTAGE_DIVIDER_UPPER                       1000
 
 // External Sensor Board
-#define EXT_HW_I2C_ADDRESS                          0x0  // TODO: Update from Henrik
+#define EXT_HW_I2C_ADDRESS                          0x58
 #define PIN_EXT_HW_I2C_SCL                          0
 #define PIN_EXT_HW_I2C_SDA                          1
 #define PIN_EXT_HW_I2C_SCL_FUNCTION                 AM_HAL_PIN_0_SLSCL
@@ -71,6 +71,10 @@
 #define PIN_SD_CARD_DAT1                            85
 #define PIN_SD_CARD_DAT2                            86
 #define PIN_SD_CARD_DAT3                            87
+
+// Timers
+#define TIMER_NUMBER_AUDIO_PROCESSING               0
+#define TIMER_AUDIO_PROCESSING_TICK_RATE            (AM_HAL_CLKGEN_FREQ_MAX_HZ / 4000)
 
 // VHF
 #define PIN_VHF_ENABLE                              34

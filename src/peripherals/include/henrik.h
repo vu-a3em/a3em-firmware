@@ -6,12 +6,18 @@
 #include "runtime_config.h"
 
 
+// Peripheral Type Definitions -----------------------------------------------------------------------------------------
+
+typedef struct { uint32_t utc_timestamp; float lat, lon, height; bool new_data; } henrik_data_t;
+typedef void (*henrik_data_callback_t)(henrik_data_t new_data);
+
+
 // Public API Functions ------------------------------------------------------------------------------------------------
 
 void henrik_init(void);
 void henrik_deinit(void);
-uint32_t henrik_get_gps_timestamp(void);
-void henrik_get_gps_location(float *lat, float *lon, float *height);
+henrik_data_t henrik_get_data(void);
+void henrik_register_data_callback(henrik_data_callback_t callback);
 void henrik_send_alert(void);
 
 #endif  // #ifndef __HENRIK_HEADER_H__

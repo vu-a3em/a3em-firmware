@@ -27,8 +27,12 @@
 #define MAX_AUDIO_TRIGGER_TIMES                     12
 #define MAX_NUM_DEPLOYMENT_PHASES                   6
 #define MAX_CFG_FILE_LINE_LENGTH                    80
+#define MIN_LOG_DATA_INTERVAL_SECONDS               600
+
 #define ACTIVATION_FILE_NAME                        "_a3em.active"
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
+
+#define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))
 
 #ifdef AM_DEBUG_PRINTF
 extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
@@ -48,6 +52,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define IMU_DATA_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 1)
 #define RTC_ALARM_INTERRUPT_PRIORITY                    (AM_IRQ_PRIORITY_DEFAULT)
 #define BATT_ADC_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT + 1)
+#define AUDIO_TIMER_INTERRUPT_PRIORITY                  (AM_IRQ_PRIORITY_DEFAULT + 2)
 
 
 // Audio Sampling Definitions ------------------------------------------------------------------------------------------

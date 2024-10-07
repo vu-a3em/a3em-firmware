@@ -248,7 +248,7 @@ bool audio_read_data(int16_t *buffer)
          {
             offset_adjustment = offset_calibration.sCalibCoeff[1].i32DCOffsetAdj << 4;
             if ((buffer[i] >= 0) && (offset_adjustment > (32767 - buffer[i])))
-               buffer[i + 1] = 32767;
+               buffer[i] = 32767;
             else if ((buffer[i] < 0) && (offset_adjustment < (-32768 - buffer[i])))
                buffer[i] = -32768;
             else
@@ -259,4 +259,33 @@ bool audio_read_data(int16_t *buffer)
       return true;
    }
    return false;
+}
+
+int16_t* audio_read_data_direct(void)
+{
+   // Only read data if a DMA audio conversion is complete
+   static int32_t offset_adjustment;
+   if (dma_complete)
+   {
+      // Read and calibrate the audio samples from the AUDADC DMA buffer
+      uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audadc_handle);
+      int16_t *buffer = (int16_t*)data;
+      for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+      {
+         buffer[i] = AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4;
+         if (offset_calibration.sCalibCoeff[1].bValid)
+         {
+            offset_adjustment = offset_calibration.sCalibCoeff[1].i32DCOffsetAdj << 4;
+            if ((buffer[i] >= 0) && (offset_adjustment > (32767 - buffer[i])))
+               buffer[i] = 32767;
+            else if ((buffer[i] < 0) && (offset_adjustment < (-32768 - buffer[i])))
+               buffer[i] = -32768;
+            else
+               buffer[i] += offset_adjustment;
+         }
+      }
+      dma_complete = false;
+      return buffer;
+   }
+   return NULL;
 }

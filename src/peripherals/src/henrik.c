@@ -5,16 +5,33 @@
 
 // Static Global Variables and Definitions -----------------------------------------------------------------------------
 
+static henrik_data_callback_t data_callback;
+static volatile henrik_data_t unread_data;
+static bool interrupts_enabled;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
+void enable_data_interrupts(void)
+{
+   // Only enable interrupts if not already enabled
+   if (!interrupts_enabled)
+   {
+      // TODO: Enable them
+      interrupts_enabled = true;
+   }
+}
 
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
 void henrik_init(void)
 {
+   // Initialize peripheral variables
+   data_callback = NULL;
+   interrupts_enabled = false;
+   memset((void*)&unread_data, 0, sizeof(unread_data));
+
    // TODO: Create an I2C configuration structure
    /*const am_hal_ios_config_t i2c_config =
    {
@@ -29,11 +46,16 @@ void henrik_init(void)
    };*/
 
    // TODO: Initialize the I2C module and enable all relevant I2C pins
+
+   // Enable incoming data interrupts
+   enable_data_interrupts();
 }
 
 void henrik_deinit(void)
 {
-   // TODO: Disable all I2C communications
+   // TODO: Disable all I2C communications and interrupts
+   interrupts_enabled = false;
+   data_callback = NULL;
 }
 
 void henrik_get_gps_reading(void)
@@ -41,15 +63,19 @@ void henrik_get_gps_reading(void)
    // TODO: Request GPS reading
 }
 
-uint32_t henrik_get_gps_timestamp(void)
+henrik_data_t henrik_get_data(void)
 {
    // TODO: Request GPS timestamp  (ensure in UTC and not GPS time)
-   return 0;
+   enable_data_interrupts();
+   henrik_data_t data = unread_data;
+   unread_data.new_data = false;
+   return data;
 }
 
-void henrik_get_gps_location(float *lat, float *lon, float *height)
+void henrik_register_data_callback(henrik_data_callback_t callback)
 {
-   // TODO: Request GPS reading
+   // TODO: Register interrupt handler for i2c incoming comms
+   data_callback = callback;
 }
 
 void henrik_send_alert(void)

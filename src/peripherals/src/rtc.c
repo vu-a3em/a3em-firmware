@@ -106,37 +106,55 @@ void rtc_set_time_to_compile_time(void)
 
 bool rtc_set_time_from_timestamp(uint32_t timestamp)
 {
+   bool success = false;
+   AM_CRITICAL_BEGIN
    am_hal_rtc_time_t new_rtc_time = to_rtc_time(timestamp);
-   return (am_hal_rtc_time_set(&new_rtc_time) == AM_HAL_STATUS_SUCCESS);
+   success = (am_hal_rtc_time_set(&new_rtc_time) == AM_HAL_STATUS_SUCCESS);
+   AM_CRITICAL_END
+   return success;
 }
 
 void rtc_set_wakeup_timestamp(uint32_t timestamp)
 {
+   AM_CRITICAL_BEGIN
    am_hal_rtc_time_t wakeup_time = to_rtc_time(timestamp);
    am_hal_rtc_alarm_set(&wakeup_time, AM_HAL_RTC_ALM_RPT_YR);
    am_hal_rtc_interrupt_clear(AM_HAL_RTC_INT_ALM);
    am_hal_rtc_interrupt_enable(AM_HAL_RTC_INT_ALM);
    NVIC_SetPriority(RTC_IRQn, RTC_ALARM_INTERRUPT_PRIORITY);
    NVIC_EnableIRQ(RTC_IRQn);
+   AM_CRITICAL_END
 }
 
 uint32_t rtc_get_timestamp(void)
 {
+   uint32_t timestamp = 0;
+   AM_CRITICAL_BEGIN
    rtc_stat = RTC->RTCSTAT;  // Read RTCSTAT to mitigate RTC hanging as per errata
    static am_hal_rtc_time_t rtc_time;
-   return (am_hal_rtc_time_get(&rtc_time) == AM_HAL_STATUS_SUCCESS) ? to_unix_timestamp(&rtc_time) : 0;
+   timestamp = (am_hal_rtc_time_get(&rtc_time) == AM_HAL_STATUS_SUCCESS) ? to_unix_timestamp(&rtc_time) : 0;
+   AM_CRITICAL_END
+   return timestamp;
 }
 
 uint32_t rtc_get_time_of_day(void)
 {
+   uint32_t timestamp = 0;
+   AM_CRITICAL_BEGIN
    rtc_stat = RTC->RTCSTAT;  // Read RTCSTAT to mitigate RTC hanging as per errata
    static am_hal_rtc_time_t rtc_time;
-   return (am_hal_rtc_time_get(&rtc_time) == AM_HAL_STATUS_SUCCESS) ? ((3600 * rtc_time.ui32Hour) + (60 * rtc_time.ui32Minute) + rtc_time.ui32Second) : 0;
+   timestamp = (am_hal_rtc_time_get(&rtc_time) == AM_HAL_STATUS_SUCCESS) ? ((3600 * rtc_time.ui32Hour) + (60 * rtc_time.ui32Minute) + rtc_time.ui32Second) : 0;
+   AM_CRITICAL_END
+   return timestamp;
 }
 
 bool rtc_is_valid(void)
 {
+   bool success = false;
+   AM_CRITICAL_BEGIN
    rtc_stat = RTC->RTCSTAT;  // Read RTCSTAT to mitigate RTC hanging as per errata
    static am_hal_rtc_time_t rtc_time;
-   return (am_hal_rtc_time_get(&rtc_time) == AM_HAL_STATUS_SUCCESS) && (rtc_time.ui32Year > 23) && (rtc_time.ui32Year < 40);
+   success = (am_hal_rtc_time_get(&rtc_time) == AM_HAL_STATUS_SUCCESS) && (rtc_time.ui32Year > 23) && (rtc_time.ui32Year < 40);
+   AM_CRITICAL_END
+   return success;
 }

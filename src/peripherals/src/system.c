@@ -70,15 +70,6 @@ void am_gpio0_607f_isr(void)
    am_hal_gpio_interrupt_service(GPIO0_607F_IRQn, status);
 }
 
-void am_rtc_isr(void)
-{
-   static am_hal_rtc_alarm_repeat_e repeat_interval;
-   AM_CRITICAL_BEGIN
-   am_hal_rtc_alarm_get(NULL, &repeat_interval);
-   am_hal_rtc_interrupt_clear(AM_HAL_RTC_INT_ALM);
-   AM_CRITICAL_END
-}
-
 
 // Helpful Debugging Functions and Macros ------------------------------------------------------------------------------
 
@@ -178,6 +169,23 @@ void system_reset(void)
    am_hal_reset_control(AM_HAL_RESET_CONTROL_SWPOR, NULL);
 }
 
+void system_initialize_peripherals(void)
+{
+   // Initialize peripherals and start up the RTC
+   print("INFO: Initializing peripherals...\n");
+   leds_init();
+   rtc_init();
+   vhf_init();
+   imu_init();
+   henrik_init();
+   magnet_sensor_init();
+   comparator_init(false, 0, 1.0, true);
+   battery_monitor_init();
+   storage_init();
+   system_enable_interrupts(true);
+   print("INFO: Peripherals initialized!\n");
+}
+
 void system_enable_interrupts(bool enabled)
 {
    // Enable or disable all system interrupts
@@ -195,13 +203,10 @@ void system_enter_deep_sleep_mode(void)
 #endif
 }
 
-void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_timestamp, bool disable_vhf, bool reinit_on_wakeup)
+void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_timestamp, bool reinit_on_wakeup)
 {
    // Turn off all peripherals
-   print("WARNING: Powering off (VHF %s). Will awake on: [%s%s]...\n",
-         disable_vhf ? "Disabled" : "Enabled",
-         wake_on_magnet ? "Magnet, " : "",
-         wake_on_timestamp ? "Timestamp" : "");
+   print("WARNING: Powering off. Will awake on: [ %s%s]...\n", wake_on_magnet ? "Magnet " : "", wake_on_timestamp ? "Timestamp " : "");
    am_hal_interrupt_master_disable();
    henrik_deinit();
    comparator_deinit();
@@ -212,8 +217,6 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
    battery_monitor_deinit();
    leds_deinit();
    logging_disable();
-   if (disable_vhf)
-      vhf_deinit();
 
    // Power down the crypto module followed by all peripherals
    am_hal_pwrctrl_control(AM_HAL_PWRCTRL_CONTROL_CRYPTO_POWERDOWN, NULL);
@@ -224,7 +227,7 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
    {
       am_hal_gpio_pincfg_t input_pin_config = AM_HAL_GPIO_PINCFG_INPUT;
       input_pin_config.GP.cfg_b.ePullup = AM_HAL_GPIO_PIN_PULLUP_6K;
-      input_pin_config.GP.cfg_b.eIntDir = AM_HAL_GPIO_PIN_INTDIR_BOTH;
+      input_pin_config.GP.cfg_b.eIntDir = AM_HAL_GPIO_PIN_INTDIR_LO2HI;
       uint32_t wakeup_pin = wake_on_magnet, interrupt_status;
       am_hal_gpio_pinconfig(wakeup_pin, input_pin_config);
       AM_CRITICAL_BEGIN
@@ -245,7 +248,14 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
    am_hal_interrupt_master_enable();
    am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);
    if (reinit_on_wakeup)
-      setup_hardware();
+   {
+      logging_init();
+      leds_init();
+      storage_init();
+      battery_monitor_init();
+      magnet_sensor_init();
+      print("INFO: Device woke up!\n");
+   }
 }
 
 void system_read_ID(uint8_t *id, uint32_t id_length)

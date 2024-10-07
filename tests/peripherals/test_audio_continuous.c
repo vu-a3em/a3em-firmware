@@ -24,7 +24,7 @@ int main(void)
 
    // Loop forever handling incoming audio clips
    const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(DESIRED_CLIP_LENGTH_SECONDS);
-   int16_t audio_buffer[AUDIO_BUFFER_NUM_SAMPLES];
+   int16_t *audio_buffer;
    while (true)
    {
       // Sleep while no errors or audio to process
@@ -34,9 +34,9 @@ int main(void)
          system_enter_deep_sleep_mode();
 
       // Store any newly available audio data
-      if (audio_data_available() && audio_read_data(audio_buffer))
+      if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
-         bool success = storage_write(audio_buffer, sizeof(audio_buffer));
+         bool success = storage_write(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
          print("%s: %u\n", success ? "Wrote audio data" : "ERROR writing audio data", num_audio_reads+1);
          if (++num_audio_reads >= num_reads_per_clip)
          {

@@ -2,11 +2,12 @@
 
 #include "led.h"
 #include "logging.h"
+#include "system.h"
 
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
-static bool leds_enabled;
+static bool leds_enabled, leds_initialized = false;
 static const am_devices_led_t leds[] = {
    {PIN_LED_RED,    AM_DEVICES_LED_ON_LOW | AM_DEVICES_LED_POL_OPEN_DRAIN},
    {PIN_LED_GREEN,  AM_DEVICES_LED_ON_LOW | AM_DEVICES_LED_POL_OPEN_DRAIN},
@@ -18,31 +19,36 @@ static const am_devices_led_t leds[] = {
 void leds_init(void)
 {
    // Initialize all LEDs and turn them off
-   if (!leds_enabled)
+   if (!leds_initialized)
    {
-      leds_enabled = true;
+      leds_initialized = true;
       am_devices_led_array_init((am_devices_led_t*)leds, sizeof(leds) / sizeof(leds[0]));
       led_off(LED_ALL);
-      print("INFO: LEDs are ENABLED\n");
    }
 }
 
 void leds_deinit(void)
 {
    // Turn off all LEDs and disable them
-   if (leds_enabled)
+   if (leds_initialized)
    {
       led_off(LED_ALL);
       am_devices_led_array_disable((am_devices_led_t*)leds, sizeof(leds) / sizeof(leds[0]));
-      leds_enabled = false;
-      print("INFO: LEDs are DISABLED\n");
+      leds_initialized = false;
    }
+}
+
+void leds_enable(bool enable)
+{
+   // Enable or disable standard LED usage
+   leds_enabled = enable;
+   print("INFO: LEDs are %s\n", enable ? "ENABLED" : "DISABLED");
 }
 
 void led_on(led_color_t color)
 {
    // Turn on the LED corresponding to the requested color
-   if (leds_enabled)
+   if (leds_initialized)
    {
       switch (color)
       {
@@ -65,7 +71,7 @@ void led_on(led_color_t color)
 void led_off(led_color_t color)
 {
    // Turn off the LED corresponding to the requested color
-   if (leds_enabled)
+   if (leds_initialized)
    {
       switch (color)
       {
@@ -88,7 +94,7 @@ void led_off(led_color_t color)
 void led_toggle(led_color_t color)
 {
    // Toggle the LED corresponding to the requested color
-   if (leds_enabled)
+   if (leds_initialized)
    {
       switch (color)
       {
@@ -105,5 +111,61 @@ void led_toggle(led_color_t color)
          default:
             break;
       }
+   }
+}
+
+void led_indicate_clip_begin(void)
+{
+   if (leds_enabled)
+   {
+      led_off(LED_ALL);
+      for (int i = 0; i < 3; ++i)
+      {
+         led_on(LED_GREEN);
+         system_delay(20000);
+         led_off(LED_GREEN);
+         system_delay(20000);
+      }
+   }
+}
+
+void led_indicate_clip_progress(void)
+{
+   if (leds_enabled)
+      led_toggle(LED_GREEN);
+}
+
+void led_indicate_clip_end(void)
+{
+   if (leds_enabled)
+      led_off(LED_ALL);
+}
+
+void led_indicate_error(void)
+{
+   if (leds_enabled)
+   {
+      led_off(LED_GREEN);
+      led_on(LED_RED);
+   }
+}
+
+void led_indicate_magnet_presence(bool field_present)
+{
+   if (field_present)
+      led_on(LED_ALL);
+   else
+      led_off(LED_ALL);
+}
+
+void led_indicate_activation(bool activated)
+{
+   led_off(LED_ALL);
+   for (int i = 0; i < 7; ++i)
+   {
+      led_on(activated ? LED_GREEN : LED_RED);
+      system_delay(100000);
+      led_off(activated ? LED_GREEN : LED_RED);
+      system_delay(100000);
    }
 }

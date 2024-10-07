@@ -26,7 +26,7 @@ int main(void)
    led_off(LED_RED);
 
    // Enter power-down mode until awoken 5 seconds in the future (or by a GPIO pin level change)
-   system_enter_power_off_mode(wakeup_pin, (wake_criteria == WAKE_WITH_RTC) ? rtc_get_timestamp() + 5 : 0, true, true);
+   system_enter_power_off_mode(wakeup_pin, (wake_criteria == WAKE_WITH_RTC) ? rtc_get_timestamp() + 5 : 0, true);
    print("INFO: Device woke up and re-initialized successfully!\n");
 
    // Attempt to illuminate RED LED for 2 seconds to prove that re-initialization was successful
@@ -35,7 +35,7 @@ int main(void)
    system_delay(2000000);
 
    // Enter power-down mode until awoken 5 seconds in the future (or by a GPIO pin level change)
-   system_enter_power_off_mode(wakeup_pin, (wake_criteria == WAKE_WITH_RTC) ? rtc_get_timestamp() + 5 : 0, true, false);
+   system_enter_power_off_mode(wakeup_pin, (wake_criteria == WAKE_WITH_RTC) ? rtc_get_timestamp() + 5 : 0, false);
    system_reset();
 
    // Should never reach this point

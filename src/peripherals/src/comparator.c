@@ -75,7 +75,7 @@ void comparator_init(bool internal_reference, uint32_t internal_threshold_milliv
    if (compare_to_audadc_input)
    {
       MCUCTRL->PGACTRL1_b.VCOMPSELPGA = 1;            // Select a PGA output as the VCOMP input
-      MCUCTRL->PGAADCIFCTRL_b.PGAADCIFVCOMPSEL = 0;   // Route PGA_A0 to the VCOMP input
+      MCUCTRL->PGAADCIFCTRL_b.PGAADCIFVCOMPSEL = 1;   // Route PGA_A1 to the VCOMP input
       MCUCTRL->PGAADCIFCTRL_b.PGAADCIFVCOMPEN = 1;
    }
    else

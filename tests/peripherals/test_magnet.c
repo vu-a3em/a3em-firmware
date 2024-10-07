@@ -7,10 +7,15 @@ static void magnet_sensor_validated(bool validated)
    print("Magnetic field %s validated!\n", validated ? "SUCCESSFULLY" : "NOT");
 }
 
-static void magnet_sensor_activated(void)
+static void magnet_sensor_activated(bool field_detected)
 {
-   print("Magnetic field detected...validating for %u ms\n", MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS);
-   magnet_sensor_verify_field(MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS, magnet_sensor_validated);
+   if (field_detected)
+   {
+      print("Magnetic field detected...validating for %u ms\n", MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS);
+      magnet_sensor_verify_field(MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS, magnet_sensor_validated, true);
+   }
+   else
+      print("Magnetic field lost...\n");
 }
 
 int main(void)

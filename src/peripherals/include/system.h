@@ -10,9 +10,10 @@
 
 void setup_hardware(void);
 void system_reset(void);
+void system_initialize_peripherals(void);
 void system_enable_interrupts(bool enabled);
 void system_enter_deep_sleep_mode(void);
-void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_timestamp, bool disable_vhf, bool reinit_on_wakeup);
+void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_timestamp, bool reinit_on_wakeup);
 void system_read_ID(uint8_t *id, uint32_t id_length);
 void system_delay(uint32_t delay_us);
 

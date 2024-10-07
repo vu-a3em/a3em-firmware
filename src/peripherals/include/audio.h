@@ -21,5 +21,6 @@ void audio_stop_reading(void);
 bool audio_data_available(void);
 bool audio_error_encountered(void);
 bool audio_read_data(int16_t *buffer);
+int16_t* audio_read_data_direct(void);
 
 #endif  // #ifndef __AUDIO_HEADER_H__

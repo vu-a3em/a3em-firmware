@@ -1,5 +1,4 @@
 #include "battery.h"
-#include "henrik.h"
 #include "led.h"
 #include "logging.h"
 #include "magnet.h"
@@ -9,8 +8,6 @@
 #include "vhf.h"
 
 static volatile bool magnetic_field_verified, device_activated;
-
-extern void active_main(volatile bool*, int32_t);
 
 static void magnet_sensor_validated(bool validated)
 {
@@ -41,6 +38,14 @@ static void handle_magnetic_field(bool store_activated_result, bool store_deacti
       config_set_activation_status(true);
    else if (store_deactivated_result && !device_activated)
       config_set_activation_status(false);
+}
+
+static void active_loop(volatile bool *device_active, int32_t phase_index)
+{
+   // Loop forever
+   bool phase_active = true;
+   while (*device_active && phase_active)
+      system_enter_deep_sleep_mode();
 }
 
 int main(void)
@@ -78,38 +83,12 @@ int main(void)
    if (device_activated)
    {
       // Check for RTC errors and attempt to correct them to allow the deployment to continue
-      while (!rtc_is_valid())
+      if (!rtc_is_valid())
       {
-         if (config_gps_available())
-         {
-            // Wait until a valid GPS time has been received
-            print("INFO: Obtaining current time from GPS...\n");
-            uint32_t utc_time = henrik_get_data().utc_timestamp;
-            if (utc_time)
-            {
-               print("INFO: GPS time obtained: %u\n", utc_time);
-               rtc_set_time_from_timestamp(utc_time);
-            }
-            else
-            {
-               print("INFO: Sleeping until GPS response received\n");
-               if (use_magnetic_activation)
-                  magnet_sensor_register_callback(magnet_sensor_activated);
-               system_enter_deep_sleep_mode();
-               if (use_magnetic_activation && !device_activated)
-               {
-                  config_set_activation_status(false);
-                  system_reset();
-               }
-            }
-         }
-         else
-         {
-            // Log this error and set the RTC to the last known timestamp
-            uint32_t last_known_timestamp = storage_get_last_known_timestamp();
-            print("ERROR: RTC time appears to have been lost...setting to last known timestamp: %u\n", last_known_timestamp);
-            rtc_set_time_from_timestamp(last_known_timestamp);
-         }
+         // Log this error and set the RTC to the last known timestamp
+         uint32_t last_known_timestamp = storage_get_last_known_timestamp();
+         print("ERROR: RTC time appears to have been lost...setting to last known timestamp: %u\n", last_known_timestamp);
+         rtc_set_time_from_timestamp(last_known_timestamp);
       }
 
       // Determine if the VHF radio should already be active
@@ -161,7 +140,7 @@ int main(void)
             // Optionally register a magnetic field detection callback and start the main activity loop
             if (use_magnetic_activation)
                magnet_sensor_register_callback(magnet_sensor_activated);
-            active_main(&device_activated, active_phase);
+            active_loop(&device_activated, active_phase);
 
             // Store a change in device activation
             if (use_magnetic_activation && !device_activated)
@@ -195,6 +174,8 @@ int main(void)
    {
       // Wait until a magnetic activation has been detected
       print("INFO: Device is NOT ACTIVATED\n");
+      if (!rtc_is_valid())
+         print("WARNING: RTC time has NOT been established!\n");
       print("INFO: Waiting for magnetic activation...\n");
       while (!device_activated)
       {
