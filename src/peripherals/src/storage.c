@@ -342,6 +342,7 @@ void storage_deinit(void)
    if (sd_card_host)
       sd_card_host->ops->deinit(sd_card_host->pHandle);
    am_hal_gpio_output_clear(PIN_SD_CARD_ENABLE);
+   sd_card_host = NULL;
 
    // Disable the SDIO pins
    am_hal_gpio_pinconfig(PIN_SD_CARD_CMD,  am_hal_gpio_pincfg_default);

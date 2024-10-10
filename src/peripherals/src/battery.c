@@ -114,8 +114,12 @@ void battery_monitor_init(void)
 void battery_monitor_deinit(void)
 {
    // Deinitialize the ADC module
-   am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_WAKE, true);
-   am_hal_adc_deinitialize(adc_handle);
+   if (adc_handle)
+   {
+      am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_WAKE, true);
+      am_hal_adc_deinitialize(adc_handle);
+      adc_handle = NULL;
+   }
 }
 
 battery_result_t battery_monitor_get_details(void)

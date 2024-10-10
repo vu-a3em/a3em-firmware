@@ -62,6 +62,7 @@ int main(void)
    leds_enable(config_get_leds_enabled());
 
    // Determine if the battery voltage is too low to continue
+   bool battery_too_low = false;
    while (battery_monitor_get_details().millivolts <= BATTERY_LOW)
    {
       print("WARNING: Battery low...shutting down for 1 hour\n");
@@ -71,7 +72,10 @@ int main(void)
       if (vhf_enabled)
          vhf_activate();
       system_enter_power_off_mode(use_magnetic_activation ? PIN_MAG_SENSOR_INP : 0, current_timestamp + 3600, true);
+      battery_too_low = true;
    }
+   if (battery_too_low)
+      system_reset();
 
    // Determine whether the device has been activated
    device_activated = config_is_device_activated();

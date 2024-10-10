@@ -191,10 +191,10 @@ void system_deinitialize_peripherals(void)
 {
    // De-initialize all peripherals except for RTC and VHF
    storage_deinit();
+   audio_deinit();
    am_hal_interrupt_master_disable();
    henrik_deinit();
    comparator_deinit();
-   audio_deinit();
    imu_deinit();
    magnet_sensor_deinit();
    battery_monitor_deinit();

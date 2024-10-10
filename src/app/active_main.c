@@ -21,6 +21,7 @@ static volatile bool *device_active, phase_ended, auto_restart_timer;
 static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds;
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
+static char device_label[MAX_DEVICE_LABEL_LEN];
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -152,9 +153,9 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_reads_p
          {
             // Generate a file name from the current date and time
             const time_t timestamp = (time_t)current_time;
-            char file_name[32] = { 0 }, time_string[24] = { 0 };
+            char file_name[64] = { 0 }, time_string[24] = { 0 };
             strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
-            snprintf(file_name, sizeof(file_name), "%s_%+03d.wav", time_string, (int)config_get_utc_offset());
+            snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset());
             if (storage_open(file_name, true))
             {
                // Write the WAV file header contents
@@ -243,10 +244,10 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          if (!audio_clip_in_progress)
          {
             // Generate a file name from the current date and time
-            char file_name[32] = { 0 }, time_string[24] = { 0 };
+            char file_name[64] = { 0 }, time_string[24] = { 0 };
             const time_t timestamp = (time_t)rtc_get_timestamp();
             strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
-            snprintf(file_name, sizeof(file_name), "%s_%+03d.wav", time_string, (int)config_get_utc_offset());
+            snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset());
             if (storage_open(file_name, true))
             {
                storage_write_wav_header(AUDIO_NUM_CHANNELS, sampling_rate);
@@ -285,11 +286,10 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    // Ensure that a storage directory with the device name exists and is active on the SD card
    print("INFO: Starting main deployment phase activity\n");
    print("INFO: Validating existence of SD card storage directory...");
-   char device_label[MAX_DEVICE_LABEL_LEN] = { 0 };
    config_get_device_label(device_label, sizeof(device_label));
    if (device_label[0] == '\0')
       memcpy(device_label, "Default", sizeof("Default"));
-   bool success = storage_mkdir(device_label) && storage_chdir(device_label);
+   bool success = storage_mkdir(device_label);
    print("%s\n", success ? "SUCCESS" : "FAILURE");
 
    // Determine when the LEDs should be disabled, if not already

@@ -17,7 +17,7 @@ AM_SHARED_RW uint32_t sample_buffer[(2*AUDIO_BUFFER_NUM_SAMPLES) + 3];
 static void *audadc_handle;
 static float pga_gain_db;
 static uint32_t num_audio_channels, sampling_rate_hz;
-static volatile bool dma_complete = false, dma_error = false;
+static volatile bool dma_complete = false, dma_error = false, adc_started;
 static am_hal_offset_cal_coeffs_array_t offset_calibration;
 static am_hal_audadc_dma_config_t audadc_dma_config =
 {
@@ -63,6 +63,7 @@ void audio_adc_start(void)
    };
    configASSERT0(am_hal_audadc_internal_pga_config(audadc_handle, &audadc_gain_config));
    configASSERT0(am_hal_audadc_sw_trigger(audadc_handle));
+   adc_started = true;
 }
 
 void am_audadc0_isr(void)
@@ -120,6 +121,7 @@ void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, f
    }
 
    // Initialize the AUDADC peripheral
+   adc_started = false;
    configASSERT0(am_hal_audadc_initialize(0, &audadc_handle));
    configASSERT0(am_hal_audadc_power_control(audadc_handle, AM_HAL_SYSCTRL_WAKE, false));
 
@@ -177,6 +179,8 @@ void audio_deinit(void)
    if (audadc_handle)
    {
       NVIC_DisableIRQ(AUDADC0_IRQn);
+      if (!adc_started)
+         am_hal_audadc_power_control(audadc_handle, AM_HAL_SYSCTRL_WAKE, true);
       am_hal_audadc_interrupt_disable(audadc_handle, 0xFFFFFFFF);
       while (AUDADC->DMATOTCOUNT_b.TOTCOUNT != 0);
       configASSERT0(am_hal_audadc_control(audadc_handle, AM_HAL_AUDADC_REQ_DMA_DISABLE, NULL));
@@ -192,6 +196,7 @@ void audio_deinit(void)
       configASSERT0(am_hal_pwrctrl_periph_disable(AM_HAL_PWRCTRL_PERIPH_AUDADC));
       configASSERT0(am_hal_audadc_deinitialize(audadc_handle));
       audadc_handle = NULL;
+      adc_started = false;
    }
 }
 
