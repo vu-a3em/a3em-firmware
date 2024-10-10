@@ -11,6 +11,7 @@ int main(void)
    setup_hardware();
    storage_init();
    system_enable_interrupts(true);
+   storage_setup_logs();
 
    // Attempt to open and write a file on the SD card
    if (!storage_open("test.txt", true))
@@ -54,6 +55,18 @@ int main(void)
    else if (!(bytes_read = storage_read(read_buffer, sizeof(read_buffer))))
       print("ERROR: Unable to read data from the SD card file!\n");
    storage_close();
+
+   // Attempt to store a persistent timestamp and read it back
+   if (!storage_set_last_known_timestamp(1272321123))
+      print("ERROR: Unable to store timestamp to SD card file!\n");
+   else if (storage_get_last_known_timestamp() != 1272321123)
+      print("ERROR: Retrieved timestamp value is different than what was stored!\n");
+
+   // Repeat the persistent timestamp storage attempt
+   if (!storage_set_last_known_timestamp(123456))
+      print("ERROR: Unable to store second timestamp to SD card file!\n");
+   else if (storage_get_last_known_timestamp() != 123456)
+      print("ERROR: Retrieved timestamp value is different than expected!\n");
 
    // Put the CPU into deep sleep forever
    while (true)

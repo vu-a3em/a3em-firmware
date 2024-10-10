@@ -45,6 +45,12 @@ void leds_enable(bool enable)
    print("INFO: LEDs are %s\n", enable ? "ENABLED" : "DISABLED");
 }
 
+bool leds_are_enabled(void)
+{
+   // Return whether the LEDs are currently enabled
+   return leds_enabled;
+}
+
 void led_on(led_color_t color)
 {
    // Turn on the LED corresponding to the requested color

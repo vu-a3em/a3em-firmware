@@ -27,9 +27,9 @@ static uint32_t magnetic_field_validation_length_ms;
 static uint32_t leds_active_seconds, vhf_start_timestamp;
 static bool set_rtc_at_magnet_detect, leds_enabled, device_activated, gps_available, awake_on_magnet;
 static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES];
+static int32_t num_deployment_phases, utc_offset;
 static float microphone_amplification_db;
 static start_end_time_t deployment_time;
-static int32_t num_deployment_phases;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -95,6 +95,8 @@ static void parse_line(char *line, int32_t line_length)
    // Parse the configuration item according to its key
    if (memcmp(key, "DEVICE_LABEL", sizeof("DEVICE_LABEL")-1) == 0)
       strcpy(device_label, value);
+   else if (memcmp(key, "DEVICE_UTC_OFFSET", sizeof("DEVICE_UTC_OFFSET")-1) == 0)
+      utc_offset = strtol(value, NULL, 10);
    else if (memcmp(key, "SET_RTC_AT_MAGNET_DETECT", sizeof("SET_RTC_AT_MAGNET_DETECT")-1) == 0)
       set_rtc_at_magnet_detect = (memcmp(value, "True", sizeof("True")-1) == 0);
    else if (memcmp(key, "DEPLOYMENT_START_TIME", sizeof("DEPLOYMENT_START_TIME")-1) == 0)
@@ -163,6 +165,7 @@ static void parse_line(char *line, int32_t line_length)
 bool fetch_runtime_configuration(void)
 {
    // Set default configuration values
+   utc_offset = 0;
    awake_on_magnet = true;
    num_deployment_phases = -1;
    microphone_amplification_db = 35.0f;
@@ -241,6 +244,11 @@ bool config_gps_available(void)
 bool config_awake_on_magnet(void)
 {
    return awake_on_magnet;
+}
+
+int32_t config_get_utc_offset(void)
+{
+   return utc_offset;
 }
 
 int32_t config_get_num_deployment_phases(void)

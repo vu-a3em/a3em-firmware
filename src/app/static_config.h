@@ -6,7 +6,9 @@
 #ifdef AM_DEBUG_PRINTF
 
 #define ENABLE_LOGGING  1
-#define ENABLE_AUDIO_DL 1
+#ifndef ENABLE_AUDIO_DL
+#define ENABLE_AUDIO_DL 0
+#endif
 
 #endif
 
@@ -27,12 +29,15 @@
 #define MAX_AUDIO_TRIGGER_TIMES                     12
 #define MAX_NUM_DEPLOYMENT_PHASES                   6
 #define MAX_CFG_FILE_LINE_LENGTH                    80
-#define MIN_LOG_DATA_INTERVAL_SECONDS               600
+#define MIN_LOG_DATA_INTERVAL_SECONDS               300
 
+#define LAST_TIMESTAMP_FILE_NAME                    "_a3em.timestamp"
 #define ACTIVATION_FILE_NAME                        "_a3em.active"
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
+#define LOG_FILE_NAME                               "a3em.log"
 
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))
+#define MAX(a, b)                                   (((a) < (b)) ? (b) : (a))
 
 #ifdef AM_DEBUG_PRINTF
 extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
@@ -50,9 +55,10 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define MAGNET_SENSOR_INTERRUPT_PRIORITY                (AM_IRQ_PRIORITY_DEFAULT)
 #define AUDIO_ADC_INTERRUPT_PRIORITY                    (AM_IRQ_PRIORITY_DEFAULT)
 #define IMU_DATA_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 1)
+#define STORAGE_INTERRUPT_PRIORITY                      (AM_IRQ_PRIORITY_DEFAULT - 2)
 #define RTC_ALARM_INTERRUPT_PRIORITY                    (AM_IRQ_PRIORITY_DEFAULT)
-#define BATT_ADC_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT + 1)
-#define AUDIO_TIMER_INTERRUPT_PRIORITY                  (AM_IRQ_PRIORITY_DEFAULT + 2)
+#define BATT_ADC_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 1)
+#define AUDIO_TIMER_INTERRUPT_PRIORITY                  (AM_IRQ_PRIORITY_DEFAULT + 1)
 
 
 // Audio Sampling Definitions ------------------------------------------------------------------------------------------

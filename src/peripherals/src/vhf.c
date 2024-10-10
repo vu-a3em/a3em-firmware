@@ -13,7 +13,7 @@ void vhf_init(void)
    configASSERT0(am_hal_gpio_pinconfig(PIN_VHF_ENABLE, enable_pin_config));
 
    // Ensure that VHF is initially disabled
-   vhf_deactivate();
+   am_hal_gpio_output_clear(PIN_VHF_ENABLE);
 }
 
 void vhf_deinit(void)
@@ -34,4 +34,10 @@ void vhf_deactivate(void)
    // Disable VHF
    am_hal_gpio_output_clear(PIN_VHF_ENABLE);
    print("INFO: VHF Radio is DEACTIVATED\n");
+}
+
+bool vhf_activated(void)
+{
+   // Return whether the VHF is currently active
+   return am_hal_gpio_output_read(PIN_VHF_ENABLE);
 }

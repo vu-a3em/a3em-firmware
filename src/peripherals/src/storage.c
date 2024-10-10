@@ -32,12 +32,12 @@ static am_hal_card_t sd_card;
 static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
 static volatile bool async_write_complete, async_read_complete, card_present;
+static FIL current_file, log_file, timestamp_file;
 static volatile DSTATUS sd_disk_status;
 static bool file_open, is_wav_file;
 static uint8_t work_buf[FF_MAX_SS];
 static uint32_t data_size;
 static char sd_card_path[4];
-static FIL current_file;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -100,6 +100,9 @@ DSTATUS disk_initialize(BYTE)
       return sd_disk_status;
    }
 
+   // Set the storage interrupt priority
+   NVIC_SetPriority(SDIO_IRQn, STORAGE_INTERRUPT_PRIORITY);
+
    // Return an initialized disk status
    sd_disk_status &= ~STA_NOINIT;
    return sd_disk_status;
@@ -143,6 +146,7 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
       if (status != AM_HAL_STATUS_SUCCESS)
       {
          print("ERROR: Failed to call the asynchronous read API...Read Status = %d\n", status);
+         NVIC_SetPriority(SDIO_IRQn, STORAGE_INTERRUPT_PRIORITY);
          return RES_ERROR;
       }
 
@@ -199,6 +203,7 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
       if (status != AM_HAL_STATUS_SUCCESS)
       {
          print("ERROR: Failed to call the asynchronous write API...Write Status = %d\n", status);
+         NVIC_SetPriority(SDIO_IRQn, STORAGE_INTERRUPT_PRIORITY);
          return RES_ERROR;
       }
 
@@ -327,6 +332,12 @@ void storage_init(void)
 
 void storage_deinit(void)
 {
+   // Close any open SD card files
+   if (file_open)
+      storage_close();
+   f_close(&timestamp_file);
+   f_close(&log_file);
+
    // De-initialize and power down the SD card host
    if (sd_card_host)
       sd_card_host->ops->deinit(sd_card_host->pHandle);
@@ -339,6 +350,15 @@ void storage_deinit(void)
    am_hal_gpio_pinconfig(PIN_SD_CARD_DAT1, am_hal_gpio_pincfg_default);
    am_hal_gpio_pinconfig(PIN_SD_CARD_DAT2, am_hal_gpio_pincfg_default);
    am_hal_gpio_pinconfig(PIN_SD_CARD_DAT3, am_hal_gpio_pincfg_default);
+}
+
+void storage_setup_logs(void)
+{
+   // Ensure that a log file and timestamp file are present on the device
+   if (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
+      print("ERROR: Unable to open SD card log file for writing\n");
+   if (f_open(&timestamp_file, LAST_TIMESTAMP_FILE_NAME, FA_CREATE_ALWAYS | FA_WRITE | FA_READ) != FR_OK)
+      print("ERROR: Unable to open SD card timestamp file for writing\n");
 }
 
 bool storage_chdir(const char *directory)
@@ -404,6 +424,15 @@ bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz)
    return success;
 }
 
+void storage_write_log(const char *fmt, ...)
+{
+   // Write the requested data to the log file
+   va_list args;
+   va_start(args, fmt);
+   f_vprintf(&log_file, fmt, args);
+   va_end(args);
+}
+
 uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len)
 {
    // Read up to the requested number of bytes from the current file
@@ -429,10 +458,23 @@ int32_t storage_read_line(char *read_buffer, uint32_t buffer_len)
    return -1;
 }
 
+bool storage_set_last_known_timestamp(uint32_t timestamp)
+{
+   // Store to the persistent timestamp storage file
+   UINT data_written = 0;
+   bool success = (f_write(&timestamp_file, &timestamp, sizeof(timestamp), &data_written) == FR_OK) && (data_written == sizeof(timestamp));
+   f_lseek(&timestamp_file, 0);
+   return success;
+}
+
 uint32_t storage_get_last_known_timestamp(void)
 {
-   // TODO: Actually search log file for this info
-   return 0;
+   // Read from the timestamp file if it exists
+   UINT data_read;
+   uint32_t timestamp = 0;
+   f_read(&timestamp_file, &timestamp, sizeof(timestamp), &data_read);
+   f_lseek(&timestamp_file, 0);
+   return timestamp;
 }
 
 void storage_delete(const char *file_path)

@@ -6890,6 +6890,159 @@ static void ftoa (
 #endif	/* FF_PRINT_FLOAT && FF_INTDEF == 2 */
 
 
+int f_vprintf (
+    FIL* fp,            /* Pointer to the file object */
+    const TCHAR* fmt,   /* Pointer to the format string */
+    va_list arp         /* Optional arguments... */
+)
+{
+    putbuff pb;
+    UINT i, j, w, f, r;
+    int prec;
+#if FF_PRINT_LLI && FF_INTDEF == 2
+    QWORD v;
+#else
+    DWORD v;
+#endif
+    TCHAR *tp;
+    TCHAR tc, pad;
+    TCHAR nul = 0;
+    char d, str[SZ_NUM_BUF];
+
+
+    putc_init(&pb, fp);
+
+    for (;;) {
+        tc = *fmt++;
+        if (tc == 0) break;         /* End of format string */
+        if (tc != '%') {            /* Not an escape character (pass-through) */
+            putc_bfd(&pb, tc);
+            continue;
+        }
+        f = w = 0; pad = ' '; prec = -1;    /* Initialize parms */
+        tc = *fmt++;
+        if (tc == '0') {            /* Flag: '0' padded */
+            pad = '0'; tc = *fmt++;
+        } else if (tc == '-') {     /* Flag: Left aligned */
+            f = 2; tc = *fmt++;
+        }
+        if (tc == '*') {            /* Minimum width from an argument */
+            w = va_arg(arp, int);
+            tc = *fmt++;
+        } else {
+            while (IsDigit(tc)) {   /* Minimum width */
+                w = w * 10 + tc - '0';
+                tc = *fmt++;
+            }
+        }
+        if (tc == '.') {            /* Precision */
+            tc = *fmt++;
+            if (tc == '*') {        /* Precision from an argument */
+                prec = va_arg(arp, int);
+                tc = *fmt++;
+            } else {
+                prec = 0;
+                while (IsDigit(tc)) {   /* Precision */
+                    prec = prec * 10 + tc - '0';
+                    tc = *fmt++;
+                }
+            }
+        }
+        if (tc == 'l') {            /* Size: long int */
+            f |= 4; tc = *fmt++;
+#if FF_PRINT_LLI && FF_INTDEF == 2
+            if (tc == 'l') {        /* Size: long long int */
+                f |= 8; tc = *fmt++;
+            }
+#endif
+        }
+        if (tc == 0) break;         /* End of format string */
+        switch (tc) {               /* Atgument type is... */
+        case 'b':                   /* Unsigned binary */
+            r = 2; break;
+
+        case 'o':                   /* Unsigned octal */
+            r = 8; break;
+
+        case 'd':                   /* Signed decimal */
+        case 'u':                   /* Unsigned decimal */
+            r = 10; break;
+
+        case 'x':                   /* Unsigned hexadecimal (lower case) */
+        case 'X':                   /* Unsigned hexadecimal (upper case) */
+            r = 16; break;
+
+        case 'c':                   /* Character */
+            putc_bfd(&pb, (TCHAR)va_arg(arp, int));
+            continue;
+
+        case 's':                   /* String */
+            tp = va_arg(arp, TCHAR*);   /* Get a pointer argument */
+            if (!tp) tp = &nul;     /* Null ptr generates a null string */
+            for (j = 0; tp[j]; j++) ;   /* j = tcslen(tp) */
+            if (prec >= 0 && j > (UINT)prec) j = prec;  /* Limited length of string body */
+            for ( ; !(f & 2) && j < w; j++) putc_bfd(&pb, pad); /* Left pads */
+            while (*tp && prec--) putc_bfd(&pb, *tp++); /* Body */
+            while (j++ < w) putc_bfd(&pb, ' ');         /* Right pads */
+            continue;
+#if FF_PRINT_FLOAT && FF_INTDEF == 2
+        case 'f':                   /* Floating point (decimal) */
+        case 'e':                   /* Floating point (e) */
+        case 'E':                   /* Floating point (E) */
+            ftoa(str, va_arg(arp, double), prec, tc);   /* Make a floating point string */
+            for (j = strlen(str); !(f & 2) && j < w; j++) putc_bfd(&pb, pad);   /* Left pads */
+            for (i = 0; str[i]; putc_bfd(&pb, str[i++])) ;  /* Body */
+            while (j++ < w) putc_bfd(&pb, ' '); /* Right pads */
+            continue;
+#endif
+        default:                    /* Unknown type (pass-through) */
+            putc_bfd(&pb, tc); continue;
+        }
+
+        /* Get an integer argument and put it in numeral */
+#if FF_PRINT_LLI && FF_INTDEF == 2
+        if (f & 8) {        /* long long argument? */
+            v = (QWORD)va_arg(arp, long long);
+        } else if (f & 4) { /* long argument? */
+            v = (tc == 'd') ? (QWORD)(long long)va_arg(arp, long) : (QWORD)va_arg(arp, unsigned long);
+        } else {            /* int/short/char argument */
+            v = (tc == 'd') ? (QWORD)(long long)va_arg(arp, int) : (QWORD)va_arg(arp, unsigned int);
+        }
+        if (tc == 'd' && (v & 0x8000000000000000)) {    /* Negative value? */
+            v = 0 - v; f |= 1;
+        }
+#else
+        if (f & 4) {    /* long argument? */
+            v = (DWORD)va_arg(arp, long);
+        } else {        /* int/short/char argument */
+            v = (tc == 'd') ? (DWORD)(long)va_arg(arp, int) : (DWORD)va_arg(arp, unsigned int);
+        }
+        if (tc == 'd' && (v & 0x80000000)) {    /* Negative value? */
+            v = 0 - v; f |= 1;
+        }
+#endif
+        i = 0;
+        do {    /* Make an integer number string */
+            d = (char)(v % r); v /= r;
+            if (d > 9) d += (tc == 'x') ? 0x27 : 0x07;
+            str[i++] = d + '0';
+        } while (v && i < SZ_NUM_BUF);
+        if (f & 1) str[i++] = '-';  /* Sign */
+        /* Write it */
+        for (j = i; !(f & 2) && j < w; j++) {   /* Left pads */
+            putc_bfd(&pb, pad);
+        }
+        do {                /* Body */
+            putc_bfd(&pb, (TCHAR)str[--i]);
+        } while (i);
+        while (j++ < w) {   /* Right pads */
+            putc_bfd(&pb, ' ');
+        }
+    }
+
+    return putc_flush(&pb);
+}
+
 
 int f_printf (
 	FIL* fp,			/* Pointer to the file object */
@@ -6898,155 +7051,10 @@ int f_printf (
 )
 {
 	va_list arp;
-	putbuff pb;
-	UINT i, j, w, f, r;
-	int prec;
-#if FF_PRINT_LLI && FF_INTDEF == 2
-	QWORD v;
-#else
-	DWORD v;
-#endif
-	TCHAR *tp;
-	TCHAR tc, pad;
-	TCHAR nul = 0;
-	char d, str[SZ_NUM_BUF];
-
-
-	putc_init(&pb, fp);
-
 	va_start(arp, fmt);
-
-	for (;;) {
-		tc = *fmt++;
-		if (tc == 0) break;			/* End of format string */
-		if (tc != '%') {			/* Not an escape character (pass-through) */
-			putc_bfd(&pb, tc);
-			continue;
-		}
-		f = w = 0; pad = ' '; prec = -1;	/* Initialize parms */
-		tc = *fmt++;
-		if (tc == '0') {			/* Flag: '0' padded */
-			pad = '0'; tc = *fmt++;
-		} else if (tc == '-') {		/* Flag: Left aligned */
-			f = 2; tc = *fmt++;
-		}
-		if (tc == '*') {			/* Minimum width from an argument */
-			w = va_arg(arp, int);
-			tc = *fmt++;
-		} else {
-			while (IsDigit(tc)) {	/* Minimum width */
-				w = w * 10 + tc - '0';
-				tc = *fmt++;
-			}
-		}
-		if (tc == '.') {			/* Precision */
-			tc = *fmt++;
-			if (tc == '*') {		/* Precision from an argument */
-				prec = va_arg(arp, int);
-				tc = *fmt++;
-			} else {
-				prec = 0;
-				while (IsDigit(tc)) {	/* Precision */
-					prec = prec * 10 + tc - '0';
-					tc = *fmt++;
-				}
-			}
-		}
-		if (tc == 'l') {			/* Size: long int */
-			f |= 4; tc = *fmt++;
-#if FF_PRINT_LLI && FF_INTDEF == 2
-			if (tc == 'l') {		/* Size: long long int */
-				f |= 8; tc = *fmt++;
-			}
-#endif
-		}
-		if (tc == 0) break;			/* End of format string */
-		switch (tc) {				/* Atgument type is... */
-		case 'b':					/* Unsigned binary */
-			r = 2; break;
-
-		case 'o':					/* Unsigned octal */
-			r = 8; break;
-
-		case 'd':					/* Signed decimal */
-		case 'u': 					/* Unsigned decimal */
-			r = 10; break;
-
-		case 'x':					/* Unsigned hexadecimal (lower case) */
-		case 'X': 					/* Unsigned hexadecimal (upper case) */
-			r = 16; break;
-
-		case 'c':					/* Character */
-			putc_bfd(&pb, (TCHAR)va_arg(arp, int));
-			continue;
-
-		case 's':					/* String */
-			tp = va_arg(arp, TCHAR*);	/* Get a pointer argument */
-			if (!tp) tp = &nul;		/* Null ptr generates a null string */
-			for (j = 0; tp[j]; j++) ;	/* j = tcslen(tp) */
-			if (prec >= 0 && j > (UINT)prec) j = prec;	/* Limited length of string body */
-			for ( ; !(f & 2) && j < w; j++) putc_bfd(&pb, pad);	/* Left pads */
-			while (*tp && prec--) putc_bfd(&pb, *tp++);	/* Body */
-			while (j++ < w) putc_bfd(&pb, ' ');			/* Right pads */
-			continue;
-#if FF_PRINT_FLOAT && FF_INTDEF == 2
-		case 'f':					/* Floating point (decimal) */
-		case 'e':					/* Floating point (e) */
-		case 'E':					/* Floating point (E) */
-			ftoa(str, va_arg(arp, double), prec, tc);	/* Make a floating point string */
-			for (j = strlen(str); !(f & 2) && j < w; j++) putc_bfd(&pb, pad);	/* Left pads */
-			for (i = 0; str[i]; putc_bfd(&pb, str[i++])) ;	/* Body */
-			while (j++ < w) putc_bfd(&pb, ' ');	/* Right pads */
-			continue;
-#endif
-		default:					/* Unknown type (pass-through) */
-			putc_bfd(&pb, tc); continue;
-		}
-
-		/* Get an integer argument and put it in numeral */
-#if FF_PRINT_LLI && FF_INTDEF == 2
-		if (f & 8) {		/* long long argument? */
-			v = (QWORD)va_arg(arp, long long);
-		} else if (f & 4) {	/* long argument? */
-			v = (tc == 'd') ? (QWORD)(long long)va_arg(arp, long) : (QWORD)va_arg(arp, unsigned long);
-		} else {			/* int/short/char argument */
-			v = (tc == 'd') ? (QWORD)(long long)va_arg(arp, int) : (QWORD)va_arg(arp, unsigned int);
-		}
-		if (tc == 'd' && (v & 0x8000000000000000)) {	/* Negative value? */
-			v = 0 - v; f |= 1;
-		}
-#else
-		if (f & 4) {	/* long argument? */
-			v = (DWORD)va_arg(arp, long);
-		} else {		/* int/short/char argument */
-			v = (tc == 'd') ? (DWORD)(long)va_arg(arp, int) : (DWORD)va_arg(arp, unsigned int);
-		}
-		if (tc == 'd' && (v & 0x80000000)) {	/* Negative value? */
-			v = 0 - v; f |= 1;
-		}
-#endif
-		i = 0;
-		do {	/* Make an integer number string */
-			d = (char)(v % r); v /= r;
-			if (d > 9) d += (tc == 'x') ? 0x27 : 0x07;
-			str[i++] = d + '0';
-		} while (v && i < SZ_NUM_BUF);
-		if (f & 1) str[i++] = '-';	/* Sign */
-		/* Write it */
-		for (j = i; !(f & 2) && j < w; j++) {	/* Left pads */
-			putc_bfd(&pb, pad);
-		}
-		do {				/* Body */
-			putc_bfd(&pb, (TCHAR)str[--i]);
-		} while (i);
-		while (j++ < w) {	/* Right pads */
-			putc_bfd(&pb, ' ');
-		}
-	}
-
+	int ret = f_vprintf(fp, fmt, arp);
 	va_end(arp);
-
-	return putc_flush(&pb);
+	return ret;
 }
 
 #endif /* !FF_FS_READONLY */

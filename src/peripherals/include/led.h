@@ -16,6 +16,7 @@ typedef enum { LED_RED, LED_GREEN, LED_ALL } led_color_t;
 void leds_init(void);
 void leds_deinit(void);
 void leds_enable(bool enable);
+bool leds_are_enabled(void);
 void led_on(led_color_t color);
 void led_off(led_color_t color);
 void led_toggle(led_color_t color);

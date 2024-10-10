@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <time.h>
 #include "audio.h"
 #include "battery.h"
@@ -15,10 +16,10 @@
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
-static float last_known_temperature;
 static volatile uint32_t num_clips_stored;
-static volatile bool phase_ended, auto_restart_timer;
+static volatile bool *device_active, phase_ended, auto_restart_timer;
 static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds;
+static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
 
 
@@ -48,8 +49,7 @@ void am_rtc_isr(void)
    AM_CRITICAL_END
 
    // Check if the battery voltage is too low to continue
-   battery_result_t battery_details = battery_monitor_get_details();
-   last_known_temperature = battery_details.celcius;
+   const battery_result_t battery_details = battery_monitor_get_details();
    if (battery_details.millivolts <= BATTERY_LOW)
       phase_ended = true;
 
@@ -81,11 +81,20 @@ void am_rtc_isr(void)
          wakeup_timestamp = MIN(wakeup_timestamp, config_get_deployment_start_time() + led_active_seconds);
    }
 
-   // TODO: Log relevant device statistics (battery voltage, temperature, UTC timestamp, GPS location, LEDs active, VHF active)
-   // TODO: Update storage to always have the log file open
+   // Log relevant current device information
+   storage_set_last_known_timestamp(current_timestamp);
+   print("INFO: Current Device Details:\n"
+         "   UTC Timestamp: %u\n"
+         "   Battery Voltage (mV): %u\n"
+         "   Temperature (C): %0.2f\n"
+         "   Location: [%0.6f, %0.6f, %0.2f]\n"
+         "   LEDs Active: %s\n"
+         "   VHF Active: %s\n",
+         current_timestamp, battery_details.millivolts, battery_details.celcius,
+         last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False");
 
    // Restart the RTC alarm for the next wakeup time
-   if (!phase_ended)
+   if (!phase_ended && *device_active)
       rtc_set_wakeup_timestamp(wakeup_timestamp);
 }
 
@@ -103,21 +112,25 @@ void am_timer00_isr(void)
 static void henrik_data_available(henrik_data_t new_data)
 {
    // Sync RTC to GPS time whenever an update is received
+   storage_set_last_known_timestamp(new_data.utc_timestamp);
    rtc_set_time_from_timestamp(new_data.utc_timestamp);
+   last_height = new_data.height;
+   last_lat = new_data.lat;
+   last_lon = new_data.lon;
 }
 
 
 // Audio Processing Loops ----------------------------------------------------------------------------------------------
 
-static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_reads_per_clip, time_scale_t align_to, bool interval_based, uint32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule)
+static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_reads_per_clip, time_scale_t align_to, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule)
 {
    // Initialize all necessary local variables
    bool audio_clip_in_progress = false, reading_audio = false;
    uint32_t num_audio_reads = 0, last_audio_read_time = 0;
    int16_t *audio_buffer;
 
-   // Handling incoming audio clips until the phase has ended
-   while (!phase_ended)
+   // Handling incoming audio clips until the phase has ended or the device has been deactivated
+   while (!phase_ended && *device_active)
    {
       // Determine if time to create a new WAV file
       const uint32_t current_time = rtc_get_timestamp();
@@ -125,21 +138,23 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_reads_p
       if (!audio_clip_in_progress)
       {
          // Go to sleep if there is time until the next scheduled audio recording
-         uint32_t seconds_to_sleep = interval_based ? MIN(0, clip_interval_seconds - (current_time - last_audio_read_time)) : seconds_til_next_scheduled_recording;
+         uint32_t seconds_to_sleep = interval_based ? (uint32_t)MAX(0, clip_interval_seconds - (int32_t)(current_time - last_audio_read_time)) : seconds_til_next_scheduled_recording;
          seconds_to_sleep = MIN(seconds_to_sleep, phase_end_timestamp - current_time);
          if (seconds_to_sleep)
          {
             audio_processing_timer_config.ui32Compare0 = (uint32_t)(seconds_to_sleep * TIMER_AUDIO_PROCESSING_TICK_RATE);
             am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
             am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
+            system_enter_deep_sleep_mode();
             continue;
          }
          else
          {
             // Generate a file name from the current date and time
-            char file_name[32] = { 0 };
             const time_t timestamp = (time_t)current_time;
-            strftime(file_name, sizeof(file_name), "%F %H-%M-%S.wav", gmtime(&timestamp));
+            char file_name[32] = { 0 }, time_string[24] = { 0 };
+            strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
+            snprintf(file_name, sizeof(file_name), "%s_%+03d.wav", time_string, (int)config_get_utc_offset());
             if (storage_open(file_name, true))
             {
                // Write the WAV file header contents
@@ -204,8 +219,8 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
    am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
    am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
 
-   // Handling incoming audio clips until the phase has ended
-   while (!phase_ended)
+   // Handling incoming audio clips until the phase has ended or the device has been deactivated
+   while (!phase_ended && *device_active)
    {
       // Determine if time to start listening for a new audio clip
       if (!awaiting_trigger && !audio_clip_in_progress && (num_clips_stored < max_clips))
@@ -228,9 +243,10 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          if (!audio_clip_in_progress)
          {
             // Generate a file name from the current date and time
-            char file_name[32] = { 0 };
+            char file_name[32] = { 0 }, time_string[24] = { 0 };
             const time_t timestamp = (time_t)rtc_get_timestamp();
-            strftime(file_name, sizeof(file_name), "%F %H-%M-%S.wav", gmtime(&timestamp));
+            strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
+            snprintf(file_name, sizeof(file_name), "%s_%+03d.wav", time_string, (int)config_get_utc_offset());
             if (storage_open(file_name, true))
             {
                storage_write_wav_header(AUDIO_NUM_CHANNELS, sampling_rate);
@@ -264,10 +280,10 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
 
 // Public Main Function ------------------------------------------------------------------------------------------------
 
-void active_main(volatile bool *device_actived, int32_t phase_index)
+void active_main(volatile bool *device_activated, int32_t phase_index)
 {
    // Ensure that a storage directory with the device name exists and is active on the SD card
-   print("INFO: Starting main deployment phase activity...\n");
+   print("INFO: Starting main deployment phase activity\n");
    print("INFO: Validating existence of SD card storage directory...");
    char device_label[MAX_DEVICE_LABEL_LEN] = { 0 };
    config_get_device_label(device_label, sizeof(device_label));
@@ -314,7 +330,8 @@ void active_main(volatile bool *device_actived, int32_t phase_index)
    // Set an RTC alarm to expire when the next important event is expected to happen
    phase_end_timestamp = config_get_end_time(phase_index);
    phase_ended = phase_end_timestamp <= current_timestamp;
-   if (!phase_ended)
+   device_active = device_activated;
+   if (!phase_ended && *device_active)
    {
       wakeup_timestamp = MIN(wakeup_timestamp, phase_end_timestamp);
       rtc_set_wakeup_timestamp(wakeup_timestamp);
@@ -396,7 +413,7 @@ void active_main(volatile bool *device_actived, int32_t phase_index)
                audio_recording_interval *= 1;
                break;
          }
-         process_audio_scheduled(audio_sampling_rate_hz, num_reads_per_clip, unit_time, true, audio_recording_interval, 0, NULL);
+         process_audio_scheduled(audio_sampling_rate_hz, num_reads_per_clip, unit_time, true, (int32_t)audio_recording_interval, 0, NULL);
          break;
       }
       case CONTINUOUS:  // Intentional fall-through
@@ -413,5 +430,4 @@ void active_main(volatile bool *device_actived, int32_t phase_index)
 }
 
 
-// TODO: Re-route "print" to SD card if not in debug mode (if logfile closed, ignore print, can we keep logfile open while WAV file is also open?)
 // TODO: Reset if RTC is not increasing on each tick (do we need a watchdog for this?)

@@ -23,6 +23,7 @@ bool config_is_device_activated(void);
 void config_set_activation_status(bool active);
 bool config_gps_available(void);
 bool config_awake_on_magnet(void);
+int32_t config_get_utc_offset(void);
 int32_t config_get_num_deployment_phases(void);
 int32_t config_get_active_deployment_phase_index(uint32_t current_time);
 int32_t config_get_next_deployment_phase_index(uint32_t current_time, uint32_t *next_start_time);

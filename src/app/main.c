@@ -49,11 +49,11 @@ int main(void)
    setup_hardware();
    static uint8_t device_id[DEVICE_ID_LEN];
    system_read_ID(device_id, sizeof(device_id));
-   print("INFO: System hardware initialized, UID = ");
+   system_initialize_peripherals();
+   print("\nINFO: System hardware initialized, UID = ");
    for (size_t i = DEVICE_ID_LEN - 1; i > 0; --i)
       print("%02X:", device_id[i]);
    print("%02X\n", device_id[0]);
-   system_initialize_peripherals();
 
    // Retrieve the runtime configuration from storage
    bool success = fetch_runtime_configuration();
@@ -88,6 +88,7 @@ int main(void)
             if (utc_time)
             {
                print("INFO: GPS time obtained: %u\n", utc_time);
+               storage_set_last_known_timestamp(utc_time);
                rtc_set_time_from_timestamp(utc_time);
             }
             else
@@ -107,8 +108,11 @@ int main(void)
          {
             // Log this error and set the RTC to the last known timestamp
             uint32_t last_known_timestamp = storage_get_last_known_timestamp();
-            print("ERROR: RTC time appears to have been lost...setting to last known timestamp: %u\n", last_known_timestamp);
-            rtc_set_time_from_timestamp(last_known_timestamp);
+            if (last_known_timestamp)
+               rtc_set_time_from_timestamp(last_known_timestamp);
+            else
+               rtc_set_time_to_compile_time();
+            print("ERROR: RTC time appears to have been lost...setting to last known timestamp: %u\n", rtc_get_timestamp());
          }
       }
 
@@ -206,6 +210,7 @@ int main(void)
       if (config_set_rtc_at_magnet_detect())
       {
          print("INFO: Setting RTC to the deployment start time: %u\n", config_get_deployment_start_time());
+         storage_set_last_known_timestamp(config_get_deployment_start_time());
          rtc_set_time_from_timestamp(config_get_deployment_start_time());
       }
       system_delay(200000);

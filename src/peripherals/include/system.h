@@ -11,6 +11,7 @@
 void setup_hardware(void);
 void system_reset(void);
 void system_initialize_peripherals(void);
+void system_deinitialize_peripherals(void);
 void system_enable_interrupts(bool enabled);
 void system_enter_deep_sleep_mode(void);
 void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_timestamp, bool reinit_on_wakeup);

@@ -15,6 +15,7 @@ int main(void)
    print("Reading configuration file...%s\n\n", fetch_runtime_configuration() ? "SUCCESS" : "FAILURE");
    config_get_device_label(label, sizeof(label));
    print("Device Label: %s\n", label);
+   print("Device UTC Offset: %d\n", config_get_utc_offset());
    time_t start_time = (time_t)config_get_deployment_start_time();
    if (start_time > 0)
    {

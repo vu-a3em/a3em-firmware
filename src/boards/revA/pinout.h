@@ -51,6 +51,9 @@
 // Magnet Sensor
 #define MAG_DETECT_TIMER_NUMBER                     2
 #define PIN_MAG_SENSOR_INP                          66
+// TODO: Use these for the next revision
+//#define PIN_MAG_SENSOR_INP_RISING                   66
+//#define PIN_MAG_SENSOR_INP_FALLING                  51
 #define PIN_MAG_SENSOR_INP2                         49
 #define PIN_MAG_SENSOR_DIS                          65
 

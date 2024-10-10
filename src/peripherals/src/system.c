@@ -166,24 +166,40 @@ void setup_hardware(void)
 
 void system_reset(void)
 {
+   // Gracefully shut down all peripherals and initiate a power-on reset
+   system_deinitialize_peripherals();
    am_hal_reset_control(AM_HAL_RESET_CONTROL_SWPOR, NULL);
 }
 
 void system_initialize_peripherals(void)
 {
    // Initialize peripherals and start up the RTC
-   print("INFO: Initializing peripherals...\n");
    leds_init();
    rtc_init();
    vhf_init();
+   storage_init();
    imu_init();
    henrik_init();
    magnet_sensor_init();
-   comparator_init(false, 0, 1.0, true);
    battery_monitor_init();
-   storage_init();
+   comparator_init(false, 0, 1.0, true);
    system_enable_interrupts(true);
-   print("INFO: Peripherals initialized!\n");
+   storage_setup_logs();
+}
+
+void system_deinitialize_peripherals(void)
+{
+   // De-initialize all peripherals except for RTC and VHF
+   storage_deinit();
+   am_hal_interrupt_master_disable();
+   henrik_deinit();
+   comparator_deinit();
+   audio_deinit();
+   imu_deinit();
+   magnet_sensor_deinit();
+   battery_monitor_deinit();
+   leds_deinit();
+   logging_disable();
 }
 
 void system_enable_interrupts(bool enabled)
@@ -207,16 +223,7 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
 {
    // Turn off all peripherals
    print("WARNING: Powering off. Will awake on: [ %s%s]...\n", wake_on_magnet ? "Magnet " : "", wake_on_timestamp ? "Timestamp " : "");
-   am_hal_interrupt_master_disable();
-   henrik_deinit();
-   comparator_deinit();
-   audio_deinit();
-   imu_deinit();
-   storage_deinit();
-   magnet_sensor_deinit();
-   battery_monitor_deinit();
-   leds_deinit();
-   logging_disable();
+   system_deinitialize_peripherals();
 
    // Power down the crypto module followed by all peripherals
    am_hal_pwrctrl_control(AM_HAL_PWRCTRL_CONTROL_CRYPTO_POWERDOWN, NULL);
@@ -254,6 +261,7 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
       storage_init();
       battery_monitor_init();
       magnet_sensor_init();
+      storage_setup_logs();
       print("INFO: Device woke up!\n");
    }
 }
@@ -261,9 +269,20 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
 void system_read_ID(uint8_t *id, uint32_t id_length)
 {
    // Copy ID from flash memory location into the specified buffer
+   bool uninitialized = true;
    uint8_t *_id = &_uid_base_address;
    for (uint32_t i = 0; i < id_length; ++i)
+   {
       id[i] = _id[i];
+      if (id[i] != 0xFF)
+         uninitialized = false;
+   }
+   if (uninitialized)
+   {
+      const uint32_t id0 = MCUCTRL->CHIPID0, id1 = MCUCTRL->CHIPID1;
+      memcpy(id, &id0, sizeof(id0));
+      memcpy(id + sizeof(id0), &id1, id_length - sizeof(id0));
+   }
 }
 
 void system_delay(uint32_t delay_us)
