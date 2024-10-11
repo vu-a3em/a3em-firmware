@@ -50,8 +50,10 @@ static imu_recording_mode_t parse_imu_recording_mode(const char *value)
 {
    if (memcmp(value, "ACTIVITY", sizeof("ACTIVITY")) == 0)
       return ACTIVITY;
-   else
+   else if (memcmp(value, "AUDIO", sizeof("AUDIO")) == 0)
       return AUDIO;
+   else
+      return NONE;
 }
 
 static time_scale_t parse_time_scale(const char *value)

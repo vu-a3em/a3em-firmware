@@ -11,7 +11,7 @@
 typedef struct { uint32_t start_time, end_time; } start_end_time_t;
 
 typedef enum { AMPLITUDE, SCHEDULED, INTERVAL, CONTINUOUS } audio_recording_mode_t;
-typedef enum { ACTIVITY, AUDIO } imu_recording_mode_t;
+typedef enum { NONE, ACTIVITY, AUDIO } imu_recording_mode_t;
 typedef enum { SECONDS, MINUTES, HOURS, DAYS } time_scale_t;
 
 
