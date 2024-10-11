@@ -17,11 +17,13 @@
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
 static volatile uint32_t num_clips_stored;
-static volatile bool *device_active, phase_ended, audio_timer_triggered;
-static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds;
+static volatile bool *device_active, phase_ended, audio_timer_triggered, in_motion;
+static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds, imu_sampling_rate_hz;
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
 static char device_label[MAX_DEVICE_LABEL_LEN];
+static uint8_t imu_degrees_of_freedom;
+static bool record_imu_with_audio; // TODO: imu_enable_raw_data_output upon audio storage...
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -98,6 +100,22 @@ void am_rtc_isr(void)
    // Restart the RTC alarm for the next wakeup time
    if (!phase_ended && *device_active)
       rtc_set_wakeup_timestamp(wakeup_timestamp);
+}
+
+void imu_data_callback(float accel_x_mg, float accel_y_mg, float accel_z_mg)
+{
+   // TODO: Store IMU data to SD card
+   //print("IMU data: %.2f,%.2f,%.2f\n", accel_x_mg, accel_y_mg, accel_z_mg);
+}
+
+void imu_motion_change_callback(bool new_in_motion)
+{
+   // Subscribe or unsubscribe from IMU data based on the current motion status
+   if (new_in_motion != in_motion)
+   {
+      in_motion = new_in_motion;
+      imu_enable_raw_data_output(in_motion, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
+   }
 }
 
 void am_timer00_isr(void)
@@ -348,20 +366,25 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       rtc_set_wakeup_timestamp(wakeup_timestamp);
    }
 
-   // TODO: Implement IMU recording stuff
-   /*const uint32_t imu_sampling_rate_hz = config_get_imu_sampling_rate_hz(phase_index);
+   // Enable IMU detection and recording functionality
+   in_motion = record_imu_with_audio = false;
+   imu_degrees_of_freedom = config_get_imu_degrees_of_freedom(phase_index);
+   imu_sampling_rate_hz = config_get_imu_sampling_rate_hz(phase_index);
    switch (config_get_imu_recording_mode(phase_index))
    {
       case ACTIVITY:
       {
-         float motion_trigger_threshold = config_get_imu_trigger_threshold_level(phase_index);
-         uint8_t degrees_of_freedom = config_get_imu_degrees_of_freedom(phase_index);
+         // TODO: Use this: float motion_trigger_threshold = config_get_imu_trigger_threshold_level(phase_index);
+         imu_enable_motion_change_detection(true, imu_motion_change_callback);
          break;
       }
-      case AUDIO:   // Intentional fall-through
+      case AUDIO:
+         record_imu_with_audio = true;
+         break;
+      case NONE:   // Intentional fall-through
       default:
          break;
-   }*/
+   }
 
    // Determine how to schedule audio clip recordings
    audio_timer_triggered = false;

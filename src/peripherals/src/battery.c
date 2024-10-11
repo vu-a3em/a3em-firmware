@@ -156,7 +156,7 @@ battery_result_t battery_monitor_get_details(void)
    NVIC_DisableIRQ(ADC_IRQn);
 
    // Calculate and return the battery voltage and temperature
-   battery_voltage_code += 500; // TODO: THIS SHOULD CERTAINLY NOT BE NECESSARY, SOMETHING IS WRONG
+   battery_voltage_code += 512; // TODO: THIS SHOULD CERTAINLY NOT BE NECESSARY, SOMETHING IS WRONG
    float temperature_codes[3] = { (float)temperature_code * AM_HAL_ADC_VREF / 1024.0f, 0.0f, -123.456f };
    result.millivolts = (battery_voltage_code * AM_HAL_ADC_VREFMV / 4096) * (VOLTAGE_DIVIDER_UPPER + VOLTAGE_DIVIDER_LOWER) / VOLTAGE_DIVIDER_LOWER;
    if (am_hal_adc_control(adc_handle, AM_HAL_ADC_REQ_TEMP_CELSIUS_GET, temperature_codes) == AM_HAL_STATUS_SUCCESS)

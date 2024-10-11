@@ -54,7 +54,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define COMPARATOR_THRESHOLD_INTERRUPT_PRIORITY         (AM_IRQ_PRIORITY_DEFAULT)
 #define MAGNET_SENSOR_INTERRUPT_PRIORITY                (AM_IRQ_PRIORITY_DEFAULT)
 #define AUDIO_ADC_INTERRUPT_PRIORITY                    (AM_IRQ_PRIORITY_DEFAULT)
-#define IMU_DATA_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 1)
+#define IMU_DATA_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 2)
 #define STORAGE_INTERRUPT_PRIORITY                      (AM_IRQ_PRIORITY_DEFAULT - 2)
 #define RTC_ALARM_INTERRUPT_PRIORITY                    (AM_IRQ_PRIORITY_DEFAULT)
 #define BATT_ADC_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 1)
@@ -72,7 +72,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 // IMU Sampling Definitions --------------------------------------------------------------------------------------------
 
-#define IMU_DEFAULT_SAMPLING_RATE_HZ                    6
+#define IMU_DEFAULT_SAMPLING_RATE_HZ                    25
 
 
 // Magnetic Sensing Definitions ----------------------------------------------------------------------------------------

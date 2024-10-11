@@ -58,6 +58,13 @@ static int32_t platform_write(void *handle, uint8_t reg_number, const uint8_t *w
 
 static void imu_isr(void *args)
 {
+   if (motion_change_callback)
+   {
+      static lis2du12_all_sources_t status;
+      lis2du12_all_sources_get(&imu_context, &status);
+      if (status.sleep_change)
+         motion_change_callback(!status.sleep_state);
+   }
    if (data_ready_callback)
    {
       static lis2du12_fifo_status_t fifo_status;
@@ -73,13 +80,6 @@ static void imu_isr(void *args)
             data_ready_callback(data.xl[0].mg[0], data.xl[0].mg[1], data.xl[0].mg[2]);
          }
       }
-   }
-   if (motion_change_callback)
-   {
-      static lis2du12_all_sources_t status;
-      lis2du12_all_sources_get(&imu_context, &status);
-      if (status.sleep_change)
-         motion_change_callback(!status.sleep_state);
    }
 }
 
@@ -756,6 +756,8 @@ void imu_init(void)
    configASSERT0(am_hal_gpio_pinconfig(PIN_IMU_INTERRUPT, am_hal_gpio_pincfg_input));
    configASSERT0(am_hal_gpio_interrupt_control(AM_HAL_GPIO_INT_CHANNEL_0, AM_HAL_GPIO_INT_CTRL_INDV_ENABLE, &imu_interrupt_pin));
    configASSERT0(am_hal_gpio_interrupt_register(AM_HAL_GPIO_INT_CHANNEL_0, PIN_IMU_INTERRUPT, imu_isr, NULL));
+   lis2du12_int_mode_t int_mode = { .enable = PROPERTY_ENABLE, .active_low = PROPERTY_DISABLE, .drdy_latched = 1, .base_sig = LIS2DU12_INT_LEVEL };
+   configASSERT0(lis2du12_interrupt_mode_set(&imu_context, &int_mode));
    NVIC_SetPriority(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_IMU_INTERRUPT), IMU_DATA_INTERRUPT_PRIORITY);
    NVIC_EnableIRQ(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_IMU_INTERRUPT));
 }
@@ -763,6 +765,8 @@ void imu_init(void)
 void imu_deinit(void)
 {
    // Disable all interrupts and put the device into power-down mode
+   lis2du12_int_mode_t int_mode = { .enable = PROPERTY_DISABLE, .active_low = PROPERTY_DISABLE, .drdy_latched = 1, .base_sig = LIS2DU12_INT_LEVEL };
+   configASSERT0(lis2du12_interrupt_mode_set(&imu_context, &int_mode));
    if (data_ready_callback)
       imu_enable_raw_data_output(false, 0, 0, 0, 0, NULL);
    if (motion_change_callback)
@@ -813,7 +817,7 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
 
       // Configure the data FIFO settings
       fifo_mode.store = LIS2DU12_8_BIT;
-      fifo_mode.watermark = fifo_depth;
+      fifo_mode.watermark = MIN(fifo_depth, 100);
       fifo_mode.operation = LIS2DU12_STREAM;
       configASSERT0(lis2du12_fifo_mode_set(&imu_context, &fifo_mode));
 
@@ -825,8 +829,6 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
 
       // Enable generation of data-ready interrupts
       lis2du12_pin_int_route_t int_route;
-      lis2du12_int_mode_t int_mode = { .enable = PROPERTY_ENABLE, .active_low = PROPERTY_DISABLE, .drdy_latched = 1, .base_sig = LIS2DU12_INT_LATCHED };
-      configASSERT0(lis2du12_interrupt_mode_set(&imu_context, &int_mode));
       configASSERT0(lis2du12_pin_int2_route_get(&imu_context, &int_route));
       int_route.fifo_th = PROPERTY_ENABLE;
       configASSERT0(lis2du12_pin_int2_route_set(&imu_context, &int_route));
@@ -838,8 +840,6 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
    {
       // Disable generation of data-ready interrupts
       lis2du12_pin_int_route_t int_route;
-      lis2du12_int_mode_t int_mode = { .enable = PROPERTY_DISABLE, .active_low = PROPERTY_DISABLE, .drdy_latched = 1, .base_sig = LIS2DU12_INT_LATCHED };
-      configASSERT0(lis2du12_interrupt_mode_set(&imu_context, &int_mode));
       configASSERT0(lis2du12_pin_int2_route_get(&imu_context, &int_route));
       int_route.fifo_th = PROPERTY_DISABLE;
       configASSERT0(lis2du12_pin_int2_route_set(&imu_context, &int_route));
@@ -863,27 +863,25 @@ void imu_enable_motion_change_detection(bool enable, motion_change_callback_t ca
    if (enable)
    {
       // Set the criteria for motion detection:
-      //   [80.0 ms (0x01 * 1 / ODR_XL), 9.85 s (MAX(16, 0x01 * 512) / ODR_XL)]
+      //   [80.0 ms (0x01 * 1 / ODR_XL), 9.85 s (MAX(16, 0x01 * 16) / ODR_XL)]
       lis2du12_wkup_md_t motion_mode;
       motion_mode.duration = 0x01;
       motion_mode.threshold = 0x02;
       motion_mode.x_en = motion_mode.y_en = motion_mode.z_en = 1;
       motion_mode.sleep.en = 1;
       motion_mode.sleep.odr = LIS2DU12_SLEEP_AT_1Hz6;
-      motion_mode.sleep.duration = 0x01;
+      motion_mode.sleep.duration = 0;
       configASSERT0(lis2du12_wake_up_mode_set(&imu_context, &motion_mode));
 
       // Enable generation of motion-change interrupts
       lis2du12_pin_int_route_t int_route;
-      lis2du12_int_mode_t int_mode = { .enable = PROPERTY_ENABLE, .active_low = PROPERTY_DISABLE, .drdy_latched = 1, .base_sig = LIS2DU12_INT_LEVEL };
-      configASSERT0(lis2du12_interrupt_mode_set(&imu_context, &int_mode));
       configASSERT0(lis2du12_pin_int2_route_get(&imu_context, &int_route));
       int_route.sleep_change = PROPERTY_ENABLE;
       int_route.sleep_state = PROPERTY_ENABLE;
       configASSERT0(lis2du12_pin_int2_route_set(&imu_context, &int_route));
 
       imu_mode.fs =  LIS2DU12_2g;
-      imu_mode.odr = LIS2DU12_200Hz;
+      imu_mode.odr = LIS2DU12_25Hz;
       lis2du12_mode_set(&imu_context, &imu_mode);
 
       // Store the user-supplied motion change callback
@@ -893,8 +891,6 @@ void imu_enable_motion_change_detection(bool enable, motion_change_callback_t ca
    {
       // Disable generation of motion-change interrupts
       lis2du12_pin_int_route_t int_route;
-      lis2du12_int_mode_t int_mode = { .enable = PROPERTY_DISABLE, .active_low = PROPERTY_DISABLE, .drdy_latched = 1, .base_sig = LIS2DU12_INT_LEVEL };
-      configASSERT0(lis2du12_interrupt_mode_set(&imu_context, &int_mode));
       configASSERT0(lis2du12_pin_int2_route_get(&imu_context, &int_route));
       int_route.sleep_change = PROPERTY_DISABLE;
       int_route.sleep_state = PROPERTY_DISABLE;
