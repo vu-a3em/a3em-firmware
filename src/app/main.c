@@ -123,6 +123,7 @@ int main(void)
       // Determine if the VHF radio should already be active
       print("INFO: Device is ACTIVATED\n");
       uint32_t current_timestamp = rtc_get_timestamp();
+      print("INFO: Current RTC timestamp = %u\n", current_timestamp);
       const uint32_t vhf_enable_timestamp = config_get_vhf_start_timestamp();
       if (vhf_enable_timestamp && (current_timestamp >= vhf_enable_timestamp))
          vhf_activate();
@@ -173,7 +174,10 @@ int main(void)
 
             // Store a change in device activation
             if (use_magnetic_activation && !device_activated)
+            {
+               print("INFO: Device was magnetically deactivated!\n");
                config_set_activation_status(false);
+            }
          }
          else if (vhf_enable_timestamp && (vhf_enable_timestamp > current_timestamp))
          {

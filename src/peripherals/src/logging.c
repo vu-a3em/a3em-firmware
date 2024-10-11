@@ -7,7 +7,7 @@
 
 #if defined(ENABLE_AUDIO_DL) && ((7-ENABLE_AUDIO_DL-7 == 14) || (7-ENABLE_AUDIO_DL-7 != 0))
 
-#define RTT_BUFFER_LENGTH (6*AUDIO_BUFFER_NUM_SAMPLES)
+#define RTT_BUFFER_LENGTH (2*AUDIO_BUFFER_NUM_SAMPLES*sizeof(int16_t))
 uint8_t rttAudioBuffer[RTT_BUFFER_LENGTH];
 
 #endif

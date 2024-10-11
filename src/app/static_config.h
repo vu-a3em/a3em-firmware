@@ -65,7 +65,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 #define AUDIO_NUM_CHANNELS                              1
 #define AUDIO_MIC_BIAS_VOLTAGE                          0.0f
-#define AUDIO_BUFFER_NUM_SAMPLES                        16384
+#define AUDIO_BUFFER_NUM_SAMPLES                        4000
 #define AUDIO_DEFAULT_SAMPLING_RATE_HZ                  20000
 #define AUDIO_DEFAULT_CLIP_LENGTH_SECONDS               10
 

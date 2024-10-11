@@ -17,6 +17,7 @@ bool storage_open(const char *file_path, bool writeable);
 bool storage_write(const void *data, uint32_t data_len);
 bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz);
 void storage_write_log(const char *fmt, ...);
+void storage_flush_log(void);
 uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len);
 int32_t storage_read_line(char *read_buffer, uint32_t buffer_len);
 bool storage_set_last_known_timestamp(uint32_t timestamp);

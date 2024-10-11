@@ -77,7 +77,8 @@
 
 // Timers
 #define TIMER_NUMBER_AUDIO_PROCESSING               0
-#define TIMER_AUDIO_PROCESSING_TICK_RATE            (AM_HAL_CLKGEN_FREQ_MAX_HZ / 4000)
+#define TIMER_AUDIO_PROCESSING_CLOCK                AM_HAL_TIMER_CLOCK_XT_DIV128
+#define TIMER_AUDIO_PROCESSING_TICK_RATE            (32768 / 128)
 
 // VHF
 #define PIN_VHF_ENABLE                              34

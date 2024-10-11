@@ -17,7 +17,7 @@
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
 static volatile uint32_t num_clips_stored;
-static volatile bool *device_active, phase_ended, auto_restart_timer;
+static volatile bool *device_active, phase_ended, audio_timer_triggered;
 static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds;
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
@@ -75,7 +75,7 @@ void am_rtc_isr(void)
    {
       if ((current_timestamp - config_get_deployment_start_time()) >= led_active_seconds)
       {
-         leds_deinit();
+         leds_enable(false);
          led_active_seconds = 0;
       }
       else
@@ -93,6 +93,7 @@ void am_rtc_isr(void)
          "   VHF Active: %s\n",
          current_timestamp, battery_details.millivolts, battery_details.celcius,
          last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False");
+   storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time
    if (!phase_ended && *device_active)
@@ -103,11 +104,8 @@ void am_timer00_isr(void)
 {
    // Clear the timer interrupt and reset the clips stored counter
    am_hal_timer_interrupt_clear(AM_HAL_TIMER_MASK(TIMER_NUMBER_AUDIO_PROCESSING, AM_HAL_TIMER_COMPARE_BOTH));
+   audio_timer_triggered = true;
    num_clips_stored = 0;
-
-   // Automatically restart if requested
-   if (auto_restart_timer)
-      am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
 }
 
 static void henrik_data_available(henrik_data_t new_data)
@@ -123,12 +121,23 @@ static void henrik_data_available(henrik_data_t new_data)
 
 // Audio Processing Loops ----------------------------------------------------------------------------------------------
 
-static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_reads_per_clip, time_scale_t align_to, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule)
+static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds_per_clip, time_scale_t align_to, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule)
 {
    // Initialize all necessary local variables
+   const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(num_seconds_per_clip);
    bool audio_clip_in_progress = false, reading_audio = false;
-   uint32_t num_audio_reads = 0, last_audio_read_time = 0;
+   uint32_t num_audio_reads = 0;
    int16_t *audio_buffer;
+
+   // Start the clip creation timer if interval-based
+   if (interval_based)
+   {
+      audio_timer_triggered = true;
+      audio_processing_timer_config.eFunction =  AM_HAL_TIMER_FN_UPCOUNT;
+      audio_processing_timer_config.ui32Compare0 = (uint32_t)(clip_interval_seconds * TIMER_AUDIO_PROCESSING_TICK_RATE) - 1;
+      am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
+      am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
+   }
 
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    while (!phase_ended && *device_active)
@@ -138,50 +147,54 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_reads_p
       const uint32_t seconds_til_next_scheduled_recording = seconds_until_next_scheduled_recording(num_schedules, schedule, current_time % 86400);
       if (!audio_clip_in_progress)
       {
-         // Go to sleep if there is time until the next scheduled audio recording
-         uint32_t seconds_to_sleep = interval_based ? (uint32_t)MAX(0, clip_interval_seconds - (int32_t)(current_time - last_audio_read_time)) : seconds_til_next_scheduled_recording;
-         seconds_to_sleep = MIN(seconds_to_sleep, phase_end_timestamp - current_time);
-         if (seconds_to_sleep)
+         // Go to sleep if time remains until the next scheduled audio recording
+         if (interval_based && !audio_timer_triggered)
          {
-            audio_processing_timer_config.ui32Compare0 = (uint32_t)(seconds_to_sleep * TIMER_AUDIO_PROCESSING_TICK_RATE);
-            am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
-            am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
-            system_enter_deep_sleep_mode();
+            while (!audio_timer_triggered && !phase_ended && *device_active)
+               system_enter_deep_sleep_mode();
             continue;
          }
-         else
+         else if (!interval_based)
          {
-            // Generate a file name from the current date and time
-            const time_t timestamp = (time_t)current_time;
-            char file_name[64] = { 0 }, time_string[24] = { 0 };
-            strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
-            snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset());
-            if (storage_open(file_name, true))
+            uint32_t seconds_to_sleep = MIN(seconds_til_next_scheduled_recording, phase_end_timestamp - current_time);
+            if (seconds_to_sleep)
             {
-               // Write the WAV file header contents
-               storage_write_wav_header(AUDIO_NUM_CHANNELS, sampling_rate);
-               last_audio_read_time = current_time;
-               audio_clip_in_progress = true;
-               led_indicate_clip_begin();
+               audio_timer_triggered = false;
+               audio_processing_timer_config.ui32Compare0 = (uint32_t)(seconds_to_sleep * TIMER_AUDIO_PROCESSING_TICK_RATE);
+               am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
+               am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
+               while (!audio_timer_triggered && !phase_ended && *device_active)
+                  system_enter_deep_sleep_mode();
+               continue;
+            }
+         }
+         audio_timer_triggered = false;
 
-               // Trigger reading audio samples if currently stopped
-               if (!reading_audio)
-               {
-                  audio_begin_reading(IMMEDIATE);
-                  reading_audio = true;
-               }
+         // Generate a file name from the current date and time
+         const time_t timestamp = (time_t)current_time;
+         char file_name[64] = { 0 }, time_string[24] = { 0 };
+         strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
+         snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset());
+         if (storage_open(file_name, true))
+         {
+            // Write the WAV file header contents
+            storage_write_wav_header(AUDIO_NUM_CHANNELS, sampling_rate);
+            audio_clip_in_progress = true;
+            led_indicate_clip_begin();
+
+            // Trigger reading audio samples if currently stopped
+            if (!reading_audio)
+            {
+               audio_begin_reading(IMMEDIATE);
+               reading_audio = true;
             }
          }
       }
 
-      // Sleep while no errors or audio to process
+      // Handle any newly available audio data
       if (audio_error_encountered())
          system_reset();
-      else if (!audio_data_available())
-         system_enter_deep_sleep_mode();
-
-      // Handle any newly available audio data
-      if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
+      else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          led_indicate_clip_progress();
          storage_write(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
@@ -199,6 +212,8 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_reads_p
             num_audio_reads = 0;
          }
       }
+      else
+         system_enter_deep_sleep_mode();
    }
 
    // Ensure that the most recent audio file has been gracefully closed
@@ -206,17 +221,18 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_reads_p
    storage_close();
 }
 
-static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_reads_per_clip, uint32_t max_clips, uint32_t per_num_seconds, float trigger_threshold)
+static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_seconds_per_clip, uint32_t max_clips, uint32_t per_num_seconds, float trigger_threshold)
 {
    // Initialize all necessary local variables
+   const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(num_seconds_per_clip);
    bool audio_clip_in_progress = false, awaiting_trigger = false;
    uint32_t num_audio_reads = 0;
-   auto_restart_timer = true;
    int16_t *audio_buffer;
    num_clips_stored = 0;
 
    // Start timer to ensure that no more than "max_clips" are stored during the given number of seconds
-   audio_processing_timer_config.ui32Compare0 = (uint32_t)(per_num_seconds * TIMER_AUDIO_PROCESSING_TICK_RATE);
+   audio_processing_timer_config.eFunction =  AM_HAL_TIMER_FN_UPCOUNT;
+   audio_processing_timer_config.ui32Compare0 = (uint32_t)(per_num_seconds * TIMER_AUDIO_PROCESSING_TICK_RATE) - 1;
    am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
    am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
 
@@ -226,19 +242,14 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
       // Determine if time to start listening for a new audio clip
       if (!awaiting_trigger && !audio_clip_in_progress && (num_clips_stored < max_clips))
       {
-         print("Initializing audio read trigger\n");
          audio_begin_reading(COMPARATOR_THRESHOLD);
          awaiting_trigger = true;
       }
 
-      // Sleep while no errors or audio to process
+      // Handle any newly available audio data
       if (audio_error_encountered())
          system_reset();
-      else if (!audio_data_available())
-         system_enter_deep_sleep_mode();
-
-      // Handle any newly available audio data
-      if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
+      else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          // Create a WAV file if this is a new audio clip
          if (!audio_clip_in_progress)
@@ -257,12 +268,10 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          }
 
          // Store the audio data to the WAV file
-         print("New audio data available: %u\n", num_audio_reads+1);
          led_indicate_clip_progress();
          storage_write(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
          if (++num_audio_reads >= num_reads_per_clip)
          {
-            print("Full audio clip processed...\n");
             awaiting_trigger = audio_clip_in_progress = false;
             led_indicate_clip_end();
             audio_stop_reading();
@@ -271,6 +280,8 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
             storage_close();
          }
       }
+      else
+         system_enter_deep_sleep_mode();
    }
 
    // Ensure that the most recent audio file has been gracefully closed
@@ -284,7 +295,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
 void active_main(volatile bool *device_activated, int32_t phase_index)
 {
    // Ensure that a storage directory with the device name exists and is active on the SD card
-   print("INFO: Starting main deployment phase activity\n");
+   print("INFO: Starting main deployment activity for Phase #%d\n", phase_index+1);
    print("INFO: Validating existence of SD card storage directory...");
    config_get_device_label(device_label, sizeof(device_label));
    if (device_label[0] == '\0')
@@ -316,8 +327,8 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
 
    // Initialize the audio processing timer
    am_hal_timer_default_config_set(&audio_processing_timer_config);
-   audio_processing_timer_config.eInputClock = AM_HAL_TIMER_CLOCK_HFRC_DIV4K;
-   audio_processing_timer_config.ui32Compare0 = (uint32_t)(600 * TIMER_AUDIO_PROCESSING_TICK_RATE);
+   audio_processing_timer_config.eInputClock = TIMER_AUDIO_PROCESSING_CLOCK;
+   audio_processing_timer_config.ui32Compare0 = (uint32_t)(300 * TIMER_AUDIO_PROCESSING_TICK_RATE);
    am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
    am_hal_timer_interrupt_enable(AM_HAL_TIMER_MASK(TIMER_NUMBER_AUDIO_PROCESSING, AM_HAL_TIMER_COMPARE0));
    NVIC_SetPriority(TIMER0_IRQn + TIMER_NUMBER_AUDIO_PROCESSING, AUDIO_TIMER_INTERRUPT_PRIORITY);
@@ -353,10 +364,10 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    }*/
 
    // Determine how to schedule audio clip recordings
-   auto_restart_timer = false;
+   audio_timer_triggered = false;
    const uint32_t audio_sampling_rate_hz = config_get_audio_sampling_rate_hz(phase_index);
    audio_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE);
-   const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(config_get_audio_clip_length_seconds(phase_index));
+   const uint32_t num_seconds_per_clip = config_get_audio_clip_length_seconds(phase_index);
    switch (config_get_audio_recording_mode(phase_index))
    {
       case AMPLITUDE:
@@ -382,14 +393,14 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                max_clips_interval_seconds = 1;
                break;
          }
-         process_audio_triggered(allow_extended_audio_clips, audio_sampling_rate_hz, num_reads_per_clip, max_num_clips, max_clips_interval_seconds, audio_trigger_threshold);
+         process_audio_triggered(allow_extended_audio_clips, audio_sampling_rate_hz, num_seconds_per_clip, max_num_clips, max_clips_interval_seconds, audio_trigger_threshold);
          break;
       }
       case SCHEDULED:
       {
          start_end_time_t *schedule;
          uint32_t num_schedules = config_get_audio_trigger_schedule(phase_index, &schedule);
-         process_audio_scheduled(audio_sampling_rate_hz, num_reads_per_clip, SECONDS, false, 0, num_schedules, schedule);
+         process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, SECONDS, false, 0, num_schedules, schedule);
          break;
       }
       case INTERVAL:
@@ -413,12 +424,12 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                audio_recording_interval *= 1;
                break;
          }
-         process_audio_scheduled(audio_sampling_rate_hz, num_reads_per_clip, unit_time, true, (int32_t)audio_recording_interval, 0, NULL);
+         process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, unit_time, true, (int32_t)audio_recording_interval, 0, NULL);
          break;
       }
       case CONTINUOUS:  // Intentional fall-through
       default:
-         process_audio_scheduled(audio_sampling_rate_hz, num_reads_per_clip, SECONDS, false, 0, 0, NULL);
+         process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, SECONDS, false, 0, 0, NULL);
          break;
    }
 
@@ -427,6 +438,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    am_hal_timer_disable(TIMER_NUMBER_AUDIO_PROCESSING);
    NVIC_DisableIRQ(TIMER0_IRQn + TIMER_NUMBER_AUDIO_PROCESSING);
    am_hal_timer_interrupt_disable(AM_HAL_TIMER_MASK(TIMER_NUMBER_AUDIO_PROCESSING, AM_HAL_TIMER_COMPARE0));
+   print("INFO: Leaving main deployment activity for Phase #%d\n", phase_index+1);
 }
 
 

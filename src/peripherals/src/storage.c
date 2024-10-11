@@ -358,8 +358,10 @@ void storage_setup_logs(void)
    // Ensure that a log file and timestamp file are present on the device
    if (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
       print("ERROR: Unable to open SD card log file for writing\n");
-   if (f_open(&timestamp_file, LAST_TIMESTAMP_FILE_NAME, FA_CREATE_ALWAYS | FA_WRITE | FA_READ) != FR_OK)
+   if (f_open(&timestamp_file, LAST_TIMESTAMP_FILE_NAME, FA_OPEN_APPEND | FA_WRITE | FA_READ) != FR_OK)
       print("ERROR: Unable to open SD card timestamp file for writing\n");
+   else
+      f_lseek(&timestamp_file, 0);
 }
 
 bool storage_chdir(const char *directory)
@@ -432,6 +434,12 @@ void storage_write_log(const char *fmt, ...)
    va_start(args, fmt);
    f_vprintf(&log_file, fmt, args);
    va_end(args);
+}
+
+void storage_flush_log(void)
+{
+   // Flush the log file to ensure that contents are not lost upon power loss
+   f_sync(&log_file);
 }
 
 uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len)
