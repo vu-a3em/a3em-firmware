@@ -8,6 +8,7 @@
 #include "led.h"
 #include "logging.h"
 #include "magnet.h"
+#include "mram.h"
 #include "rtc.h"
 #include "storage.h"
 #include "system.h"
@@ -85,7 +86,7 @@ void am_rtc_isr(void)
    }
 
    // Log relevant current device information
-   storage_set_last_known_timestamp(current_timestamp);
+   mram_set_last_known_timestamp(current_timestamp);
    print("INFO: Current Device Details:\n"
          "   UTC Timestamp: %u\n"
          "   Battery Voltage (mV): %u\n"
@@ -143,7 +144,7 @@ void am_timer00_isr(void)
 static void henrik_data_available(henrik_data_t new_data)
 {
    // Sync RTC to GPS time whenever an update is received
-   storage_set_last_known_timestamp(new_data.utc_timestamp);
+   mram_set_last_known_timestamp(new_data.utc_timestamp);
    rtc_set_time_from_timestamp(new_data.utc_timestamp);
    last_height = new_data.height;
    last_lat = new_data.lat;

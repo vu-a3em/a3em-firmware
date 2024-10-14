@@ -24,8 +24,6 @@ bool storage_write_imu_data(const void *data, uint32_t data_len);
 void storage_finish_imu_data_stream(void);
 uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len);
 int32_t storage_read_line(char *read_buffer, uint32_t buffer_len);
-bool storage_set_last_known_timestamp(uint32_t timestamp);
-uint32_t storage_get_last_known_timestamp(void);
 void storage_delete(const char *file_path);
 void storage_close(void);
 

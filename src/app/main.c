@@ -3,6 +3,7 @@
 #include "led.h"
 #include "logging.h"
 #include "magnet.h"
+#include "mram.h"
 #include "rtc.h"
 #include "storage.h"
 #include "system.h"
@@ -82,7 +83,7 @@ int main(void)
    if (device_activated)
    {
       // Check for RTC errors and attempt to correct them to allow the deployment to continue
-      while (!rtc_is_valid())
+      //while (!rtc_is_valid())
       {
          if (config_gps_available())
          {
@@ -92,7 +93,7 @@ int main(void)
             if (utc_time)
             {
                print("INFO: GPS time obtained: %u\n", utc_time);
-               storage_set_last_known_timestamp(utc_time);
+               mram_set_last_known_timestamp(utc_time);
                rtc_set_time_from_timestamp(utc_time);
             }
             else
@@ -111,7 +112,7 @@ int main(void)
          else
          {
             // Log this error and set the RTC to the last known timestamp
-            uint32_t last_known_timestamp = storage_get_last_known_timestamp();
+            uint32_t last_known_timestamp = mram_get_last_known_timestamp();
             if (last_known_timestamp)
                rtc_set_time_from_timestamp(last_known_timestamp);
             else
@@ -218,7 +219,7 @@ int main(void)
       if (config_set_rtc_at_magnet_detect())
       {
          print("INFO: Setting RTC to the deployment start time: %u\n", config_get_deployment_start_time());
-         storage_set_last_known_timestamp(config_get_deployment_start_time());
+         mram_set_last_known_timestamp(config_get_deployment_start_time());
          rtc_set_time_from_timestamp(config_get_deployment_start_time());
       }
       system_delay(200000);

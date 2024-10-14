@@ -32,7 +32,7 @@ static am_hal_card_t sd_card;
 static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
 static volatile bool async_write_complete, async_read_complete, card_present;
-static FIL current_file, log_file, timestamp_file, imu_file;
+static FIL current_file, log_file, imu_file;
 static volatile DSTATUS sd_disk_status;
 static bool file_open, imu_file_open, is_wav_file;
 static uint8_t work_buf[FF_MAX_SS];
@@ -338,7 +338,6 @@ void storage_deinit(void)
       storage_close();
    if (imu_file_open)
       f_close(&imu_file);
-   f_close(&timestamp_file);
    f_close(&log_file);
    file_open = imu_file_open = false;
 
@@ -359,13 +358,9 @@ void storage_deinit(void)
 
 void storage_setup_logs(void)
 {
-   // Ensure that a log file and timestamp file are present on the device
+   // Ensure that a log file is present on the device
    if (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
       print("ERROR: Unable to open SD card log file for writing\n");
-   if (f_open(&timestamp_file, LAST_TIMESTAMP_FILE_NAME, FA_OPEN_APPEND | FA_WRITE | FA_READ) != FR_OK)
-      print("ERROR: Unable to open SD card timestamp file for writing\n");
-   else
-      f_lseek(&timestamp_file, 0);
 }
 
 bool storage_chdir(const char *directory)
@@ -504,25 +499,6 @@ int32_t storage_read_line(char *read_buffer, uint32_t buffer_len)
          }
    }
    return -1;
-}
-
-bool storage_set_last_known_timestamp(uint32_t timestamp)
-{
-   // Store to the persistent timestamp storage file
-   UINT data_written = 0;
-   bool success = (f_write(&timestamp_file, &timestamp, sizeof(timestamp), &data_written) == FR_OK) && (data_written == sizeof(timestamp));
-   f_lseek(&timestamp_file, 0);
-   return success;
-}
-
-uint32_t storage_get_last_known_timestamp(void)
-{
-   // Read from the timestamp file if it exists
-   UINT data_read;
-   uint32_t timestamp = 0;
-   f_read(&timestamp_file, &timestamp, sizeof(timestamp), &data_read);
-   f_lseek(&timestamp_file, 0);
-   return timestamp;
 }
 
 void storage_delete(const char *file_path)

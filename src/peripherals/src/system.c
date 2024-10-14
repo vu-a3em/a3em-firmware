@@ -8,6 +8,7 @@
 #include "led.h"
 #include "logging.h"
 #include "magnet.h"
+#include "mram.h"
 #include "rtc.h"
 #include "storage.h"
 #include "system.h"
@@ -174,6 +175,7 @@ void system_reset(void)
 void system_initialize_peripherals(void)
 {
    // Initialize peripherals and start up the RTC
+   mram_init();
    leds_init();
    rtc_init();
    vhf_init();
@@ -190,6 +192,7 @@ void system_initialize_peripherals(void)
 void system_deinitialize_peripherals(void)
 {
    // De-initialize all peripherals except for RTC and VHF
+   mram_deinit();
    storage_deinit();
    audio_deinit();
    am_hal_interrupt_master_disable();

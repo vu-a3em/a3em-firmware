@@ -24,6 +24,8 @@
 
 // Common Application Definitions --------------------------------------------------------------------------------------
 
+#define MRAM_PERSISTENT_STORAGE_ADDRESS             AM_HAL_MRAM_INSTANCE_SIZE
+
 #define DEVICE_ID_LEN                               6
 #define MAX_DEVICE_LABEL_LEN                        15
 #define MAX_AUDIO_TRIGGER_TIMES                     12
@@ -31,8 +33,6 @@
 #define MAX_CFG_FILE_LINE_LENGTH                    80
 #define MIN_LOG_DATA_INTERVAL_SECONDS               300
 
-#define LAST_TIMESTAMP_FILE_NAME                    "_a3em.timestamp"
-#define ACTIVATION_FILE_NAME                        "_a3em.active"
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define LOG_FILE_NAME                               "a3em.log"
 #define IMU_FILE_NAME                               "a3em.imu"

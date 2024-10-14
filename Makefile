@@ -99,6 +99,7 @@ SRC += imu.c
 SRC += led.c
 SRC += logging.c
 SRC += magnet.c
+SRC += mram.c
 SRC += rtc.c
 SRC += runtime_config.c
 SRC += storage.c

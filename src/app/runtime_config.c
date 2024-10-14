@@ -1,6 +1,7 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
 #include "logging.h"
+#include "mram.h"
 #include "runtime_config.h"
 #include "storage.h"
 
@@ -208,10 +209,8 @@ bool fetch_runtime_configuration(void)
       parse_line(line_buffer, line_length);
    storage_close();
 
-   // Check whether the device activation file exists
-   device_activated = storage_open(ACTIVATION_FILE_NAME, false);
-   if (device_activated)
-      storage_close();
+   // Check whether the device is currently activated
+   device_activated = mram_is_activated();
 
    // Return whether configuration parsing was successful
    ++num_deployment_phases;
@@ -232,14 +231,7 @@ bool config_is_device_activated(void)
 
 void config_set_activation_status(bool active)
 {
-   if (active)
-   {
-      storage_open(ACTIVATION_FILE_NAME, true);
-      storage_write("OPEN", 4);
-      storage_close();
-   }
-   else
-      storage_delete(ACTIVATION_FILE_NAME);
+   mram_set_activated(active);
 }
 
 bool config_gps_available(void)

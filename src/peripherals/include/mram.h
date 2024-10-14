@@ -1,0 +1,18 @@
+#ifndef __MRAM_HEADER_H__
+#define __MRAM_HEADER_H__
+
+// Header Inclusions ---------------------------------------------------------------------------------------------------
+
+#include "runtime_config.h"
+
+
+// Public API Functions ------------------------------------------------------------------------------------------------
+
+void mram_init(void);
+void mram_deinit(void);
+bool mram_set_activated(bool activated);
+bool mram_is_activated(void);
+bool mram_set_last_known_timestamp(uint32_t timestamp);
+uint32_t mram_get_last_known_timestamp(void);
+
+#endif  // #ifndef __MRAM_HEADER_H__
