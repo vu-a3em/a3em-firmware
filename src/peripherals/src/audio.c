@@ -177,6 +177,7 @@ void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, f
 void audio_deinit(void)
 {
    // Disable all interrupts and power down the AUDADC peripheral
+   am_hal_gpio_output_clear(PIN_MICROPHONE_ENABLE);
    if (audadc_handle)
    {
       NVIC_DisableIRQ(AUDADC0_IRQn);
