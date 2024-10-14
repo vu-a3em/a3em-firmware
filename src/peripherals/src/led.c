@@ -41,8 +41,9 @@ void leds_deinit(void)
 void leds_enable(bool enable)
 {
    // Enable or disable standard LED usage
-   leds_enabled = enable;
    print("INFO: LEDs are %s\n", enable ? "ENABLED" : "DISABLED");
+   leds_enabled = enable;
+   led_off(LED_ALL);
 }
 
 bool leds_are_enabled(void)
