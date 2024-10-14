@@ -32,9 +32,9 @@ static am_hal_card_t sd_card;
 static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
 static volatile bool async_write_complete, async_read_complete, card_present;
-static FIL current_file, log_file, timestamp_file;
+static FIL current_file, log_file, timestamp_file, imu_file;
 static volatile DSTATUS sd_disk_status;
-static bool file_open, is_wav_file;
+static bool file_open, imu_file_open, is_wav_file;
 static uint8_t work_buf[FF_MAX_SS];
 static uint32_t data_size;
 static char sd_card_path[4];
@@ -293,7 +293,8 @@ void am_sdio_isr(void)
 void storage_init(void)
 {
    // Initialize all static local variables
-   async_write_complete = async_read_complete = card_present = file_open = is_wav_file = false;
+   async_write_complete = async_read_complete = card_present = false;
+   file_open = imu_file_open = is_wav_file = false;
    sd_disk_status = STA_NOINIT;
 
    // Set up the SD Card configuration structure
@@ -335,8 +336,11 @@ void storage_deinit(void)
    // Close any open SD card files
    if (file_open)
       storage_close();
+   if (imu_file_open)
+      f_close(&imu_file);
    f_close(&timestamp_file);
    f_close(&log_file);
+   file_open = imu_file_open = false;
 
    // De-initialize and power down the SD card host
    if (sd_card_host)
@@ -386,6 +390,18 @@ bool storage_open(const char *file_path, bool writeable)
    data_size = 0;
    file_open = (f_open(&current_file, file_path, writeable ? (FA_CREATE_ALWAYS | FA_WRITE) : FA_READ) == FR_OK);
    return file_open;
+}
+
+bool storage_open_imu_file(void)
+{
+   // Open the IMU data file
+   if (f_open(&imu_file, IMU_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
+   {
+      print("ERROR: Unable to open SD card IMU file for writing\n");
+      return false;
+   }
+   imu_file_open = true;
+   return true;
 }
 
 bool storage_write(const void *data, uint32_t data_len)
@@ -440,6 +456,29 @@ void storage_flush_log(void)
 {
    // Flush the log file to ensure that contents are not lost upon power loss
    f_sync(&log_file);
+}
+
+bool storage_start_imu_data_stream(uint32_t timestamp, uint32_t sample_rate_hz)
+{
+   // Write an IMU data delimiter, sample rate, and timestamp
+   UINT data_written = 0;
+   static uint32_t imu_delimiter = IMU_DATA_DELIMITER;
+   return (f_write(&imu_file, &imu_delimiter, sizeof(imu_delimiter), &data_written) == FR_OK) &&
+          (f_write(&imu_file, &sample_rate_hz, sizeof(sample_rate_hz), &data_written) == FR_OK) &&
+          (f_write(&imu_file, &timestamp, sizeof(timestamp), &data_written) == FR_OK);
+}
+
+bool storage_write_imu_data(const void *data, uint32_t data_len)
+{
+   // Store to the IMU data file
+   UINT data_written = 0;
+   return (f_write(&imu_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len);
+}
+
+void storage_finish_imu_data_stream(void)
+{
+   // Flush the IMU data file to ensure contents are not lost upon power loss
+   f_sync(&imu_file);
 }
 
 uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len)

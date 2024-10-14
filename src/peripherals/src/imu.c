@@ -766,7 +766,7 @@ void imu_deinit(void)
 {
    // Disable all interrupts and put the device into power-down mode
    lis2du12_int_mode_t int_mode = { .enable = PROPERTY_DISABLE, .active_low = PROPERTY_DISABLE, .drdy_latched = 1, .base_sig = LIS2DU12_INT_LEVEL };
-   configASSERT0(lis2du12_interrupt_mode_set(&imu_context, &int_mode));
+   lis2du12_interrupt_mode_set(&imu_context, &int_mode);
    if (data_ready_callback)
       imu_enable_raw_data_output(false, 0, 0, 0, 0, NULL);
    if (motion_change_callback)

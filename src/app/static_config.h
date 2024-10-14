@@ -35,6 +35,7 @@
 #define ACTIVATION_FILE_NAME                        "_a3em.active"
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define LOG_FILE_NAME                               "a3em.log"
+#define IMU_FILE_NAME                               "a3em.imu"
 
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))
 #define MAX(a, b)                                   (((a) < (b)) ? (b) : (a))
@@ -73,6 +74,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 // IMU Sampling Definitions --------------------------------------------------------------------------------------------
 
 #define IMU_DEFAULT_SAMPLING_RATE_HZ                    25
+#define IMU_DATA_DELIMITER                              0xFFFEFDFC
 
 
 // Magnetic Sensing Definitions ----------------------------------------------------------------------------------------
