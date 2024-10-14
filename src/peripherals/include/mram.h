@@ -10,9 +10,10 @@
 
 void mram_init(void);
 void mram_deinit(void);
-bool mram_set_activated(bool activated);
+bool mram_set_activated(bool activated, uint32_t deployment_time);
 bool mram_is_activated(void);
 bool mram_set_last_known_timestamp(uint32_t timestamp);
 uint32_t mram_get_last_known_timestamp(void);
+uint32_t mram_get_deployment_start_time(void);
 
 #endif  // #ifndef __MRAM_HEADER_H__

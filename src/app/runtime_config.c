@@ -209,8 +209,13 @@ bool fetch_runtime_configuration(void)
       parse_line(line_buffer, line_length);
    storage_close();
 
-   // Check whether the device is currently activated
+   // Check whether the device is currently activated for the current deployment
    device_activated = mram_is_activated();
+   if (device_activated && mram_get_deployment_start_time() != deployment_time.start_time)
+   {
+      device_activated = false;
+      mram_set_activated(false, 0);
+   }
 
    // Return whether configuration parsing was successful
    ++num_deployment_phases;
@@ -231,7 +236,7 @@ bool config_is_device_activated(void)
 
 void config_set_activation_status(bool active)
 {
-   mram_set_activated(active);
+   mram_set_activated(active, deployment_time.start_time);
 }
 
 bool config_gps_available(void)

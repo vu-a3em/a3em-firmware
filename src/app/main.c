@@ -83,7 +83,7 @@ int main(void)
    if (device_activated)
    {
       // Check for RTC errors and attempt to correct them to allow the deployment to continue
-      //while (!rtc_is_valid())
+      while (!rtc_is_valid())
       {
          if (config_gps_available())
          {
