@@ -176,7 +176,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
    {
       // Determine if time to create a new WAV file
       const uint32_t current_time = rtc_get_timestamp();
-      const uint32_t seconds_til_next_scheduled_recording = seconds_until_next_scheduled_recording(num_schedules, schedule, current_time % 86400);
+      const uint32_t seconds_til_next_scheduled_recording = seconds_until_next_scheduled_recording(num_schedules, schedule, (uint32_t)((int32_t)current_time + config_get_utc_offset_seconds()) % 86400);
       if (!audio_clip_in_progress)
       {
          // Go to sleep if time remains until the next scheduled audio recording
@@ -206,7 +206,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
          const time_t timestamp = (time_t)current_time;
          char file_name[64] = { 0 }, time_string[24] = { 0 };
          strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
-         snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset());
+         snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset_hour());
          if (storage_open(file_name, true))
          {
             // Write the WAV file header contents
@@ -304,7 +304,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
             char file_name[64] = { 0 }, time_string[24] = { 0 };
             const time_t timestamp = (time_t)rtc_get_timestamp();
             strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
-            snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset());
+            snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset_hour());
             if (storage_open(file_name, true))
             {
                // Write the WAV file header contents

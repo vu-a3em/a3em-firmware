@@ -25,9 +25,9 @@ typedef struct {
 static char device_label[1 + MAX_DEVICE_LABEL_LEN];
 static uint32_t magnetic_field_validation_length_ms;
 static uint32_t leds_active_seconds, vhf_start_timestamp;
-static bool set_rtc_at_magnet_detect, leds_enabled, device_activated, gps_available, awake_on_magnet;
+static bool set_rtc_at_magnet_detect, vhf_enabled, leds_enabled, device_activated, gps_available, awake_on_magnet;
 static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES];
-static int32_t num_deployment_phases, utc_offset;
+static int32_t num_deployment_phases, utc_offset, utc_offset_hour;
 static float microphone_amplification_db;
 static start_end_time_t deployment_time;
 
@@ -97,6 +97,8 @@ static void parse_line(char *line, int32_t line_length)
    // Parse the configuration item according to its key
    if (memcmp(key, "DEVICE_LABEL", sizeof("DEVICE_LABEL")-1) == 0)
       strcpy(device_label, value);
+   else if (memcmp(key, "DEVICE_UTC_OFFSET_HOUR", sizeof("DEVICE_UTC_OFFSET_HOUR")-1) == 0)
+      utc_offset_hour = strtol(value, NULL, 10);
    else if (memcmp(key, "DEVICE_UTC_OFFSET", sizeof("DEVICE_UTC_OFFSET")-1) == 0)
       utc_offset = strtol(value, NULL, 10);
    else if (memcmp(key, "SET_RTC_AT_MAGNET_DETECT", sizeof("SET_RTC_AT_MAGNET_DETECT")-1) == 0)
@@ -117,6 +119,8 @@ static void parse_line(char *line, int32_t line_length)
       microphone_amplification_db = strtof(value, NULL);
    else if (memcmp(key, "MAGNET_FIELD_VALIDATION_MS", sizeof("MAGNET_FIELD_VALIDATION_MS")-1) == 0)
       magnetic_field_validation_length_ms = strtoul(value, NULL, 10);
+   else if (memcmp(key, "VHF_MODE", sizeof("VHF_MODE")-1) == 0)
+      vhf_enabled = (memcmp(value, "NEVER", sizeof("NEVER")) != 0);
    else if (memcmp(key, "VHF_RADIO_START_TIME", sizeof("VHF_RADIO_START_TIME")-1) == 0)
       vhf_start_timestamp = strtoul(value, NULL, 10);
    else if (memcmp(key, "PHASE_START_TIME", sizeof("PHASE_START_TIME")-1) == 0)
@@ -167,9 +171,9 @@ static void parse_line(char *line, int32_t line_length)
 bool fetch_runtime_configuration(void)
 {
    // Set default configuration values
-   utc_offset = 0;
    awake_on_magnet = true;
    num_deployment_phases = -1;
+   utc_offset = utc_offset_hour = 0;
    microphone_amplification_db = 35.0f;
    leds_active_seconds = vhf_start_timestamp = 0;
    set_rtc_at_magnet_detect = leds_enabled = device_activated = gps_available = false;
@@ -248,7 +252,12 @@ bool config_awake_on_magnet(void)
    return awake_on_magnet;
 }
 
-int32_t config_get_utc_offset(void)
+int32_t config_get_utc_offset_hour(void)
+{
+   return utc_offset_hour;
+}
+
+int32_t config_get_utc_offset_seconds(void)
 {
    return utc_offset;
 }
@@ -309,7 +318,7 @@ uint32_t config_get_leds_active_seconds(void)
 
 uint32_t config_get_vhf_start_timestamp(void)
 {
-   return vhf_start_timestamp;
+   return vhf_enabled ? vhf_start_timestamp : 0;
 }
 
 float config_get_mic_amplification_db(void)
