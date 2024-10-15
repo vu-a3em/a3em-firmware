@@ -58,6 +58,7 @@ void am_rtc_isr(void)
       phase_ended = true;
 
    // Check if the current phase has ended or if it is time to activate the VHF radio
+   static uint32_t previous_timestamp = 0;
    const uint32_t current_timestamp = rtc_get_timestamp();
    uint32_t wakeup_timestamp = current_timestamp + MIN_LOG_DATA_INTERVAL_SECONDS;
    if (current_timestamp >= phase_end_timestamp)
@@ -84,6 +85,14 @@ void am_rtc_isr(void)
       else
          wakeup_timestamp = MIN(wakeup_timestamp, config_get_deployment_start_time() + led_active_seconds);
    }
+
+   // Ensure that the RTC is still ticking
+   if (current_timestamp == previous_timestamp)
+   {
+      print("ERROR: RTC appears to have stopped ticking...resetting device\n");
+      phase_ended = true;
+   }
+   previous_timestamp = current_timestamp;
 
    // Log relevant current device information
    mram_set_last_known_timestamp(current_timestamp);
@@ -508,6 +517,3 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    am_hal_timer_interrupt_disable(AM_HAL_TIMER_MASK(TIMER_NUMBER_AUDIO_PROCESSING, AM_HAL_TIMER_COMPARE0));
    print("INFO: Leaving main deployment activity for Phase #%d\n", phase_index+1);
 }
-
-
-// TODO: Reset if RTC is not increasing on each tick (do we need a watchdog for this?)
