@@ -15,9 +15,7 @@ int main(void)
       battery_result_t details = battery_monitor_get_details();
       print("Battery Status: %u mV, Level is %s, Temp is %f C\n",
             details.millivolts,
-            (details.millivolts <= BATTERY_EMPTY) ? "EMPTY" :
-               (details.millivolts <= BATTERY_CRITICAL) ? "CRITICAL" :
-                  (details.millivolts <= BATTERY_LOW) ? "LOW" : "OKAY",
+            (details.millivolts <= BATTERY_DEFAULT_LOW_LEVEL_MV) ? "LOW" : "GOOD",
             details.celcius);
       am_hal_delay_us(15000000);
    }

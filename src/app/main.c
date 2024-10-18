@@ -64,11 +64,11 @@ int main(void)
 
    // Determine if the battery voltage is too low to continue
    bool battery_too_low = false;
-   while (battery_monitor_get_details().millivolts <= BATTERY_LOW)
+   while (battery_monitor_get_details().millivolts <= config_get_battery_mV_low())
    {
-      print("WARNING: Battery low...shutting down for 1 hour\n");
       const uint32_t current_timestamp = rtc_get_timestamp();
       const uint32_t vhf_enable_timestamp = config_get_vhf_start_timestamp();
+      print("WARNING: Battery low @ %u...shutting down for 1 hour\n", current_timestamp);
       const bool vhf_enabled = config_is_device_activated() && vhf_enable_timestamp && (current_timestamp >= vhf_enable_timestamp);
       if (vhf_enabled)
          vhf_activate();

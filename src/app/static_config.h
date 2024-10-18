@@ -32,6 +32,7 @@
 #define MAX_NUM_DEPLOYMENT_PHASES                   6
 #define MAX_CFG_FILE_LINE_LENGTH                    80
 #define MIN_LOG_DATA_INTERVAL_SECONDS               300
+#define NUM_SECONDS_PER_AUDIO_DIRECTORY             (4 * 60 * 60)
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define LOG_FILE_NAME                               "a3em.log"
@@ -69,6 +70,11 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define AUDIO_BUFFER_NUM_SAMPLES                        4000
 #define AUDIO_DEFAULT_SAMPLING_RATE_HZ                  20000
 #define AUDIO_DEFAULT_CLIP_LENGTH_SECONDS               10
+
+
+// Battery Monitoring Definitions -------------------------------------------------------------------------------------
+
+#define BATTERY_DEFAULT_LOW_LEVEL_MV                    3250
 
 
 // IMU Sampling Definitions --------------------------------------------------------------------------------------------
