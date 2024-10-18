@@ -1,6 +1,7 @@
 #include "audio.h"
 #include "comparator.h"
 #include "logging.h"
+#include "mram.h"
 #include "system.h"
 
 #define AUDIO_GAIN_DB                       35.0        // Max of 45.0
@@ -10,6 +11,7 @@ int main(void)
 {
    // Set up system hardware
    setup_hardware();
+   mram_init();
    audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE);
    comparator_init(false, 0, AUDIO_TRIGGER_THRESHOLD_PERCENT, true);
    system_enable_interrupts(true);

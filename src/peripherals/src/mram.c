@@ -9,7 +9,7 @@ typedef struct {
    uint32_t is_activated;
    uint32_t last_known_timestamp;
    uint32_t deployment_start_time;
-   uint32_t reserved;
+   int32_t audadc_dc_offset;
 } persistent_data_t;
 
 static persistent_data_t persistent_data;
@@ -67,4 +67,21 @@ uint32_t mram_get_deployment_start_time(void)
 {
    // Retrieve the last known deployment start time
    return persistent_data.deployment_start_time;
+}
+
+bool mram_store_audadc_dc_offset(int32_t dc_offset)
+{
+   // Store the AUDADC DC offset value to persistent memory
+   int result = -1;
+   persistent_data.audadc_dc_offset = dc_offset;
+   AM_CRITICAL_BEGIN
+   result = am_hal_mram_main_program(AM_HAL_MRAM_PROGRAM_KEY, (uint32_t*)&persistent_data, (uint32_t*)MRAM_PERSISTENT_STORAGE_ADDRESS, sizeof(persistent_data) / sizeof(uint32_t));
+   AM_CRITICAL_END
+   return (result == 0);
+}
+
+int32_t mram_get_audadc_dc_offset(void)
+{
+   // Return the AUDADC DC offset value
+   return persistent_data.audadc_dc_offset;
 }

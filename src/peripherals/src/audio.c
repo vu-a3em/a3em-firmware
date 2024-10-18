@@ -4,6 +4,7 @@
 #include "audio.h"
 #include "comparator.h"
 #include "logging.h"
+#include "mram.h"
 
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
@@ -16,6 +17,7 @@ AM_SHARED_RW uint32_t sample_buffer[(2*AUDIO_BUFFER_NUM_SAMPLES) + 3];
 
 static void *audadc_handle;
 static float pga_gain_db;
+static int16_t dc_offset;
 static uint32_t num_audio_channels, sampling_rate_hz;
 static volatile bool dma_complete = false, dma_error = false, adc_awake;
 static am_hal_offset_cal_coeffs_array_t offset_calibration;
@@ -119,6 +121,8 @@ void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, f
       am_hal_audadc_micbias_powerup((uint32_t)lroundf((mic_bias_voltage - 0.827913f) / 0.012481f));
       am_util_delay_ms(400);
    }
+   else
+      am_hal_audadc_micbias_powerdown();
 
    // Initialize the AUDADC peripheral
    adc_awake = true;
@@ -166,6 +170,7 @@ void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, f
 
    // Calculate the DC offset calibration parameters
    configASSERT0(am_hal_audadc_slot_dc_offset_calculate(audadc_handle, 2*num_channels, &offset_calibration));
+   dc_offset = mram_get_audadc_dc_offset();
 
    // Set the correct interrupt priority and put the AUDADC to sleep
    configASSERT0(am_hal_audadc_power_control(audadc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true));
@@ -251,7 +256,7 @@ bool audio_read_data(int16_t *buffer)
       const uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audadc_handle);
       for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
       {
-         buffer[i] = AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4;
+         buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4) - dc_offset;
          if (offset_calibration.sCalibCoeff[1].bValid)
          {
             offset_adjustment = offset_calibration.sCalibCoeff[1].i32DCOffsetAdj << 4;
@@ -280,7 +285,7 @@ int16_t* audio_read_data_direct(void)
       int16_t *buffer = (int16_t*)data;
       for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
       {
-         buffer[i] = AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4;
+         buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4) - dc_offset;
          if (offset_calibration.sCalibCoeff[1].bValid)
          {
             offset_adjustment = offset_calibration.sCalibCoeff[1].i32DCOffsetAdj << 4;
