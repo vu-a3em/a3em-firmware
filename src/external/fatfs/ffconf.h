@@ -114,7 +114,7 @@
 
 
 #define FF_USE_LFN		1
-#define FF_MAX_LFN		255
+#define FF_MAX_LFN		128
 /* The FF_USE_LFN switches the support for LFN (long file name).
 /
 /   0: Disable LFN. FF_MAX_LFN has no effect.
@@ -145,7 +145,7 @@
 /  When LFN is not enabled, this option has no effect. */
 
 
-#define FF_LFN_BUF		255
+#define FF_LFN_BUF		128
 #define FF_SFN_BUF		12
 /* This set of options defines size of file name members in the FILINFO structure
 /  which is used to read out directory items. These values should be suffcient for
@@ -231,7 +231,7 @@
 /  buffer in the filesystem object (FATFS) is used for the file data transfer. */
 
 
-#define FF_FS_EXFAT		0
+#define FF_FS_EXFAT		1
 /* This option switches support for exFAT filesystem. (0:Disable or 1:Enable)
 /  To enable exFAT, also LFN needs to be enabled. (FF_USE_LFN >= 1)
 /  Note that enabling exFAT discards ANSI C (C89) compatibility. */
@@ -263,7 +263,7 @@
 */
 
 
-#define FF_FS_LOCK		5
+#define FF_FS_LOCK		4
 /* The option FF_FS_LOCK switches file lock function to control duplicated file open
 /  and illegal operation to open objects. This option must be 0 when FF_FS_READONLY
 /  is 1.
