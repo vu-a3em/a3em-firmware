@@ -405,7 +405,7 @@ bool storage_open_wav_file(const char *device_label, uint32_t num_channels, uint
       curr_time->tm_hour = (curr_time->tm_hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY;
       size_t label_len = strlen(device_label);
       memset(audio_directory, 0, sizeof(audio_directory));
-      strncpy(audio_directory, device_label, label_len);
+      strncpy(audio_directory, device_label, label_len + 1);
       strftime(audio_directory + label_len, sizeof(audio_directory) - label_len, "/%F", curr_time);
       if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
          print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);

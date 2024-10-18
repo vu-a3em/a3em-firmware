@@ -211,7 +211,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
          audio_timer_triggered = false;
 
          // Generate a new audio file using the current date and time
-         if (storage_open_wav_file(device_label, (int)config_get_utc_offset_hour(), AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+         if (storage_open_wav_file(device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
          {
             // Signal start of a new audio clip
             audio_clip_in_progress = true;
@@ -304,7 +304,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          if (!audio_clip_in_progress)
          {
             // Generate a new audio file using the current date and time
-            if (storage_open_wav_file(device_label, (int)config_get_utc_offset_hour(), AUDIO_NUM_CHANNELS, sampling_rate, rtc_get_timestamp()))
+            if (storage_open_wav_file(device_label, AUDIO_NUM_CHANNELS, sampling_rate, rtc_get_timestamp()))
             {
                // Signal start of a new audio clip
                audio_clip_in_progress = true;
