@@ -27,12 +27,13 @@
 #define MRAM_PERSISTENT_STORAGE_ADDRESS             AM_HAL_MRAM_INSTANCE_SIZE
 
 #define DEVICE_ID_LEN                               6
-#define MAX_DEVICE_LABEL_LEN                        15
+#define MAX_DEVICE_LABEL_LEN                        31
 #define MAX_AUDIO_TRIGGER_TIMES                     12
 #define MAX_NUM_DEPLOYMENT_PHASES                   6
 #define MAX_CFG_FILE_LINE_LENGTH                    80
 #define MIN_LOG_DATA_INTERVAL_SECONDS               300
-#define NUM_SECONDS_PER_AUDIO_DIRECTORY             (4 * 60 * 60)
+#define NUM_HOURS_PER_AUDIO_DIRECTORY               4
+#define NUM_SECONDS_PER_AUDIO_DIRECTORY             (NUM_HOURS_PER_AUDIO_DIRECTORY * 60 * 60)
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define LOG_FILE_NAME                               "a3em.log"

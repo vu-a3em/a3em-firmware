@@ -31,7 +31,7 @@ static am_hal_audadc_dma_config_t audadc_dma_config =
 static am_hal_audadc_irtt_config_t audadc_irtt_config =
 {
    .bIrttEnable        = true,
-   .eClkDiv            = AM_HAL_AUDADC_RPTT_CLK_DIV32,
+   .eClkDiv            = AM_HAL_AUDADC_RPTT_CLK_DIV8,
    .ui32IrttCountMax   = 0
 };
 
@@ -128,7 +128,7 @@ void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, f
    // Set up the trigger timer and DMA configuration structures
    sampling_rate_hz = sample_rate_hz;
    const float sample_rate_khz = (float)sample_rate_hz / 1000.0;
-   audadc_irtt_config.ui32IrttCountMax = (uint32_t)lroundf((1500.0f / sample_rate_khz) - 1.0f);   // Sample rate = eClock/eClkDiv/(ui32IrttCountMax+1)
+   audadc_irtt_config.ui32IrttCountMax = (uint32_t)lroundf((6000.0f / sample_rate_khz) - 1.0f);   // Sample rate = eClock/eClkDiv/(ui32IrttCountMax+1)
    audadc_dma_config.ui32TargetAddress = (uint32_t)((uint32_t)(sample_buffer + 3) & ~0xF);
    audadc_dma_config.ui32TargetAddressReverse = audadc_dma_config.ui32TargetAddress + (sizeof(uint32_t) * audadc_dma_config.ui32SampleCount);
 

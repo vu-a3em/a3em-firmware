@@ -1,5 +1,3 @@
-#include <stdio.h>
-#include <time.h>
 #include "audio.h"
 #include "battery.h"
 #include "comparator.h"
@@ -54,7 +52,7 @@ void am_rtc_isr(void)
 
    // Check if the battery voltage is too low to continue
    const battery_result_t battery_details = battery_monitor_get_details();
-   if (battery_details.millivolts <= BATTERY_LOW)
+   if (battery_details.millivolts <= config_get_battery_mV_low())
       phase_ended = true;
 
    // Check if the current phase has ended or if it is time to activate the VHF radio
@@ -212,15 +210,10 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
          }
          audio_timer_triggered = false;
 
-         // Generate a file name from the current date and time
-         const time_t timestamp = (time_t)current_time;
-         char file_name[64] = { 0 }, time_string[24] = { 0 };
-         strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
-         snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset_hour());
-         if (storage_open(file_name, true))
+         // Generate a new audio file using the current date and time
+         if (storage_open_wav_file(device_label, (int)config_get_utc_offset_hour(), AUDIO_NUM_CHANNELS, sampling_rate, current_time))
          {
-            // Write the WAV file header contents
-            storage_write_wav_header(AUDIO_NUM_CHANNELS, sampling_rate);
+            // Signal start of a new audio clip
             audio_clip_in_progress = true;
             led_indicate_clip_begin();
 
@@ -246,11 +239,11 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          led_indicate_clip_progress();
-         storage_write(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
+         storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
          if (++num_audio_reads >= num_reads_per_clip)
          {
             // Finalize the current WAV file and stop reading if interval-based or if the current schedule has ended
-            storage_close();
+            storage_close_audio();
             if (interval_based || (num_schedules && seconds_til_next_scheduled_recording))
             {
                audio_stop_reading();
@@ -274,7 +267,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
 
    // Ensure that the most recent audio file has been gracefully closed
    led_indicate_clip_end();
-   storage_close();
+   storage_close_audio();
 }
 
 static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_seconds_per_clip, uint32_t max_clips, uint32_t per_num_seconds, float trigger_threshold)
@@ -310,15 +303,10 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          // Create a WAV file if this is a new audio clip
          if (!audio_clip_in_progress)
          {
-            // Generate a file name from the current date and time
-            char file_name[64] = { 0 }, time_string[24] = { 0 };
-            const time_t timestamp = (time_t)rtc_get_timestamp();
-            strftime(time_string, sizeof(time_string), "%F %H-%M-%S", gmtime(&timestamp));
-            snprintf(file_name, sizeof(file_name), "%s/%s_%+03d.wav", device_label, time_string, (int)config_get_utc_offset_hour());
-            if (storage_open(file_name, true))
+            // Generate a new audio file using the current date and time
+            if (storage_open_wav_file(device_label, (int)config_get_utc_offset_hour(), AUDIO_NUM_CHANNELS, sampling_rate, rtc_get_timestamp()))
             {
-               // Write the WAV file header contents
-               storage_write_wav_header(AUDIO_NUM_CHANNELS, sampling_rate);
+               // Signal start of a new audio clip
                audio_clip_in_progress = true;
                led_indicate_clip_begin();
 
@@ -333,7 +321,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
 
          // Store the audio data to the WAV file
          led_indicate_clip_progress();
-         storage_write(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
+         storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
          if (++num_audio_reads >= num_reads_per_clip)
          {
             awaiting_trigger = audio_clip_in_progress = false;
@@ -341,7 +329,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
             audio_stop_reading();
             num_audio_reads = 0;
             ++num_clips_stored;
-            storage_close();
+            storage_close_audio();
 
             // Stop reading IMU data if enabled
             if (record_imu_with_audio)
@@ -357,7 +345,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
 
    // Ensure that the most recent audio file has been gracefully closed
    led_indicate_clip_end();
-   storage_close();
+   storage_close_audio();
 }
 
 

@@ -1,5 +1,7 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
+#include <stdio.h>
+#include <time.h>
 #include "diskio.h"
 #include "logging.h"
 #include "storage.h"
@@ -31,13 +33,12 @@ static FATFS file_system;
 static am_hal_card_t sd_card;
 static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
+static bool file_open, imu_file_open, audio_file_open;
 static volatile bool async_write_complete, async_read_complete, card_present;
-static FIL current_file, log_file, imu_file;
+static FIL current_file, log_file, imu_file, audio_file;
+static uint32_t audio_directory_timestamp, data_size;
 static volatile DSTATUS sd_disk_status;
-static bool file_open, imu_file_open, is_wav_file;
 static uint8_t work_buf[FF_MAX_SS];
-static uint32_t data_size;
-static char sd_card_path[4];
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -294,7 +295,8 @@ void storage_init(void)
 {
    // Initialize all static local variables
    async_write_complete = async_read_complete = card_present = false;
-   file_open = imu_file_open = is_wav_file = false;
+   file_open = imu_file_open = audio_file_open = false;
+   audio_directory_timestamp = 0;
    sd_disk_status = STA_NOINIT;
 
    // Set up the SD Card configuration structure
@@ -324,8 +326,10 @@ void storage_init(void)
    am_hal_gpio_output_set(PIN_SD_CARD_ENABLE);
 
    // Mount and initialize the file system on the SD card
+   char sd_card_path[4];
+   const MKFS_PARM opts = { .fmt = FM_EXFAT, .n_fat = 0, .align = 0, .n_root = 0, .au_size = 4096 };
    FRESULT res = f_mount(&file_system, (TCHAR const*)sd_card_path, 0);
-   if ((res == FR_NO_FILESYSTEM) && ((res = f_mkfs((TCHAR const*)sd_card_path, 0, work_buf, sizeof(work_buf))) != FR_OK))
+   if ((res == FR_NO_FILESYSTEM) && ((res = f_mkfs((TCHAR const*)sd_card_path, &opts, work_buf, sizeof(work_buf))) != FR_OK))
       print("ERROR: Unable to create a file system on the SD card\n");
    else if (res != FR_OK)
       print("ERROR: Unable to mount the SD card file system\n");
@@ -334,12 +338,13 @@ void storage_init(void)
 void storage_deinit(void)
 {
    // Close any open SD card files
-   if (file_open)
-      storage_close();
    if (imu_file_open)
       f_close(&imu_file);
+   storage_close();
+   storage_close_audio();
    f_close(&log_file);
-   file_open = imu_file_open = false;
+   file_open = imu_file_open = audio_file_open = false;
+   audio_directory_timestamp = 0;
 
    // De-initialize and power down the SD card host
    if (sd_card_host)
@@ -363,11 +368,6 @@ void storage_setup_logs(void)
       print("ERROR: Unable to open SD card log file for writing\n");
 }
 
-bool storage_chdir(const char *directory)
-{
-   return (f_chdir(directory) == FR_OK);
-}
-
 bool storage_mkdir(const char *directory)
 {
    // Attempt to create the specified directory if it does not exist
@@ -382,60 +382,101 @@ bool storage_open(const char *file_path, bool writeable)
       storage_close();
 
    // Open the requested file
-   data_size = 0;
    file_open = (f_open(&current_file, file_path, writeable ? (FA_CREATE_ALWAYS | FA_WRITE) : FA_READ) == FR_OK);
    return file_open;
 }
 
+bool storage_open_wav_file(const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time)
+{
+   // Close an already-opened audio file
+   if (audio_file_open)
+      storage_close_audio();
+
+   // Determine if time to create a new audio storage directory
+   const time_t timestamp = (time_t)current_time;
+   struct tm *curr_time = gmtime(&timestamp);
+   static char time_string[24] = { 0 }, audio_directory[MAX_DEVICE_LABEL_LEN + 16] = { 0 };
+   strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
+   if ((current_time - audio_directory_timestamp) >= NUM_SECONDS_PER_AUDIO_DIRECTORY)
+   {
+      // Generate a new directory name from the current date and time
+      static FILINFO file_info;
+      curr_time->tm_min = curr_time->tm_sec = 0;
+      curr_time->tm_hour = (curr_time->tm_hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY;
+      size_t label_len = strlen(device_label);
+      memset(audio_directory, 0, sizeof(audio_directory));
+      strncpy(audio_directory, device_label, label_len);
+      strftime(audio_directory + label_len, sizeof(audio_directory) - label_len, "/%F", curr_time);
+      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+      strftime(audio_directory + label_len, sizeof(audio_directory) - label_len, "/%F/%H", curr_time);
+      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+      audio_directory_timestamp = (uint32_t)mktime(curr_time);
+   }
+
+   // Open the requested file
+   data_size = 0;
+   static char file_name[FF_MAX_LFN] = { 0 };
+   snprintf(file_name, sizeof(file_name), "%s/%s.wav", audio_directory, time_string);
+   audio_file_open = (f_open(&audio_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+
+   // Write the WAV header segment
+   if (audio_file_open)
+   {
+      uint32_t field = 36, bytes_per_sample = 2;
+      bool success = storage_write_audio("RIFF", 4);
+      success = success && storage_write_audio(&field, 4);
+      success = success && storage_write_audio("WAVE", 4);
+      success = success && storage_write_audio("fmt ", 4);
+      field = 16;
+      success = success && storage_write_audio(&field, 4);
+      field = 1;
+      success = success && storage_write_audio(&field, 2);
+      success = success && storage_write_audio(&num_channels, 2);
+      success = success && storage_write_audio(&sample_rate_hz, 4);
+      field = sample_rate_hz * num_channels * bytes_per_sample;
+      success = success && storage_write_audio(&field, 4);
+      field = num_channels * bytes_per_sample;
+      success = success && storage_write_audio(&field, 2);
+      field = 8 * bytes_per_sample;
+      success = success && storage_write_audio(&field, 2);
+      success = success && storage_write_audio("data", 4);
+      success = success && storage_write_audio(&field, 4);
+      data_size = 0;
+      if (!success)
+         storage_close_audio();
+   }
+   return audio_file_open;
+}
+
 bool storage_open_imu_file(void)
 {
-   // Open the IMU data file
-   if (f_open(&imu_file, IMU_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
-   {
+   // Open an IMU data file if one is not already open
+   if (!imu_file_open)
+      imu_file_open = (f_open(&imu_file, IMU_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) == FR_OK);
+   if (!imu_file_open)
       print("ERROR: Unable to open SD card IMU file for writing\n");
-      return false;
-   }
-   imu_file_open = true;
-   return true;
+   return imu_file_open;
 }
 
 bool storage_write(const void *data, uint32_t data_len)
 {
    // Write the requested data to the currently open file
    UINT data_written = 0;
-   if (file_open && (f_write(&current_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len))
+   return file_open && (f_write(&current_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len);
+}
+
+bool storage_write_audio(const void *data, uint32_t data_len)
+{
+   // Write the requested data to the currently open audio file
+   UINT data_written = 0;
+   if (audio_file_open && (f_write(&audio_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len))
    {
       data_size += data_len;
       return true;
    }
    return false;
-}
-
-bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz)
-{
-   // Write the WAV header segment
-   uint32_t field = 36, bytes_per_sample = 2;
-   is_wav_file = true;
-   bool success = storage_write("RIFF", 4);
-   success = success && storage_write(&field, 4);
-   success = success && storage_write("WAVE", 4);
-   success = success && storage_write("fmt ", 4);
-   field = 16;
-   success = success && storage_write(&field, 4);
-   field = 1;
-   success = success && storage_write(&field, 2);
-   success = success && storage_write(&num_channels, 2);
-   success = success && storage_write(&sample_rate_hz, 4);
-   field = sample_rate_hz * num_channels * bytes_per_sample;
-   success = success && storage_write(&field, 4);
-   field = num_channels * bytes_per_sample;
-   success = success && storage_write(&field, 2);
-   field = 8 * bytes_per_sample;
-   success = success && storage_write(&field, 2);
-   success = success && storage_write("data", 4);
-   success = success && storage_write(&field, 4);
-   data_size = 0;
-   return success;
 }
 
 void storage_write_log(const char *fmt, ...)
@@ -467,7 +508,7 @@ bool storage_write_imu_data(const void *data, uint32_t data_len)
 {
    // Store to the IMU data file
    UINT data_written = 0;
-   return (f_write(&imu_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len);
+   return imu_file_open && (f_write(&imu_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len);
 }
 
 void storage_finish_imu_data_stream(void)
@@ -507,21 +548,27 @@ void storage_delete(const char *file_path)
    f_unlink(file_path);
 }
 
+void storage_close_audio(void)
+{
+   // Finalize and close the currently open audio file
+   if (audio_file_open)
+   {
+      f_lseek(&audio_file, 4);
+      uint32_t field = 36 + data_size;
+      storage_write_audio(&field, 4);
+      f_lseek(&audio_file, 40);
+      storage_write_audio(&data_size, 4);
+      f_close(&audio_file);
+      audio_file_open = false;
+   }
+}
+
 void storage_close(void)
 {
    // Close the currently open file
    if (file_open)
    {
-      if (is_wav_file)
-      {
-         f_lseek(&current_file, 4);
-         uint32_t field = 36 + data_size;
-         storage_write(&field, 4);
-         f_lseek(&current_file, 40);
-         storage_write(&data_size, 4);
-
-      }
       f_close(&current_file);
-      file_open = is_wav_file = false;
+      file_open = false;
    }
 }

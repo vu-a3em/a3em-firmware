@@ -16,7 +16,7 @@ int main(void)
 
    // Open a new WAV file and immediately begin reading continuous audio
    uint32_t num_audio_reads = 0;
-   if (storage_open("wav_test.wav", true) && storage_write_wav_header(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ))
+   if (storage_mkdir("wav_test") && storage_open_wav_file("wav_test", AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 1729274454))
       print("Opening \"wav_test.wav\" for writing\n");
    else
       print("ERROR: Unable to open WAV file for writing\n");
@@ -36,13 +36,13 @@ int main(void)
       // Store any newly available audio data
       if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
-         bool success = storage_write(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
+         bool success = storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
          print("%s: %u\n", success ? "Wrote audio data" : "ERROR writing audio data", num_audio_reads+1);
          if (++num_audio_reads >= num_reads_per_clip)
          {
             // Stop reading audio and close the WAV file
             audio_stop_reading();
-            storage_close();
+            storage_close_audio();
             print("WAV file successfully written!\n");
          }
       }
