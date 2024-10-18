@@ -161,6 +161,7 @@ void setup_hardware(void)
    am_hal_cachectrl_disable();
 
    // Set up printing to the console
+   mram_init();
    logging_init();
    print_reset_reason(&reset_reason);
 }
@@ -175,7 +176,6 @@ void system_reset(void)
 void system_initialize_peripherals(void)
 {
    // Initialize peripherals and start up the RTC
-   mram_init();
    leds_init();
    rtc_init();
    vhf_init();

@@ -1,13 +1,11 @@
 #include "audio.h"
 #include "logging.h"
-#include "mram.h"
 #include "system.h"
 
 int main(void)
 {
    // Set up the system hardware
    setup_hardware();
-   mram_init();
    audio_init(AUDIO_NUM_CHANNELS, 40000, 35.0f, AUDIO_MIC_BIAS_VOLTAGE);
    system_enable_interrupts(true);
 

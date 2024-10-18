@@ -1,6 +1,5 @@
 #include "audio.h"
 #include "logging.h"
-#include "mram.h"
 #include "storage.h"
 #include "system.h"
 
@@ -11,7 +10,6 @@ int main(void)
 {
    // Set up the system hardware
    setup_hardware();
-   mram_init();
    storage_init();
    audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 35.0f, AUDIO_MIC_BIAS_VOLTAGE);
    system_enable_interrupts(true);
