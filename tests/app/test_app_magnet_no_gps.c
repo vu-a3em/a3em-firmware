@@ -2,6 +2,7 @@
 #include "led.h"
 #include "logging.h"
 #include "magnet.h"
+#include "mram.h"
 #include "rtc.h"
 #include "storage.h"
 #include "system.h"
@@ -67,7 +68,7 @@ int main(void)
    leds_enable(config_get_leds_enabled());
 
    // Determine if the battery voltage is too low to continue
-   while (battery_monitor_get_details().millivolts <= BATTERY_LOW)
+   while (battery_monitor_get_details().millivolts <= config_get_battery_mV_low())
    {
       print("WARNING: Battery low...shutting down for 1 hour\n");
       const uint32_t current_timestamp = rtc_get_timestamp();
@@ -86,7 +87,7 @@ int main(void)
       if (!rtc_is_valid())
       {
          // Log this error and set the RTC to the last known timestamp
-         uint32_t last_known_timestamp = storage_get_last_known_timestamp();
+         uint32_t last_known_timestamp = mram_get_last_known_timestamp();
          print("ERROR: RTC time appears to have been lost...setting to last known timestamp: %u\n", last_known_timestamp);
          rtc_set_time_from_timestamp(last_known_timestamp);
       }

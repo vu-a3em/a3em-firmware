@@ -1,5 +1,4 @@
 #include "audio.h"
-#include "comparator.h"
 #include "logging.h"
 #include "system.h"
 
@@ -16,8 +15,7 @@ int main(void)
 {
    // Set up the system hardware
    setup_hardware();
-   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE);
-   comparator_init(false, 0, AUDIO_TRIGGER_THRESHOLD_PERCENT, true);
+   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, AUDIO_READ_TRIGGER, AUDIO_TRIGGER_THRESHOLD_PERCENT);
    system_enable_interrupts(true);
 
    // Loop forever handling incoming audio clips
@@ -31,7 +29,7 @@ int main(void)
       if (!audio_clip_in_progress)
       {
          print("Initializing audio read trigger\n");
-         audio_begin_reading(AUDIO_READ_TRIGGER);
+         audio_begin_reading();
          audio_clip_in_progress = true;
       }
 

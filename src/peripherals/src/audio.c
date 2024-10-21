@@ -5,6 +5,7 @@
 #include "comparator.h"
 #include "logging.h"
 #include "mram.h"
+#include "system.h"
 
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
@@ -18,6 +19,7 @@ AM_SHARED_RW uint32_t sample_buffer[(2*AUDIO_BUFFER_NUM_SAMPLES) + 3];
 static void *audadc_handle;
 static float pga_gain_db;
 static int16_t dc_offset;
+static audio_trigger_t trigger_criterion;
 static uint32_t num_audio_channels, sampling_rate_hz;
 static volatile bool dma_complete = false, dma_error = false, adc_awake;
 static am_hal_offset_cal_coeffs_array_t offset_calibration;
@@ -43,7 +45,8 @@ static am_hal_audadc_irtt_config_t audadc_irtt_config =
 void audio_adc_start(void)
 {
    // Wake up the AUDADC peripheral
-   configASSERT0(am_hal_audadc_power_control(audadc_handle, AM_HAL_SYSCTRL_WAKE, true));
+   if (!adc_awake)
+      configASSERT0(am_hal_audadc_power_control(audadc_handle, AM_HAL_SYSCTRL_WAKE, true));
    AUDADCn(0)->DATAOFFSET = ((AUDADC->DATAOFFSET & ~AUDADC_DATAOFFSET_OFFSET_Msk) | _VAL2FLD(AUDADC_DATAOFFSET_OFFSET, 0x1800));
    adc_awake = true;
 
@@ -89,7 +92,7 @@ void am_audadc0_isr(void)
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
-void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, float mic_bias_voltage)
+void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, float mic_bias_voltage, audio_trigger_t trigger, float trigger_threshold_percent)
 {
    // Turn on the external microphone
    const am_hal_gpio_pincfg_t mic_en_config = AM_HAL_GPIO_PINCFG_OUTPUT;
@@ -168,20 +171,37 @@ void audio_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, f
       configASSERT0(am_hal_audadc_configure_slot(audadc_handle, 2*i + 1, &audadc_slot_config));
    }
 
-   // Calculate the DC offset calibration parameters
-   configASSERT0(am_hal_audadc_slot_dc_offset_calculate(audadc_handle, 2*num_channels, &offset_calibration));
-   dc_offset = mram_get_audadc_dc_offset();
-
-   // Set the correct interrupt priority and put the AUDADC to sleep
-   configASSERT0(am_hal_audadc_power_control(audadc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true));
+   // Set the correct interrupt priority
+   trigger_criterion = trigger;
    NVIC_SetPriority(AUDADC0_IRQn, AUDIO_ADC_INTERRUPT_PRIORITY);
    NVIC_EnableIRQ(AUDADC0_IRQn);
-   adc_awake = false;
+   system_enable_interrupts(true);
+
+   // Temporarily start the ADC to internally initialize the PGAs and optionally connect them to a comparator
+   audio_adc_start();
+   for (uint32_t num_audio_reads = 0; num_audio_reads < 2; )
+   {
+      if (dma_error)
+         system_reset();
+      else if (!dma_complete)
+         system_enter_deep_sleep_mode();
+      if (audio_read_data_direct())
+      {
+         if (!num_audio_reads++ && (trigger == COMPARATOR_THRESHOLD))
+            comparator_init(false, 0, trigger_threshold_percent, true);
+      }
+   }
+
+   // Calculate the DC offset calibration parameters and put the AUDADC to sleep
+   configASSERT0(am_hal_audadc_slot_dc_offset_calculate(audadc_handle, 2*num_channels, &offset_calibration));
+   dc_offset = mram_get_audadc_dc_offset();
+   audio_stop_reading();
 }
 
 void audio_deinit(void)
 {
    // Disable all interrupts and power down the AUDADC peripheral
+   comparator_deinit();
    am_hal_gpio_output_clear(PIN_MICROPHONE_ENABLE);
    if (audadc_handle)
    {
@@ -212,10 +232,10 @@ uint32_t audio_num_reads_per_n_seconds(uint32_t seconds)
    return MAX(1, seconds * (sampling_rate_hz / AUDIO_BUFFER_NUM_SAMPLES));
 }
 
-void audio_begin_reading(audio_trigger_t criterion)
+void audio_begin_reading(void)
 {
    // Trigger the next AUDADC conversion
-   if (criterion == IMMEDIATE)
+   if (trigger_criterion == IMMEDIATE)
       audio_adc_start();
    else
       comparator_start();

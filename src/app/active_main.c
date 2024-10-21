@@ -228,7 +228,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
             // Trigger reading audio samples if currently stopped
             if (!reading_audio)
             {
-               audio_begin_reading(IMMEDIATE);
+               audio_begin_reading();
                reading_audio = true;
             }
          }
@@ -271,7 +271,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
    storage_close_audio();
 }
 
-static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_seconds_per_clip, uint32_t max_clips, uint32_t per_num_seconds, float trigger_threshold)
+static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_seconds_per_clip, uint32_t max_clips, uint32_t per_num_seconds)
 {
    // Initialize all necessary local variables
    const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(num_seconds_per_clip);
@@ -292,7 +292,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
       // Determine if time to start listening for a new audio clip
       if (!awaiting_trigger && !audio_clip_in_progress && (num_clips_stored < max_clips))
       {
-         audio_begin_reading(COMPARATOR_THRESHOLD);
+         audio_begin_reading();
          awaiting_trigger = true;
       }
 
@@ -365,6 +365,8 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
 
    // Validate device settings (and implicitly set an RTC alarm for the next important event)
    device_active = device_activated;
+   vhf_enable_timestamp = config_get_vhf_start_timestamp();
+   led_active_seconds = config_get_leds_active_seconds();
    phase_end_timestamp = config_get_end_time(phase_index);
    validate_device_settings(rtc_get_timestamp());
 
@@ -405,7 +407,6 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    // Determine how to schedule audio clip recordings
    audio_timer_triggered = false;
    const uint32_t audio_sampling_rate_hz = config_get_audio_sampling_rate_hz(phase_index);
-   audio_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE);
    const uint32_t num_seconds_per_clip = config_get_audio_clip_length_seconds(phase_index);
    switch (config_get_audio_recording_mode(phase_index))
    {
@@ -414,7 +415,6 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
          time_scale_t unit_time;
          uint32_t max_num_clips, max_clips_interval_seconds;
          config_get_max_audio_clips(phase_index, &max_num_clips, &unit_time);
-         float audio_trigger_threshold = config_get_audio_trigger_threshold(phase_index);
          bool allow_extended_audio_clips = config_extend_clip_for_continuous_audio(phase_index);
          switch (unit_time)
          {
@@ -432,13 +432,15 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                max_clips_interval_seconds = 1;
                break;
          }
-         process_audio_triggered(allow_extended_audio_clips, audio_sampling_rate_hz, num_seconds_per_clip, max_num_clips, max_clips_interval_seconds, audio_trigger_threshold);
+         audio_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, COMPARATOR_THRESHOLD, config_get_audio_trigger_threshold(phase_index));
+         process_audio_triggered(allow_extended_audio_clips, audio_sampling_rate_hz, num_seconds_per_clip, max_num_clips, max_clips_interval_seconds);
          break;
       }
       case SCHEDULED:
       {
          start_end_time_t *schedule;
          uint32_t num_schedules = config_get_audio_trigger_schedule(phase_index, &schedule);
+         audio_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
          process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, SECONDS, false, 0, num_schedules, schedule);
          break;
       }
@@ -463,11 +465,13 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                audio_recording_interval *= 1;
                break;
          }
+         audio_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
          process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, unit_time, true, (int32_t)audio_recording_interval, 0, NULL);
          break;
       }
       case CONTINUOUS:  // Intentional fall-through
       default:
+         audio_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
          process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, SECONDS, false, 0, 0, NULL);
          break;
    }

@@ -11,7 +11,7 @@ int main(void)
    // Set up the system hardware
    setup_hardware();
    storage_init();
-   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 35.0f, AUDIO_MIC_BIAS_VOLTAGE);
+   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 35.0f, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
    system_enable_interrupts(true);
 
    // Open a new WAV file and immediately begin reading continuous audio
@@ -20,7 +20,7 @@ int main(void)
       print("Opening \"wav_test.wav\" for writing\n");
    else
       print("ERROR: Unable to open WAV file for writing\n");
-   audio_begin_reading(IMMEDIATE);
+   audio_begin_reading();
 
    // Loop forever handling incoming audio clips
    const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(DESIRED_CLIP_LENGTH_SECONDS);

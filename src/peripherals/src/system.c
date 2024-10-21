@@ -2,7 +2,6 @@
 
 #include "audio.h"
 #include "battery.h"
-#include "comparator.h"
 #include "henrik.h"
 #include "imu.h"
 #include "led.h"
@@ -184,7 +183,6 @@ void system_initialize_peripherals(void)
    henrik_init();
    magnet_sensor_init();
    battery_monitor_init();
-   comparator_init(false, 0, 1.0, true);
    system_enable_interrupts(true);
    storage_setup_logs();
 }
@@ -197,7 +195,6 @@ void system_deinitialize_peripherals(void)
    audio_deinit();
    am_hal_interrupt_master_disable();
    henrik_deinit();
-   comparator_deinit();
    imu_deinit();
    magnet_sensor_deinit();
    battery_monitor_deinit();
