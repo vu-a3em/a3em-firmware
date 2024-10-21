@@ -60,6 +60,8 @@ int main(void)
    bool success = fetch_runtime_configuration();
    print("INFO: Fetching runtime configuration...%s\n", success ? "SUCCESS" : "FAILURE (Using defaults)");
    const bool use_magnetic_activation = config_awake_on_magnet();
+   if (storage_sd_card_error())
+      led_indicate_sd_card_error();
    leds_enable(config_get_leds_enabled());
 
    // Determine if the battery voltage is too low to continue
@@ -72,7 +74,7 @@ int main(void)
       const bool vhf_enabled = config_is_device_activated() && vhf_enable_timestamp && (current_timestamp >= vhf_enable_timestamp);
       if (vhf_enabled)
          vhf_activate();
-      system_enter_power_off_mode(use_magnetic_activation ? PIN_MAG_SENSOR_INP : 0, current_timestamp + 3600, true);
+      system_enter_power_off_mode(PIN_MAG_SENSOR_INP, current_timestamp + 3600, true);
       battery_too_low = true;
    }
    if (battery_too_low)

@@ -257,6 +257,8 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
    // Enable interrupts and enter Deep Sleep mode
    am_hal_interrupt_master_enable();
    am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);
+
+   // Reinitialize select peripherals upon waking from Deep Sleep mode, if requested
    if (reinit_on_wakeup)
    {
       logging_init();

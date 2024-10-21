@@ -7,7 +7,7 @@
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
-static bool leds_enabled, leds_initialized = false;
+static bool leds_enabled = false, leds_initialized = false;
 static const am_devices_led_t leds[] = {
    {PIN_LED_RED,    AM_DEVICES_LED_ON_LOW | AM_DEVICES_LED_POL_OPEN_DRAIN},
    {PIN_LED_GREEN,  AM_DEVICES_LED_ON_LOW | AM_DEVICES_LED_POL_OPEN_DRAIN},
@@ -148,12 +148,18 @@ void led_indicate_clip_end(void)
       led_off(LED_ALL);
 }
 
-void led_indicate_error(void)
+void led_indicate_sd_card_error(void)
 {
    if (leds_enabled)
    {
-      led_off(LED_GREEN);
-      led_on(LED_RED);
+      led_off(LED_ALL);
+      for (int i = 0; i < 8; ++i)
+      {
+         led_on(LED_RED);
+         system_delay(150000);
+         led_off(LED_RED);
+         system_delay(100000);
+      }
    }
 }
 

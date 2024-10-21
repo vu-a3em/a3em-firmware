@@ -65,7 +65,6 @@ DSTATUS disk_initialize(BYTE)
    }
 
    // Initialize the SD card
-   card_present = true;
    if (am_hal_card_init(&sd_card, sd_card_config.card_type, NULL, sd_card_config.card_power_ctrl_policy) != AM_HAL_STATUS_SUCCESS)
    {
       print("ERROR: SD card is not ready...\n");
@@ -105,6 +104,7 @@ DSTATUS disk_initialize(BYTE)
    NVIC_SetPriority(SDIO_IRQn, STORAGE_INTERRUPT_PRIORITY);
 
    // Return an initialized disk status
+   card_present = true;
    sd_disk_status &= ~STA_NOINIT;
    return sd_disk_status;
 }
@@ -366,6 +366,11 @@ void storage_setup_logs(void)
    // Ensure that a log file is present on the device
    if (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
       print("ERROR: Unable to open SD card log file for writing\n");
+}
+
+bool storage_sd_card_error(void)
+{
+   return !card_present;
 }
 
 bool storage_mkdir(const char *directory)

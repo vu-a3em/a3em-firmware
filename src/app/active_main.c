@@ -5,7 +5,6 @@
 #include "imu.h"
 #include "led.h"
 #include "logging.h"
-#include "magnet.h"
 #include "mram.h"
 #include "rtc.h"
 #include "storage.h"
@@ -38,27 +37,15 @@ static uint32_t seconds_until_next_scheduled_recording(uint32_t num_schedules, s
    return num_schedules ? (86400 - current_seconds_of_day + schedule[0].start_time) : 0;
 }
 
-
-// Interrupt Service Routines ------------------------------------------------------------------------------------------
-
-void am_rtc_isr(void)
+static void validate_device_settings(uint32_t current_timestamp)
 {
-   // Clear the RTC interrupt status
-   static am_hal_rtc_alarm_repeat_e repeat_interval;
-   AM_CRITICAL_BEGIN
-   am_hal_rtc_alarm_get(NULL, &repeat_interval);
-   am_hal_rtc_interrupt_clear(AM_HAL_RTC_INT_ALM);
-   AM_CRITICAL_END
-
    // Check if the battery voltage is too low to continue
    const battery_result_t battery_details = battery_monitor_get_details();
-   if (battery_details.millivolts <= config_get_battery_mV_low())
-      phase_ended = true;
+   phase_ended = (battery_details.millivolts <= config_get_battery_mV_low());
 
    // Check if the current phase has ended or if it is time to activate the VHF radio
    static uint32_t previous_timestamp = 0;
-   const uint32_t current_timestamp = rtc_get_timestamp();
-   uint32_t wakeup_timestamp = current_timestamp + MIN_LOG_DATA_INTERVAL_SECONDS;
+   uint32_t wakeup_timestamp = MIN(current_timestamp + MIN_LOG_DATA_INTERVAL_SECONDS, phase_end_timestamp);
    if (current_timestamp >= phase_end_timestamp)
       phase_ended = true;
    else if (vhf_enable_timestamp)
@@ -108,6 +95,20 @@ void am_rtc_isr(void)
    // Restart the RTC alarm for the next wakeup time
    if (!phase_ended && *device_active)
       rtc_set_wakeup_timestamp(wakeup_timestamp);
+}
+
+
+// Interrupt Service Routines ------------------------------------------------------------------------------------------
+
+void am_rtc_isr(void)
+{
+   // Clear the RTC interrupt status and validate all device settings
+   static am_hal_rtc_alarm_repeat_e repeat_interval;
+   AM_CRITICAL_BEGIN
+   am_hal_rtc_alarm_get(NULL, &repeat_interval);
+   am_hal_rtc_interrupt_clear(AM_HAL_RTC_INT_ALM);
+   AM_CRITICAL_END
+   validate_device_settings(rtc_get_timestamp());
 }
 
 void imu_data_callback(float accel_x_mg, float accel_y_mg, float accel_z_mg)
@@ -359,30 +360,13 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    config_get_device_label(device_label, sizeof(device_label));
    if (device_label[0] == '\0')
       memcpy(device_label, "Default", sizeof("Default"));
-   bool success = storage_mkdir(device_label);
+   const bool success = storage_mkdir(device_label);
    print("%s\n", success ? "SUCCESS" : "FAILURE");
 
-   // Determine when the LEDs should be disabled, if not already
-   uint32_t current_timestamp = rtc_get_timestamp();
-   uint32_t wakeup_timestamp = current_timestamp + MIN_LOG_DATA_INTERVAL_SECONDS;
-   led_active_seconds = config_get_leds_active_seconds();
-   if (led_active_seconds)
-   {
-      if ((current_timestamp - config_get_deployment_start_time()) >= led_active_seconds)
-      {
-         led_active_seconds = 0;
-         leds_enable(false);
-      }
-      else
-         wakeup_timestamp = MIN(wakeup_timestamp, config_get_deployment_start_time() + led_active_seconds);
-   }
-
-   // Determine when the VHF radio should activate, if not already
-   vhf_enable_timestamp = config_get_vhf_start_timestamp();
-   if (vhf_enable_timestamp && (current_timestamp < vhf_enable_timestamp))
-      wakeup_timestamp = MIN(wakeup_timestamp, vhf_enable_timestamp);
-   else
-      vhf_enable_timestamp = 0;
+   // Validate device settings (and implicitly set an RTC alarm for the next important event)
+   device_active = device_activated;
+   phase_end_timestamp = config_get_end_time(phase_index);
+   validate_device_settings(rtc_get_timestamp());
 
    // Initialize the audio processing timer
    am_hal_timer_default_config_set(&audio_processing_timer_config);
@@ -396,16 +380,6 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    // Listen for incoming data messages from the Henrik board
    if (config_gps_available())
       henrik_register_data_callback(henrik_data_available);
-
-   // Set an RTC alarm to expire when the next important event is expected to happen
-   phase_end_timestamp = config_get_end_time(phase_index);
-   phase_ended = phase_end_timestamp <= current_timestamp;
-   device_active = device_activated;
-   if (!phase_ended && *device_active)
-   {
-      wakeup_timestamp = MIN(wakeup_timestamp, phase_end_timestamp);
-      rtc_set_wakeup_timestamp(wakeup_timestamp);
-   }
 
    // Enable IMU detection and recording functionality
    in_motion = record_imu_with_audio = false;

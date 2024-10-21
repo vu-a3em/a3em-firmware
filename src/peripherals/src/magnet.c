@@ -61,13 +61,13 @@ void am_timer02_isr(void)
 static void enable_sensor(bool enable)
 {
    // Clear or set the DISABLE pin to wake up or shut down the sensor
-   if (enable)
+   if (enable && !sensor_enabled)
    {
       // Delay long enough for the sensor to wake up and make a measurement (from datasheet)
       am_hal_gpio_output_clear(PIN_MAG_SENSOR_DIS);
       system_delay(1050);
    }
-   else
+   else if (!enable && sensor_enabled)
       am_hal_gpio_output_set(PIN_MAG_SENSOR_DIS);
    sensor_enabled = enable;
 }

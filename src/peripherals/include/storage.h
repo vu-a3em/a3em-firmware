@@ -11,6 +11,7 @@
 void storage_init(void);
 void storage_deinit(void);
 void storage_setup_logs(void);
+bool storage_sd_card_error(void);
 bool storage_mkdir(const char *directory);
 bool storage_open(const char *file_path, bool writeable);
 bool storage_open_wav_file(const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time);
