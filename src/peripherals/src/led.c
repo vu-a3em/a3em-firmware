@@ -150,16 +150,13 @@ void led_indicate_clip_end(void)
 
 void led_indicate_sd_card_error(void)
 {
-   if (leds_enabled)
+   led_off(LED_ALL);
+   for (int i = 0; i < 20; ++i)
    {
-      led_off(LED_ALL);
-      for (int i = 0; i < 8; ++i)
-      {
-         led_on(LED_RED);
-         system_delay(150000);
-         led_off(LED_RED);
-         system_delay(100000);
-      }
+      led_on(LED_RED);
+      system_delay(150000);
+      led_off(LED_RED);
+      system_delay(100000);
    }
 }
 
