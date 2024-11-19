@@ -160,6 +160,18 @@ void led_indicate_sd_card_error(void)
    }
 }
 
+void led_indicate_missing_config_file(void)
+{
+   led_off(LED_ALL);
+   for (int i = 0; i < 20; ++i)
+   {
+      led_on(LED_ALL);
+      system_delay(150000);
+      led_off(LED_ALL);
+      system_delay(100000);
+   }
+}
+
 void led_indicate_magnet_presence(bool field_present)
 {
    if (field_present)

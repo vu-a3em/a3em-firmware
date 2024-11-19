@@ -62,6 +62,8 @@ int main(void)
    const bool use_magnetic_activation = config_awake_on_magnet();
    if (storage_sd_card_error())
       led_indicate_sd_card_error();
+   else if (!success)
+      led_indicate_missing_config_file();
    leds_enable(config_get_leds_enabled());
 
    // Determine if the battery voltage is too low to continue
