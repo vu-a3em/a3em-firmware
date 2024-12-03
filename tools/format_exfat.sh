@@ -15,7 +15,7 @@ volume=${1%/}
 if [ "$(uname -s)" = "Darwin" ]; then
 	disk=$(diskutil list -plist | plutil -convert json -r -o - - | jq -c '[.AllDisksAndPartitions[], .AllDisksAndPartitions[].APFSVolumes, .AllDisksAndPartitions[].Partitions] | flatten | map(select(has("DeviceIdentifier") and has("MountPoint")))[] | {mount: .MountPoint?, id: .DeviceIdentifier?}' | jq -r --arg volname "$volume" 'select(.mount == $volname) | .id?')
 	read -p "Format $disk for A3EM? [Y/N]: " confirm && [[ "$confirm" == [yY] ]] || exit 1
-	diskutil unmountDisk $disk
+	diskutil unmountDisk force $disk
 	newfs_exfat -b 4096 -v A3EM $disk
 	diskutil mountDisk $disk
 else
