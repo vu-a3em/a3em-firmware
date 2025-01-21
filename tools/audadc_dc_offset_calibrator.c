@@ -6,7 +6,7 @@ int main(void)
 {
    // Set up the system hardware
    setup_hardware();
-   audio_init(AUDIO_NUM_CHANNELS, 40000, 35.0f, AUDIO_MIC_BIAS_VOLTAGE);
+   audio_analog_init(AUDIO_NUM_CHANNELS, 40000, 35.0f, AUDIO_MIC_BIAS_VOLTAGE);
    system_enable_interrupts(true);
 
    // Read audio for long enough to skip startup noise and determine the DC offset

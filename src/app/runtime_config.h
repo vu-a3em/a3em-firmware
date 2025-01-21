@@ -10,6 +10,7 @@
 
 typedef struct { uint32_t start_time, end_time; } start_end_time_t;
 
+typedef enum { MIC_ANALOG, MIC_DIGITAL } audio_mic_type_t;
 typedef enum { AMPLITUDE, SCHEDULED, INTERVAL, CONTINUOUS } audio_recording_mode_t;
 typedef enum { NONE, ACTIVITY, AUDIO } imu_recording_mode_t;
 typedef enum { SECONDS, MINUTES, HOURS, DAYS } time_scale_t;
@@ -36,6 +37,7 @@ bool config_set_rtc_at_magnet_detect(void);
 bool config_get_leds_enabled(void);
 uint32_t config_get_leds_active_seconds(void);
 uint32_t config_get_vhf_start_timestamp(void);
+audio_mic_type_t config_get_mic_type(void);
 float config_get_mic_amplification_db(void);
 uint32_t config_get_start_time(int32_t phase_index);
 uint32_t config_get_end_time(int32_t phase_index);

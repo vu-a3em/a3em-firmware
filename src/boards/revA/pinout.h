@@ -13,7 +13,11 @@
 #define PIN_COMPARATOR_REF_CFG_FN                   VCOMP_CFG_NSEL_VREFEXT1
 
 // Audio
+#define PDM_MODULE                                  0
 #define PIN_MICROPHONE_ENABLE                       27
+#define PIN_DIGITAL_MIC_CLK                         50
+#define PIN_DIGITAL_MIC_DATA                        51
+#define PIN_DIGITAL_MIC_PWR                         2
 
 // Battery
 #define PIN_BATTERY_VOLTAGE                         15

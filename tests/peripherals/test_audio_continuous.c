@@ -4,14 +4,19 @@
 #include "system.h"
 
 // Edit this definition to change the length of audio to store continuously
+#define AUDIO_MIC_TYPE                  MIC_DIGITAL
 #define DESIRED_CLIP_LENGTH_SECONDS     10
+#define AUDIO_GAIN_DB                   35.0f
 
 int main(void)
 {
    // Set up the system hardware
    setup_hardware();
    storage_init();
-   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 35.0f, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
+   if (AUDIO_MIC_TYPE == MIC_ANALOG)
+      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
+   else
+      audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_GAIN_DB);
    system_enable_interrupts(true);
 
    // Open a new WAV file and immediately begin reading continuous audio

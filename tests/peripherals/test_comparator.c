@@ -10,7 +10,7 @@ int main(void)
 {
    // Set up system hardware
    setup_hardware();
-   audio_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, COMPARATOR_THRESHOLD, AUDIO_TRIGGER_THRESHOLD_PERCENT);
+   audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, COMPARATOR_THRESHOLD, AUDIO_TRIGGER_THRESHOLD_PERCENT);
    system_enable_interrupts(true);
 
    // Sleep while the comparator threshold has not been breached

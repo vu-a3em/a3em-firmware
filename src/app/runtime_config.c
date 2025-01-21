@@ -31,6 +31,7 @@ static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES];
 static int32_t num_deployment_phases, utc_offset, utc_offset_hour;
 static float microphone_amplification_db;
 static start_end_time_t deployment_time;
+static audio_mic_type_t microphone_type;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -116,6 +117,8 @@ static void parse_line(char *line, int32_t line_length)
       leds_enabled = (memcmp(value, "True", sizeof("True")) == 0);
    else if (memcmp(key, "LEDS_ACTIVE_SECONDS", sizeof("LEDS_ACTIVE_SECONDS")-1) == 0)
       leds_active_seconds = strtoul(value, NULL, 10);
+   else if (memcmp(key, "MIC_TYPE", sizeof("MIC_TYPE")-1) == 0)
+      microphone_type = (memcmp(value, "ANALOG", sizeof("ANALOG")) == 0) ? MIC_ANALOG : MIC_DIGITAL;
    else if (memcmp(key, "MIC_AMPLIFICATION", sizeof("MIC_AMPLIFICATION")-1) == 0)
       microphone_amplification_db = strtof(value, NULL);
    else if (memcmp(key, "BATTERY_LOW_MV", sizeof("BATTERY_LOW_MV")-1) == 0)
@@ -176,6 +179,7 @@ bool fetch_runtime_configuration(void)
    // Set default configuration values
    awake_on_magnet = true;
    num_deployment_phases = -1;
+   microphone_type = MIC_DIGITAL;
    utc_offset = utc_offset_hour = 0;
    microphone_amplification_db = 35.0f;
    leds_active_seconds = vhf_start_timestamp = 0;
@@ -329,6 +333,11 @@ uint32_t config_get_vhf_start_timestamp(void)
 float config_get_mic_amplification_db(void)
 {
    return microphone_amplification_db;
+}
+
+audio_mic_type_t config_get_mic_type(void)
+{
+   return microphone_type;
 }
 
 uint32_t config_get_start_time(int32_t phase_index)
