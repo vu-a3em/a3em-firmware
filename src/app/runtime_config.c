@@ -179,7 +179,7 @@ bool fetch_runtime_configuration(void)
    // Set default configuration values
    awake_on_magnet = true;
    num_deployment_phases = -1;
-   microphone_type = MIC_DIGITAL;
+   microphone_type = MIC_ANALOG;
    utc_offset = utc_offset_hour = 0;
    microphone_amplification_db = 35.0f;
    leds_active_seconds = vhf_start_timestamp = 0;
