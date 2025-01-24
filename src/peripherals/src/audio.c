@@ -24,6 +24,7 @@ static void *audio_handle;
 static float pga_gain_db;
 static int16_t dc_offset;
 static bool is_digital_mic;
+static volatile uint32_t skip_samples;
 static audio_trigger_t trigger_criterion;
 static uint32_t num_audio_channels, sampling_rate_hz;
 static volatile bool dma_complete = false, dma_error = false, adc_awake;
@@ -74,8 +75,9 @@ void audio_adc_start(void)
       // Wake up the PDM peripheral
       if (!adc_awake)
          am_hal_pdm_power_control(audio_handle, AM_HAL_PDM_POWER_ON, true);
+      skip_samples = (sampling_rate_hz <= (2 * AUDIO_BUFFER_NUM_SAMPLES)) ? 1 : (sampling_rate_hz / (2 * AUDIO_BUFFER_NUM_SAMPLES));
       configASSERT0(am_hal_pdm_configure(audio_handle, &pdm_config));
-      configASSERT0(am_hal_pdm_fifo_threshold_setup(audio_handle, 16));
+      configASSERT0(am_hal_pdm_fifo_threshold_setup(audio_handle, 24));
       configASSERT0(am_hal_pdm_interrupt_enable(audio_handle, (AM_HAL_PDM_INT_DERR | AM_HAL_PDM_INT_DCMP | AM_HAL_PDM_INT_UNDFL | AM_HAL_PDM_INT_OVF)));
       configASSERT0(am_hal_pdm_enable(audio_handle));
       configASSERT0(am_hal_pdm_dma_start(audio_handle, &pdm_transfer_config));
@@ -139,7 +141,15 @@ void audio_pdm_isr(void)
 
    // Handle a DMA completion or error event
    if (status & AM_HAL_PDM_INT_DCMP)
-      dma_complete = true;
+   {
+      if (skip_samples)
+      {
+         am_hal_pdm_fifo_flush(audio_handle);
+         --skip_samples;
+      }
+      else
+         dma_complete = true;
+   }
    else
    {
       if (status & AM_HAL_PDM_INT_OVF)
@@ -161,6 +171,7 @@ void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, float ga
 
    // Initialize the PDM peripheral
    adc_awake = true;
+   skip_samples = 0;
    is_digital_mic = true;
    num_audio_channels = num_channels;
    sampling_rate_hz = sample_rate_hz;
@@ -249,6 +260,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    am_hal_gpio_output_set(PIN_MICROPHONE_ENABLE);
 
    // Power up two programmable gain amplifiers per requested channel
+   skip_samples = 0;
    num_audio_channels = num_channels;
    configASSERT0(am_hal_audadc_refgen_powerup());
    for (uint32_t i = 0; i < num_channels; ++i)
@@ -350,7 +362,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
 
 void audio_deinit(void)
 {
-   // Disable all interrupts and power down the AUDADC peripheral
+   // Disable all interrupts and power down the PDM or AUDADC peripheral
    if (is_digital_mic)
    {
       am_hal_gpio_output_clear(PIN_DIGITAL_MIC_PWR);

@@ -276,6 +276,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
    // Initialize all necessary local variables
    const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(num_seconds_per_clip);
    bool audio_clip_in_progress = false, awaiting_trigger = false;
+   uint32_t num_audio_reads = 0;
    int16_t *audio_buffer;
    num_clips_stored = 0;
 
