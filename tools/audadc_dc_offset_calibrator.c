@@ -1,18 +1,19 @@
 #include "audio.h"
 #include "logging.h"
+#include "mram.h"
 #include "system.h"
 
 int main(void)
 {
    // Set up the system hardware
    setup_hardware();
-   audio_analog_init(AUDIO_NUM_CHANNELS, 40000, 35.0f, AUDIO_MIC_BIAS_VOLTAGE);
+   audio_analog_init(AUDIO_NUM_CHANNELS, 40000, 35.0f, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f);
    system_enable_interrupts(true);
 
    // Read audio for long enough to skip startup noise and determine the DC offset
    const uint32_t num_reads_per_skip = audio_num_reads_per_n_seconds(5);
    const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(10);
-   audio_begin_reading(IMMEDIATE);
+   audio_begin_reading();
 
    // Skip first five seconds of audio
    int16_t *audio_buffer;
