@@ -61,6 +61,7 @@ int main(void)
    else
       print("VHF Transmitter Enabled: Never\n");
    print("Microphone Amplification: %f DB\n", config_get_mic_amplification_db());
+   print("Microphone Type: %s\n", (config_get_mic_type() == MIC_DIGITAL) ? "Digital" : "Analog");
    int32_t num_phases = config_get_num_deployment_phases();
    for (int32_t i = 0; (num_phases != -1) && (i < num_phases); ++i)
    {
