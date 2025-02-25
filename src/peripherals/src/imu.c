@@ -14,6 +14,7 @@ static imu_data_ready_callback_t data_ready_callback;
 static motion_change_callback_t motion_change_callback;
 static lis2du12_fifo_md_t fifo_mode;
 static lis2du12_md_t imu_mode;
+static uint8_t skip_first_result;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -74,11 +75,14 @@ static void imu_isr(void *args)
          static uint8_t fifo_level;
          static lis2du12_fifo_data_t data;
          lis2du12_fifo_level_get(&imu_context, &fifo_mode, &fifo_level);
-         for (uint8_t i = 0; i < fifo_level; ++i)
+         if (skip_first_result)
+            lis2du12_fifo_data_get(&imu_context, &imu_mode, &fifo_mode, &data);
+         for (uint8_t i = skip_first_result; i < fifo_level; ++i)
          {
             lis2du12_fifo_data_get(&imu_context, &imu_mode, &fifo_mode, &data);
             data_ready_callback(data.xl[0].mg[0], data.xl[0].mg[1], data.xl[0].mg[2]);
          }
+         skip_first_result = 0;
       }
    }
 }
@@ -704,6 +708,7 @@ void imu_init(void)
    motion_change_callback = NULL;
    imu_mode = (lis2du12_md_t){ 0 };
    fifo_mode = (lis2du12_fifo_md_t){ 0 };
+   skip_first_result = 0;
 
    // Create an I2C configuration structure
    const am_hal_iom_config_t i2c_config =
@@ -819,6 +824,7 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
          data_rate = LIS2DU12_800Hz;
 
       // Configure the data FIFO settings
+      skip_first_result = 1;
       fifo_mode.store = LIS2DU12_8_BIT;
       fifo_mode.watermark = MIN(fifo_depth, 100);
       fifo_mode.operation = LIS2DU12_STREAM;
