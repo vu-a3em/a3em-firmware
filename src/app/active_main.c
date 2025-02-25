@@ -14,9 +14,11 @@
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
-static volatile uint32_t num_clips_stored;
+static volatile uint8_t *imu_data_awaiting_storage;
+static volatile uint32_t num_clips_stored, imu_storage_index;
 static volatile bool *device_active, phase_ended, audio_timer_triggered, in_motion;
 static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds, imu_sampling_rate_hz;
+static float imu_data_buffer[2*IMU_BUFFER_NUM_SAMPLES][3], (*imu_storage_buffer)[3];
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
 static char device_label[MAX_DEVICE_LABEL_LEN];
@@ -113,12 +115,18 @@ void am_rtc_isr(void)
 
 void imu_data_callback(float accel_x_mg, float accel_y_mg, float accel_z_mg)
 {
-   // Store IMU data directly to the SD card
-   static float imu_data[3];
-   imu_data[0] = accel_x_mg;
-   imu_data[1] = accel_y_mg;
-   imu_data[2] = accel_z_mg;
-   storage_write_imu_data(imu_data, sizeof(imu_data));
+   // Store IMU data into storage buffer
+   imu_storage_buffer[imu_storage_index][0] = accel_x_mg;
+   imu_storage_buffer[imu_storage_index][1] = accel_y_mg;
+   imu_storage_buffer[imu_storage_index][2] = accel_z_mg;
+
+   // Set storage flag for the main thread if buffer is full
+   if (++imu_storage_index == IMU_BUFFER_NUM_SAMPLES)
+   {
+      imu_storage_index = 0;
+      imu_data_awaiting_storage = (uint8_t*)imu_storage_buffer;
+      imu_storage_buffer = (imu_storage_buffer == imu_data_buffer) ? &imu_data_buffer[IMU_BUFFER_NUM_SAMPLES] : &imu_data_buffer[0];
+   }
 }
 
 void imu_motion_change_callback(bool new_in_motion)
@@ -134,10 +142,7 @@ void imu_motion_change_callback(bool new_in_motion)
          imu_enable_raw_data_output(in_motion, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
       }
       else
-      {
          imu_enable_raw_data_output(in_motion, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
-         storage_finish_imu_data_stream();
-      }
    }
 }
 
@@ -183,6 +188,13 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    while (!phase_ended && *device_active)
    {
+      // Store any pending IMU data
+      if (imu_data_awaiting_storage)
+      {
+         storage_write_imu_data((uint8_t*)imu_data_awaiting_storage, sizeof(float) * 3 * IMU_BUFFER_NUM_SAMPLES);
+         imu_data_awaiting_storage = NULL;
+      }
+
       // Determine if time to create a new WAV file
       const uint32_t current_time = rtc_get_timestamp();
       const uint32_t seconds_til_next_scheduled_recording = seconds_until_next_scheduled_recording(num_schedules, schedule, (uint32_t)((int32_t)current_time + config_get_utc_offset_seconds()) % 86400);
@@ -256,10 +268,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
 
             // Stop reading IMU data if enabled
             if (record_imu_with_audio)
-            {
                imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
-               storage_finish_imu_data_stream();
-            }
          }
       }
       else
@@ -294,6 +303,13 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
       {
          audio_begin_reading();
          awaiting_trigger = true;
+      }
+
+      // Store any pending IMU data
+      if (imu_data_awaiting_storage)
+      {
+         storage_write_imu_data((uint8_t*)imu_data_awaiting_storage, sizeof(float) * 3 * IMU_BUFFER_NUM_SAMPLES);
+         imu_data_awaiting_storage = NULL;
       }
 
       // Handle any newly available audio data
@@ -334,10 +350,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
 
             // Stop reading IMU data if enabled
             if (record_imu_with_audio)
-            {
                imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
-               storage_finish_imu_data_stream();
-            }
          }
       }
       else
@@ -384,6 +397,9 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       henrik_register_data_callback(henrik_data_available);
 
    // Enable IMU detection and recording functionality
+   imu_storage_index = 0;
+   imu_data_awaiting_storage = NULL;
+   imu_storage_buffer = imu_data_buffer;
    in_motion = record_imu_with_audio = false;
    imu_degrees_of_freedom = config_get_imu_degrees_of_freedom(phase_index);
    imu_sampling_rate_hz = config_get_imu_sampling_rate_hz(phase_index);
@@ -490,5 +506,9 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    am_hal_timer_disable(TIMER_NUMBER_AUDIO_PROCESSING);
    NVIC_DisableIRQ(TIMER0_IRQn + TIMER_NUMBER_AUDIO_PROCESSING);
    am_hal_timer_interrupt_disable(AM_HAL_TIMER_MASK(TIMER_NUMBER_AUDIO_PROCESSING, AM_HAL_TIMER_COMPARE0));
+
+   // Close any open storage files
+   storage_close_imu();
+   storage_close_audio();
    print("INFO: Leaving main deployment activity for Phase #%d\n", phase_index+1);
 }

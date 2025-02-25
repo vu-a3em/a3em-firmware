@@ -338,10 +338,9 @@ void storage_init(void)
 void storage_deinit(void)
 {
    // Close any open SD card files
-   if (imu_file_open)
-      f_close(&imu_file);
-   storage_close();
+   storage_close_imu();
    storage_close_audio();
+   storage_close();
    f_close(&log_file);
    file_open = imu_file_open = audio_file_open = false;
    audio_directory_timestamp = 0;
@@ -504,7 +503,8 @@ bool storage_start_imu_data_stream(uint32_t timestamp, uint32_t sample_rate_hz)
    // Write an IMU data delimiter, sample rate, and timestamp
    UINT data_written = 0;
    static uint32_t imu_delimiter = IMU_DATA_DELIMITER;
-   return (f_write(&imu_file, &imu_delimiter, sizeof(imu_delimiter), &data_written) == FR_OK) &&
+   return imu_file_open &&
+          (f_write(&imu_file, &imu_delimiter, sizeof(imu_delimiter), &data_written) == FR_OK) &&
           (f_write(&imu_file, &sample_rate_hz, sizeof(sample_rate_hz), &data_written) == FR_OK) &&
           (f_write(&imu_file, &timestamp, sizeof(timestamp), &data_written) == FR_OK);
 }
@@ -514,12 +514,6 @@ bool storage_write_imu_data(const void *data, uint32_t data_len)
    // Store to the IMU data file
    UINT data_written = 0;
    return imu_file_open && (f_write(&imu_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len);
-}
-
-void storage_finish_imu_data_stream(void)
-{
-   // Flush the IMU data file to ensure contents are not lost upon power loss
-   f_sync(&imu_file);
 }
 
 uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len)
@@ -565,6 +559,16 @@ void storage_close_audio(void)
       storage_write_audio(&data_size, 4);
       f_close(&audio_file);
       audio_file_open = false;
+   }
+}
+
+void storage_close_imu(void)
+{
+   // Close the currently open IMU file
+   if (imu_file_open)
+   {
+      f_close(&imu_file);
+      imu_file_open = false;
    }
 }
 

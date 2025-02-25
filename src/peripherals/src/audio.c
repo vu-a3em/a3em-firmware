@@ -154,7 +154,7 @@ void audio_pdm_isr(void)
    {
       if (status & AM_HAL_PDM_INT_OVF)
          am_hal_pdm_fifo_flush(audio_handle);
-      dma_error = true;
+      dma_error = status & AM_HAL_PDM_INT_DERR;
    }
 }
 

@@ -22,11 +22,11 @@ void storage_write_log(const char *fmt, ...);
 void storage_flush_log(void);
 bool storage_start_imu_data_stream(uint32_t timestamp, uint32_t sample_rate_hz);
 bool storage_write_imu_data(const void *data, uint32_t data_len);
-void storage_finish_imu_data_stream(void);
 uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len);
 int32_t storage_read_line(char *read_buffer, uint32_t buffer_len);
 void storage_delete(const char *file_path);
 void storage_close_audio(void);
+void storage_close_imu(void);
 void storage_close(void);
 
 #endif  // #ifndef __STORAGE_HEADER_H__
