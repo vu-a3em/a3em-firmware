@@ -4,7 +4,6 @@
 #include "audio.h"
 #include "comparator.h"
 #include "logging.h"
-#include "mram.h"
 #include "system.h"
 
 
@@ -24,6 +23,7 @@ static void *audio_handle;
 static float pga_gain_db;
 static int16_t dc_offset;
 static bool is_digital_mic;
+static uint8_t dc_calculated;
 static volatile uint32_t skip_samples;
 static audio_trigger_t trigger_criterion;
 static uint32_t num_audio_channels, sampling_rate_hz;
@@ -338,6 +338,8 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    NVIC_SetPriority(AUDADC0_IRQn, AUDIO_ADC_INTERRUPT_PRIORITY);
    NVIC_EnableIRQ(AUDADC0_IRQn);
    system_enable_interrupts(true);
+   dc_calculated = 0;
+   dc_offset = 0;
 
    // Temporarily start the ADC to internally initialize the PGAs and optionally connect them to a comparator
    audio_adc_start();
@@ -356,7 +358,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
 
    // Calculate the DC offset calibration parameters and put the AUDADC to sleep
    configASSERT0(am_hal_audadc_slot_dc_offset_calculate(audio_handle, 2*num_channels, &offset_calibration));
-   dc_offset = mram_get_audadc_dc_offset();
+   dc_calculated = 0;
    audio_stop_reading();
 }
 
@@ -469,7 +471,6 @@ bool audio_error_encountered(void)
 bool audio_read_data(int16_t *buffer)
 {
    // Only read data if a DMA audio conversion is complete
-   static int32_t offset_adjustment;
    if (dma_complete)
    {
       if (is_digital_mic)
@@ -482,19 +483,24 @@ bool audio_read_data(int16_t *buffer)
       {
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          const uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
+         if (dc_calculated < 5)
+         {
+            int32_t dc_total = 0;
+            for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+               dc_total += (int32_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
+            dc_total /= AUDIO_BUFFER_NUM_SAMPLES;
+            dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
+            dc_offset = (int16_t)dc_total;
+         }
          for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
          {
-            buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4) - dc_offset;
-            if (offset_calibration.sCalibCoeff[1].bValid)
-            {
-               offset_adjustment = offset_calibration.sCalibCoeff[1].i32DCOffsetAdj << 4;
-               if ((buffer[i] >= 0) && (offset_adjustment > (32767 - buffer[i])))
-                  buffer[i] = 32767;
-               else if ((buffer[i] < 0) && (offset_adjustment < (-32768 - buffer[i])))
-                  buffer[i] = -32768;
-               else
-                  buffer[i] += offset_adjustment;
-            }
+            buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
+            if ((buffer[i] >= 0) && (dc_offset < 0) && (buffer[i] - dc_offset < 0))
+               buffer[i] = 32767;
+            else if ((buffer[i] < 0) && (dc_offset > 0) && (buffer[i] - dc_offset >= 0))
+               buffer[i] = -32768;
+            else
+               buffer[i] -= dc_offset;
          }
       }
       dma_complete = false;
@@ -506,7 +512,6 @@ bool audio_read_data(int16_t *buffer)
 int16_t* audio_read_data_direct(void)
 {
    // Only read data if a DMA audio conversion is complete
-   static int32_t offset_adjustment;
    if (dma_complete)
    {
       int16_t *buffer;
@@ -522,19 +527,24 @@ int16_t* audio_read_data_direct(void)
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
          buffer = (int16_t*)data;
+         if (dc_calculated < 5)
+         {
+            int32_t dc_total = 0;
+            for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+               dc_total += (int32_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
+            dc_total /= AUDIO_BUFFER_NUM_SAMPLES;
+            dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
+            dc_offset = (int16_t)dc_total;
+         }
          for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
          {
-            buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4) - dc_offset;
-            if (offset_calibration.sCalibCoeff[1].bValid)
-            {
-               offset_adjustment = offset_calibration.sCalibCoeff[1].i32DCOffsetAdj << 4;
-               if ((buffer[i] >= 0) && (offset_adjustment > (32767 - buffer[i])))
-                  buffer[i] = 32767;
-               else if ((buffer[i] < 0) && (offset_adjustment < (-32768 - buffer[i])))
-                  buffer[i] = -32768;
-               else
-                  buffer[i] += offset_adjustment;
-            }
+            buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
+            if ((buffer[i] >= 0) && (dc_offset < 0) && (buffer[i] - dc_offset < 0))
+               buffer[i] = 32767;
+            else if ((buffer[i] < 0) && (dc_offset > 0) && (buffer[i] - dc_offset >= 0))
+               buffer[i] = -32768;
+            else
+               buffer[i] -= dc_offset;
          }
       }
       dma_complete = false;
