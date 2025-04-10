@@ -33,7 +33,7 @@ static FATFS file_system;
 static am_hal_card_t sd_card;
 static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
-static bool file_open, imu_file_open, audio_file_open;
+static bool log_open, file_open, imu_file_open, audio_file_open;
 static volatile bool async_write_complete, async_read_complete, card_present;
 static FIL current_file, log_file, imu_file, audio_file;
 static uint32_t audio_directory_timestamp, data_size;
@@ -42,6 +42,30 @@ static uint8_t work_buf[FF_MAX_SS];
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
+
+static volatile uint32_t ff_mutexes[2] = { 0 };
+
+int ff_mutex_create(int _vol) { return 1; }
+void ff_mutex_delete(int _vol) {}
+
+int ff_mutex_take(int vol)
+{
+   int status, count = 0;
+   do {
+      while (__LDREXW(&ff_mutexes[vol]) != 0)
+         __WFE();
+      status = __STREXW(1, &ff_mutexes[vol]);
+   } while (status != 0 && ++count < 100);
+   __DMB();
+   return 1;
+}
+
+void ff_mutex_give(int vol)
+{
+   __DMB();
+   ff_mutexes[vol] = 0;
+   __SEV();
+}
 
 DSTATUS disk_initialize(BYTE)
 {
@@ -341,8 +365,9 @@ void storage_deinit(void)
    storage_close_imu();
    storage_close_audio();
    storage_close();
-   f_close(&log_file);
-   file_open = imu_file_open = audio_file_open = false;
+   if (log_open)
+      f_close(&log_file);
+   log_open = file_open = imu_file_open = audio_file_open = false;
    audio_directory_timestamp = 0;
 
    // De-initialize and power down the SD card host
@@ -363,7 +388,9 @@ void storage_deinit(void)
 void storage_setup_logs(void)
 {
    // Ensure that a log file is present on the device
-   if (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
+   if (!log_open)
+      log_open = (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) == FR_OK);
+   if (!log_open)
       print("ERROR: Unable to open SD card log file for writing\n");
 }
 
@@ -486,16 +513,20 @@ bool storage_write_audio(const void *data, uint32_t data_len)
 void storage_write_log(const char *fmt, ...)
 {
    // Write the requested data to the log file
-   va_list args;
-   va_start(args, fmt);
-   f_vprintf(&log_file, fmt, args);
-   va_end(args);
+   if (log_open)
+   {
+      va_list args;
+      va_start(args, fmt);
+      f_vprintf(&log_file, fmt, args);
+      va_end(args);
+   }
 }
 
 void storage_flush_log(void)
 {
    // Flush the log file to ensure that contents are not lost upon power loss
-   f_sync(&log_file);
+   if (log_open)
+      f_sync(&log_file);
 }
 
 bool storage_start_imu_data_stream(uint32_t timestamp, uint32_t sample_rate_hz)

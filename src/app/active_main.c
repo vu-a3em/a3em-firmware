@@ -508,6 +508,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    am_hal_timer_interrupt_disable(AM_HAL_TIMER_MASK(TIMER_NUMBER_AUDIO_PROCESSING, AM_HAL_TIMER_COMPARE0));
 
    // Close any open storage files
+   storage_close();
    storage_close_imu();
    storage_close_audio();
    print("INFO: Leaving main deployment activity for Phase #%d\n", phase_index+1);
