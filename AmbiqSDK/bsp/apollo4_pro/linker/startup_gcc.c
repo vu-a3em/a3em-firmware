@@ -320,6 +320,13 @@ uint32_t const __Patchable[] =
 //
 //*****************************************************************************
 #if defined(__GNUC_STDC_INLINE__)
+
+// Stub out some CPP init-related functions
+extern void _init(void) { ; }
+extern void _fini(void) { ; }
+void *__dso_handle = 0;
+extern void __libc_init_array(void);
+
 void
 Reset_Handler(void)
 {
@@ -367,6 +374,9 @@ Reset_Handler(void)
           "        it      lt\n"
           "        strlt   r2, [r0], #4\n"
           "        blt     zero_loop");
+
+    // Call CPP constructor init
+    __libc_init_array();
 
     //
     // Call the application's entry point.
