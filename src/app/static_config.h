@@ -91,4 +91,10 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define MAGNET_FIELD_VALIDATION_TIMER_TICK_RATE_HZ      (AM_HAL_CLKGEN_FREQ_MAX_HZ / 16)
 
 
+// AI and Clustering Definitions ---------------------------------------------------------------------------------------
+
+#define MFCC_NUM_COEFFS                                 20
+#define MFCC_NUM_FBANK_BINS                             20
+
+
 #endif  // #ifndef __STATIC_CONFIG_HEADER_H__

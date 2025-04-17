@@ -41,7 +41,6 @@ static void magnet_sensor_isr(void*)
       detection_callback(magnetic_field_present);
 }
 
-
 void am_timer02_isr(void)
 {
    // Verify that the magnetic field is still present

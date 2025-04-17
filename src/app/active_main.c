@@ -1,3 +1,4 @@
+#include "ai.h"
 #include "audio.h"
 #include "battery.h"
 #include "comparator.h"
@@ -375,6 +376,10 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       memcpy(device_label, "Default", sizeof("Default"));
    const bool success = storage_mkdir(device_label);
    print("%s\n", success ? "SUCCESS" : "FAILURE");
+
+   // Initialize the AI model and interpreter
+   if (!ai_initialize())
+      print("ERROR: AI model initialization failed!\n");
 
    // Validate device settings (and implicitly set an RTC alarm for the next important event)
    device_active = device_activated;

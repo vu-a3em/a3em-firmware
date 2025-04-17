@@ -31,6 +31,7 @@ DEFINES += -D$(PART_DEF)
 DEFINES += -D'SEGGER_RTT_SECTION="SHARED_RW"'
 DEFINES += -DAM_PACKAGE_BGA
 DEFINES += -DAM_DEBUG_PRINTF
+DEFINES += -DARM_MATH_NEON
 DEFINES += -Dgcc
 
 LINKER_FILE := ../AmbiqSDK/bsp/$(BSP)/linker/a3em.ld
@@ -39,7 +40,7 @@ STARTUP_FILE := ../AmbiqSDK/bsp/$(BSP)/linker/startup_gcc.c
 #### Required Executables ####
 CC = $(TOOLCHAIN)-gcc
 GCC = $(TOOLCHAIN)-gcc
-CPP = $(TOOLCHAIN)-cpp
+CPP = $(TOOLCHAIN)-g++
 LD = $(TOOLCHAIN)-ld
 CP = $(TOOLCHAIN)-objcopy
 OD = $(TOOLCHAIN)-objdump
@@ -67,19 +68,25 @@ INCLUDES += -I../AmbiqSDK/CMSIS/AmbiqMicro/Include
 INCLUDES += -I../AmbiqSDK/CMSIS/ARM/Include
 INCLUDES += -I../AmbiqSDK/devices
 INCLUDES += -I../AmbiqSDK/utils
+INCLUDES += -I../src/ai
 INCLUDES += -I../src/app
 INCLUDES += -I../src/boards
 INCLUDES += -I../src/boards/rev$(REVISION)
+INCLUDES += -I../src/external
 INCLUDES += -I../src/external/fatfs
 INCLUDES += -I../src/external/segger
+INCLUDES += -I../src/external/tensorflow
+INCLUDES += -I../src/external/tensorflow/third_party
+INCLUDES += -I../src/external/tensorflow/third_party/flatbuffers/include
+INCLUDES += -I../src/external/tensorflow/third_party/gemmlowp
 INCLUDES += -I../src/peripherals/include
-INCLUDES += -I./peripherals
 
 VPATH  = ../AmbiqSDK/bsp/$(BSP)/linker
 VPATH += ../AmbiqSDK/mcu/$(PART)/hal
 VPATH += ../AmbiqSDK/mcu/$(PART)/hal/mcu
 VPATH += ../AmbiqSDK/devices
 VPATH += ../AmbiqSDK/utils
+VPATH += ../src/ai
 VPATH += ../src/app
 VPATH += ../src/boards
 VPATH += ../src/boards/rev$(REVISION)
@@ -88,6 +95,7 @@ VPATH += ../src/external/segger
 VPATH += ../src/peripherals/src
 VPATH += ./peripherals
 VPATH += ./app
+VPATH += ./ai
 
 SRC =
 SRC += am_devices_led.c
@@ -98,6 +106,9 @@ SRC += ff.c
 SRC += ffunicode.c
 SRC += startup_gcc.c
 SRC += SEGGER_RTT.c
+
+SRC += ai.cc
+SRC += mfcc.c
 
 SRC += audio.c
 SRC += battery.c
@@ -119,12 +130,12 @@ SRC += vhf.c
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/mcu/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-.PHONY: all program clean app_magnet_no_gps audio audio_continuous battery comparator configuration digipot full imu led logging magnet power_off rtc_set rtc storage system vhf
+.PHONY: all program clean ai app_magnet_no_gps audio audio_continuous battery comparator configuration digipot full imu led logging magnet mfcc power_off rtc_set rtc storage system vhf
 .PRECIOUS: $(CONFIG)/%.axf
 .SECONDEXPANSION:
 
 all:
-	$(error Make targets include: app_magnet_no_gps audio audio_continuous battery comparator configuration digipot full imu led logging magnet power_off rtc_set rtc storage system vhf)
+	$(error Make targets include: ai app_magnet_no_gps audio audio_continuous battery comparator configuration digipot full imu led logging magnet mfcc power_off rtc_set rtc storage system vhf)
 
 program:
 ifneq ($(BUILT_BY), eclipse)
@@ -132,6 +143,10 @@ ifneq ($(BUILT_BY), eclipse)
 	printf "loadfile $(CONFIG)/$(TARGET).bin $(FLASH_START)\nr\ng\nexit\n" >> $(CONFIG)/flash.jlink
 	$(JLINK) $(JLINK_FLAGS) $(CONFIG)/flash.jlink
 endif
+
+ai: TARGET = TestAI
+ai: SRC += test_ai.c
+ai: $(CONFIG) $(CONFIG)/test_ai.o $(CONFIG)/$$(TARGET).bin program
 
 app_magnet_no_gps: TARGET = TestAppMagnetNoGps
 app_magnet_no_gps: SRC += test_app_magnet_no_gps.c
@@ -183,6 +198,10 @@ magnet: TARGET = TestMagnet
 magnet: SRC += test_magnet.c
 magnet: $(CONFIG) $(CONFIG)/test_magnet.o $(CONFIG)/$$(TARGET).bin program
 
+mfcc: TARGET = TestMFCC
+mfcc: SRC += test_mfcc.c
+mfcc: $(CONFIG) $(CONFIG)/test_mfcc.o $(CONFIG)/$$(TARGET).bin program
+
 power_off: TARGET = TestPowerOff
 power_off: SRC += test_power_off.c
 power_off: $(CONFIG) $(CONFIG)/test_power_off.o $(CONFIG)/$$(TARGET).bin program
@@ -208,28 +227,43 @@ vhf: TARGET = TestVHF
 vhf: SRC += test_vhf.c
 vhf: $(CONFIG) $(CONFIG)/test_vhf.o $(CONFIG)/$$(TARGET).bin program
 
-OBJS = $(SRC:%.c=$(CONFIG)/%.o)
-DEPS = $(SRC:%.c=$(CONFIG)/%.d)
+CSRC   = $(filter %.c,$(SRC))
+CPPSRC = $(filter %.cc,$(SRC))
+ASRC   = $(filter %.s,$(SRC))
+
+OBJS = $(CSRC:%.c=$(CONFIG)/%.o)
+OBJS+= $(CPPSRC:%.cc=$(CONFIG)/%.o)
+OBJS+= $(ASRC:%.s=$(CONFIG)/%.o)
+
+DEPS = $(CSRC:%.c=$(CONFIG)/%.d)
+DEPS+= $(CPPSRC:%.cc=$(CONFIG)/%.d)
+DEPS+= $(ASRC:%.s=$(CONFIG)/%.d)
 
 LIBS  = ../AmbiqSDK/bsp/$(BSP)/gcc/bin/libam_bsp.a
 LIBS += ../AmbiqSDK/mcu/$(PART)/hal/mcu/gcc/bin/libam_hal.a
+LIBS += ../AmbiqSDK/CMSIS/ARM/Lib/ARM/libarm_cortexM4lf_math.a
+LIBS += ../src/external/tensorflow/lib/libtensorflow-microlite-cm4-gcc-release.a
 
 CFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
-CFLAGS+= -ffunction-sections -fdata-sections -fno-omit-frame-pointer
-CFLAGS+= -MMD -MP -std=c99 -Wall -g -O0
+CFLAGS+= -ffunction-sections -fdata-sections -fno-omit-frame-pointer -fno-exceptions
+CFLAGS+= -MMD -MP -Wall -g -O0
 CFLAGS+= $(DEFINES)
 CFLAGS+= $(INCLUDES)
 
 LFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
-LFLAGS+= -nostartfiles -static
+LFLAGS+= -nostartfiles -static -fno-exceptions -z noexecstack
 LFLAGS+= -Wl,--gc-sections,--entry,Reset_Handler,-Map,$(CONFIG)/$(TARGET).map
-LFLAGS+= -Wl,--start-group -lm -lc -lgcc -lnosys $(LIBS) -Wl,--end-group
+LFLAGS+= -Wl,--start-group -lm -lc -lgcc -lnosys -Wl,--no-whole-archive,--no-wchar-size-warning $(LIBS) -Wl,--end-group
 
 CPFLAGS = -Obinary
 ODFLAGS = -S
 
 $(CONFIG):
 	@mkdir -p $@
+
+$(CONFIG)/%.o: %.cc $(CONFIG)/%.d
+	@echo " Compiling $<" ;\
+	$(CPP) -c $(CFLAGS) -fno-rtti -fno-threadsafe-statics -fno-unwind-tables $< -o $@
 
 $(CONFIG)/%.o: %.c $(CONFIG)/%.d
 	@echo " Compiling $<" ;\
