@@ -108,6 +108,7 @@ SRC += startup_gcc.c
 SRC += SEGGER_RTT.c
 
 SRC += ai.cc
+SRC += fft.c
 SRC += mfcc.c
 
 SRC += audio.c
@@ -241,7 +242,6 @@ DEPS+= $(ASRC:%.s=$(CONFIG)/%.d)
 
 LIBS  = ../AmbiqSDK/bsp/$(BSP)/gcc/bin/libam_bsp.a
 LIBS += ../AmbiqSDK/mcu/$(PART)/hal/mcu/gcc/bin/libam_hal.a
-LIBS += ../AmbiqSDK/CMSIS/ARM/Lib/ARM/libarm_cortexM4lf_math.a
 LIBS += ../src/external/tensorflow/lib/libtensorflow-microlite-cm4-gcc-release.a
 
 CFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
@@ -251,9 +251,9 @@ CFLAGS+= $(DEFINES)
 CFLAGS+= $(INCLUDES)
 
 LFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
-LFLAGS+= -nostartfiles -static -fno-exceptions -z noexecstack
+LFLAGS+= -nostartfiles -static -fno-exceptions
 LFLAGS+= -Wl,--gc-sections,--entry,Reset_Handler,-Map,$(CONFIG)/$(TARGET).map
-LFLAGS+= -Wl,--start-group -lm -lc -lgcc -lnosys -Wl,--no-whole-archive,--no-wchar-size-warning $(LIBS) -Wl,--end-group
+LFLAGS+= -Wl,--start-group -lm -lc -lgcc -lnosys -Wl,--no-whole-archive $(LIBS) -Wl,--end-group
 
 CPFLAGS = -Obinary
 ODFLAGS = -S

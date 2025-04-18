@@ -1,7 +1,9 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
-#include <arm_math.h>
+#include <float.h>
+#include <math.h>
 #include "logging.h"
+#include "fft.h"
 #include "mfcc.h"
 
 
@@ -25,7 +27,7 @@ typedef struct {
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
-static arm_rfft_fast_instance_f32 mfcc_rfft;
+static rfft_fast_instance_f32 mfcc_rfft;
 static mfcc_t mfcc;
 
 
@@ -101,14 +103,13 @@ void mfcc_initialize(uint32_t audio_sample_rate, float input_length_ms, float ff
       mfcc.window[i] = 0.5 - 0.5 * cos(M_2PI * ((float)i) / (mfcc.frame_len));
 
    // Create the DCT matrix
-   float normalizer;
-   arm_sqrt_f32(2.0f / (float)mfcc.num_fbank_bins, &normalizer);
+   float normalizer = sqrtf(2.0f / (float)mfcc.num_fbank_bins);
    for (uint32_t k = 0; k < mfcc.num_coeffs; ++k)
       for (uint32_t n = 0; n < mfcc.num_fbank_bins; ++n)
          mfcc.dct_matrix[k * mfcc.num_fbank_bins + n] = normalizer * cos(((double)M_PI) / mfcc.num_fbank_bins * (n + 0.5) * k);
 
    // Initialize the FFT structure
-   arm_rfft_fast_init_f32(&mfcc_rfft, mfcc.frame_len_pow2);
+   rfft_fast_init_f32(&mfcc_rfft, mfcc.frame_len_pow2);
 }
 
 void mfcc_compute(const int16_t *audio, float *mfcc_out)
@@ -127,7 +128,7 @@ void mfcc_compute(const int16_t *audio, float *mfcc_out)
       memset(mfcc.frame + mfcc.frame_len, 0, sizeof(float) * (mfcc.frame_len_pow2 - mfcc.frame_len));
 
       // Compute the FFT and calculate its power spectrum [FFT stored as [r0, rN/2-1, r1, i1, r2, i2, ...]
-      arm_rfft_fast_f32(&mfcc_rfft, mfcc.frame, mfcc.buffer, 0);
+      rfft_fast_f32(&mfcc_rfft, mfcc.frame, mfcc.buffer);
       const uint32_t half_dim = mfcc.frame_len_pow2 / 2;
       float first_energy = mfcc.buffer[0] * mfcc.buffer[0], last_energy = mfcc.buffer[1] * mfcc.buffer[1];
       for (uint32_t i = 1; i < half_dim; ++i)

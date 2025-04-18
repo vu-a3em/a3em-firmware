@@ -1,5 +1,7 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
+#define TF_LITE_STATIC_MEMORY
+
 #include <stdint.h>
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
@@ -20,7 +22,7 @@ struct ai_model {
 };
 
 void MicroPrintf(char const*, ...) {}
-void operator delete(void *p, size_t) noexcept { free(p); }
+void operator delete(void *p, size_t) {}
 
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
