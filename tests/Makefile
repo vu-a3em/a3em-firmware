@@ -131,12 +131,12 @@ SRC += vhf.c
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/mcu/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-.PHONY: all program clean ai app_magnet_no_gps audio audio_continuous battery comparator configuration digipot full imu led logging magnet mfcc power_off rtc_set rtc storage system vhf
+.PHONY: all program clean ai app_magnet_no_gps audio audio_continuous battery comparator configuration digipot fft full imu led logging magnet mfcc power_off rtc_set rtc storage system vhf
 .PRECIOUS: $(CONFIG)/%.axf
 .SECONDEXPANSION:
 
 all:
-	$(error Make targets include: ai app_magnet_no_gps audio audio_continuous battery comparator configuration digipot full imu led logging magnet mfcc power_off rtc_set rtc storage system vhf)
+	$(error Make targets include: ai app_magnet_no_gps audio audio_continuous battery comparator configuration digipot fft full imu led logging magnet mfcc power_off rtc_set rtc storage system vhf)
 
 program:
 ifneq ($(BUILT_BY), eclipse)
@@ -178,6 +178,10 @@ configuration: $(CONFIG) $(CONFIG)/test_configuration.o $(CONFIG)/$$(TARGET).bin
 digipot: TARGET = TestDigipot
 digipot: SRC += test_digipot.c
 digipot: $(CONFIG) $(CONFIG)/test_digipot.o $(CONFIG)/$$(TARGET).bin program
+
+fft: TARGET = TestFFT
+fft: SRC += test_fft.c
+fft: $(CONFIG) $(CONFIG)/test_fft.o $(CONFIG)/$$(TARGET).bin program
 
 full: TARGET = TestFull
 full: SRC += active_main.c main.c
@@ -242,6 +246,7 @@ DEPS+= $(ASRC:%.s=$(CONFIG)/%.d)
 
 LIBS  = ../AmbiqSDK/bsp/$(BSP)/gcc/bin/libam_bsp.a
 LIBS += ../AmbiqSDK/mcu/$(PART)/hal/mcu/gcc/bin/libam_hal.a
+LIBS += ../AmbiqSDK/CMSIS/ARM/Lib/ARM/libarm_cortexM4lf_math.a
 LIBS += ../src/external/tensorflow/lib/libtensorflow-microlite-cm4-gcc-release.a
 
 CFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
@@ -251,9 +256,9 @@ CFLAGS+= $(DEFINES)
 CFLAGS+= $(INCLUDES)
 
 LFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
-LFLAGS+= -nostartfiles -static -fno-exceptions
+LFLAGS+= -nostartfiles -static -fno-exceptions -z execstack
 LFLAGS+= -Wl,--gc-sections,--entry,Reset_Handler,-Map,$(CONFIG)/$(TARGET).map
-LFLAGS+= -Wl,--start-group -lm -lc -lgcc -lnosys -Wl,--no-whole-archive $(LIBS) -Wl,--end-group
+LFLAGS+= -Wl,--start-group -lm -lc -lgcc -lnosys -Wl,--no-whole-archive,--no-wchar-size-warning $(LIBS) -Wl,--end-group
 
 CPFLAGS = -Obinary
 ODFLAGS = -S

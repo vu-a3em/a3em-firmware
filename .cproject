@@ -385,6 +385,14 @@
 				<useDefaultCommand>true</useDefaultCommand>
 				<runAllBuilders>true</runAllBuilders>
 			</target>
+			<target name="fft" path="tests" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+				<buildCommand>${cross_make}</buildCommand>
+				<buildArguments>BUILT_BY=eclipse BOARD_REV=A</buildArguments>
+				<buildTarget>fft</buildTarget>
+				<stopOnError>true</stopOnError>
+				<useDefaultCommand>true</useDefaultCommand>
+				<runAllBuilders>true</runAllBuilders>
+			</target>
 			<target name="dc_offset" path="tools" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
 				<buildCommand>${cross_make}</buildCommand>
 				<buildArguments>BUILT_BY=eclipse BOARD_REV=A</buildArguments>
