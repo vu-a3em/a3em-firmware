@@ -134,7 +134,7 @@ DEPS+= $(ASRC:%.s=$(CONFIG)/%.d)
 
 LIBS = AmbiqSDK/bsp/$(BSP)/gcc/bin/libam_bsp.a
 LIBS += AmbiqSDK/mcu/$(PART)/hal/mcu/gcc/bin/libam_hal.a
-LIBS += ../AmbiqSDK/CMSIS/ARM/Lib/ARM/libarm_cortexM4lf_math.a
+LIBS += AmbiqSDK/CMSIS/ARM/Lib/ARM/libarm_cortexM4lf_math.a
 LIBS += src/external/tensorflow/lib/libtensorflow-microlite-cm4-gcc-release.a
 
 CFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
