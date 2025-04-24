@@ -1,0 +1,12 @@
+[submodule "src/external/flatbuffers"]
+	path = src/external/flatbuffers
+	url = https://github.com/google/flatbuffers.git
+[submodule "src/external/ruy"]
+	path = src/external/ruy
+	url = https://github.com/google/ruy.git
+[submodule "src/external/tflite-micro"]
+	path = src/external/tflite-micro
+	url = https://github.com/tensorflow/tflite-micro.git
+[submodule "src/external/gemmlowp"]
+	path = src/external/gemmlowp
+	url = https://github.com/google/gemmlowp.git
