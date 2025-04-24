@@ -7,6 +7,7 @@
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/system_setup.h"
 #include "tensorflow/lite/schema/schema_generated.h"
+#include "static_config.h"
 #include "ai_model_data.h"
 #include "ai.h"
 
@@ -28,7 +29,7 @@ void operator delete(void *p, size_t) {}
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
 static struct ai_model model;
-static constexpr uint32_t tensor_arena_size = 1024 * 276;
+static constexpr uint32_t tensor_arena_size = ai_model_LEN + (sizeof(uint32_t) * AI_NUM_OUTPUT_FEATURES) + (sizeof(float) * AI_NUM_INPUT_FEATURES);
 alignas(16) static uint8_t tensor_arena[tensor_arena_size];
 
 
