@@ -31,7 +31,7 @@ DEFINES += -D$(PART_DEF)
 DEFINES += -D'SEGGER_RTT_SECTION="SHARED_RW"'
 DEFINES += -DAM_PACKAGE_BGA
 DEFINES += -DAM_DEBUG_PRINTF
-DEFINES += -DARM_MATH_NEON
+DEFINES += -DDISABLEFLOAT16
 DEFINES += -Dgcc
 
 LINKER_FILE := ../AmbiqSDK/bsp/$(BSP)/linker/a3em.ld
@@ -65,6 +65,7 @@ INCLUDES += -I../AmbiqSDK/mcu/$(PART)
 INCLUDES += -I../AmbiqSDK/mcu/$(PART)/hal
 INCLUDES += -I../AmbiqSDK/mcu/$(PART)/hal/mcu
 INCLUDES += -I../AmbiqSDK/CMSIS/AmbiqMicro/Include
+INCLUDES += -I../AmbiqSDK/CMSIS/ARM/PrivateInclude
 INCLUDES += -I../AmbiqSDK/CMSIS/ARM/Include
 INCLUDES += -I../AmbiqSDK/devices
 INCLUDES += -I../AmbiqSDK/utils
@@ -84,6 +85,34 @@ INCLUDES += -I../src/peripherals/include
 VPATH  = ../AmbiqSDK/bsp/$(BSP)/linker
 VPATH += ../AmbiqSDK/mcu/$(PART)/hal
 VPATH += ../AmbiqSDK/mcu/$(PART)/hal/mcu
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/ActivationFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/BasicMathFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/BayesFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/CommonTables
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/ComplexMathFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/ConcatenationFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/ControllerFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/ConvolutionFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/DistanceFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/FastMathFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/FilteringFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/FullyConnectedFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/InterpolationFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/LSTMFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/MatrixFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/NNSupportFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/PadFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/PoolingFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/QuaternionMathFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/ReshapeFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/SoftmaxFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/StatisticsFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/SupportFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/SVDFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/SVMFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/TransformFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/TransposeFunctions
+VPATH += ../AmbiqSDK/CMSIS/ARM/Source/WindowFunctions
 VPATH += ../AmbiqSDK/devices
 VPATH += ../AmbiqSDK/utils
 VPATH += ../src/ai
@@ -106,6 +135,9 @@ SRC += ff.c
 SRC += ffunicode.c
 SRC += startup_gcc.c
 SRC += SEGGER_RTT.c
+
+SRC += CommonTables.c
+SRC += TransformFunctions.c
 
 SRC += ai.cc
 SRC += fft.c
@@ -246,7 +278,6 @@ DEPS+= $(ASRC:%.s=$(CONFIG)/%.d)
 
 LIBS  = ../AmbiqSDK/bsp/$(BSP)/gcc/bin/libam_bsp.a
 LIBS += ../AmbiqSDK/mcu/$(PART)/hal/mcu/gcc/bin/libam_hal.a
-LIBS += ../AmbiqSDK/CMSIS/ARM/Lib/ARM/libarm_cortexM4lf_math.a
 LIBS += ../src/external/tensorflow/lib/libtensorflow-microlite-cm4-gcc-release.a
 
 CFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
@@ -256,9 +287,10 @@ CFLAGS+= $(DEFINES)
 CFLAGS+= $(INCLUDES)
 
 LFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
-LFLAGS+= -nostartfiles -static -fno-exceptions -z execstack
+LFLAGS+= -nostartfiles -static -fno-exceptions
 LFLAGS+= -Wl,--gc-sections,--entry,Reset_Handler,-Map,$(CONFIG)/$(TARGET).map
-LFLAGS+= -Wl,--start-group -lm -lc -lgcc -lnosys -Wl,--no-whole-archive,--no-wchar-size-warning $(LIBS) -Wl,--end-group
+LFLAGS+= -Wl,--start-group -lm -lc -lgcc -lnosys $(LIBS) -Wl,--end-group
+LFLAGS+= -Wl,--print-memory-usage
 
 CPFLAGS = -Obinary
 ODFLAGS = -S
