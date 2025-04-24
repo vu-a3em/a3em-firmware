@@ -24,8 +24,8 @@
  */
 
  
-#ifndef _FAST_MATH_FUNCTIONS_H_
-#define _FAST_MATH_FUNCTIONS_H_
+#ifndef FAST_MATH_FUNCTIONS_H_
+#define FAST_MATH_FUNCTIONS_H_
 
 #include "arm_math_types.h"
 #include "arm_math_memory.h"
@@ -35,6 +35,7 @@
 
 #include "dsp/basic_math_functions.h"
 
+#include <math.h>
 
 #ifdef   __cplusplus
 extern "C"
@@ -52,6 +53,11 @@ extern "C"
 #ifndef PI
   #define PI               3.14159265358979f
 #endif
+
+#ifndef PI_F64 
+  #define PI_F64 3.14159265358979323846
+#endif
+
 
 
 /**
@@ -122,7 +128,6 @@ extern "C"
   @param[in]     pSrc       points to the input vector
   @param[out]    pDst       points to the output vector
   @param[in]     blockSize  number of samples in each vector
-  @return        none
  */
   void arm_vlog_f32(
   const float32_t * pSrc,
@@ -136,7 +141,6 @@ extern "C"
   @param[in]     pSrc       points to the input vector
   @param[out]    pDst       points to the output vector
   @param[in]     blockSize  number of samples in each vector
-  @return        none
  */
   void arm_vlog_f64(
   const float64_t * pSrc,
@@ -150,7 +154,6 @@ extern "C"
    * @param[in]     pSrc       points to the input vector in q31
    * @param[out]    pDst       points to the output vector in q5.26
    * @param[in]     blockSize  number of samples in each vector
-   * @return        none
    */
   void arm_vlog_q31(const q31_t * pSrc,
         q31_t * pDst,
@@ -161,7 +164,6 @@ extern "C"
    * @param[in]     pSrc       points to the input vector in q15
    * @param[out]    pDst       points to the output vector in q4.11
    * @param[in]     blockSize  number of samples in each vector
-   * @return        none
    */
   void arm_vlog_q15(const q15_t * pSrc,
         q15_t * pDst,
@@ -174,7 +176,6 @@ extern "C"
   @param[in]     pSrc       points to the input vector
   @param[out]    pDst       points to the output vector
   @param[in]     blockSize  number of samples in each vector
-  @return        none
  */
   void arm_vexp_f32(
   const float32_t * pSrc,
@@ -188,7 +189,6 @@ extern "C"
   @param[in]     pSrc       points to the input vector
   @param[out]    pDst       points to the output vector
   @param[in]     blockSize  number of samples in each vector
-  @return        none
  */
   void arm_vexp_f64(
   const float64_t * pSrc,
@@ -251,6 +251,16 @@ __STATIC_FORCEINLINE arm_status arm_sqrt_f32(
       *pOut = sqrtf(in);
   #endif
 
+#elif defined ( __ARMCC_VERSION ) && ( __ARMCC_VERSION >= 6010050 )
+      *pOut = _sqrtf(in);
+#elif defined(__GNUC_PYTHON__)
+      *pOut = sqrtf(in);
+#elif defined ( __GNUC__ )
+  #if defined (__VFP_FP__) && !defined(__SOFTFP__)
+      __ASM("VSQRT.F32 %0,%1" : "=t"(*pOut) : "t"(in));
+  #else
+      *pOut = sqrtf(in);
+  #endif
 #else
       *pOut = sqrtf(in);
 #endif

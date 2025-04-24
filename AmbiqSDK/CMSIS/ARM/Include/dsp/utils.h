@@ -22,9 +22,9 @@
  * limitations under the License.
  */
 
-#ifndef _ARM_MATH_UTILS_H_
+#ifndef ARM_MATH_UTILS_H_
 
-#define _ARM_MATH_UTILS_H_
+#define ARM_MATH_UTILS_H_
 
 #include "arm_math_types.h"
 #include <limits.h>
@@ -40,10 +40,21 @@ extern "C"
 
 #define INDEX_MASK         0x0000003F
 
+#ifndef MIN
+  #define MIN(x,y) ((x) < (y) ? (x) : (y))
+#endif 
 
-#define SQ(x) ((x) * (x))
+#ifndef MAX
+  #define MAX(x,y) ((x) > (y) ? (x) : (y))
+#endif 
 
-#define ROUND_UP(N, S) ((((N) + (S) - 1) / (S)) * (S))
+#ifndef ARM_SQ
+#define ARM_SQ(x) ((x) * (x))
+#endif
+
+#ifndef ARM_ROUND_UP
+  #define ARM_ROUND_UP(N, S) ((((N) + (S) - 1) / (S)) * (S))
+#endif
 
 
   /**
@@ -242,6 +253,7 @@ __STATIC_INLINE int32_t arm_div_int64_to_int32(int64_t num, int32_t den)
     return result;
 }
 
+#undef INDEX_MASK
 
 #ifdef   __cplusplus
 }
