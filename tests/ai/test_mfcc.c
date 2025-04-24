@@ -3,18 +3,12 @@
 #include "mfcc.h"
 #include "system.h"
 
-#define AUDIO_SAMPLE_RATE_HZ    16000
-#define INPUT_LENGTH_MS         1200
-#define WINDOW_LENGTH_MS        30
-#define HOP_LENGTH_MS           15
-
-#define NUM_SINE_WAVE_SAMPLES   (AUDIO_SAMPLE_RATE_HZ * INPUT_LENGTH_MS / 1000)
-
+#define NUM_SINE_WAVE_SAMPLES   (AI_AUDIO_SAMPLE_RATE_HZ * AI_INPUT_LENGTH_MS / 1000)
 #define TIMER_NUMBER            2
 
 static void generate_sine_wave(uint32_t frequency, int16_t *sine_wave)
 {
-   float delta_time = 1.0f / AUDIO_SAMPLE_RATE_HZ;
+   float delta_time = 1.0f / AI_AUDIO_SAMPLE_RATE_HZ;
    const uint32_t num_samples = NUM_SINE_WAVE_SAMPLES;
    for (uint32_t i = 0; i < num_samples; ++i)
       sine_wave[i] = (int16_t)(32767.0 * sin(2.0 * M_PI * delta_time * i * frequency));
@@ -32,15 +26,15 @@ int main(void)
    am_hal_timer_config(TIMER_NUMBER, &timer_config);
 
    // Initialize the MFCC library
-   mfcc_initialize(AUDIO_SAMPLE_RATE_HZ, INPUT_LENGTH_MS, WINDOW_LENGTH_MS, HOP_LENGTH_MS);
+   mfcc_initialize();
 
    // Generate a test sine wave
    int16_t sine_wave[NUM_SINE_WAVE_SAMPLES];
    generate_sine_wave(1234, sine_wave);
 
    // Compute MFCCs for the sine wave
-   const uint32_t num_time_slices = 1 + ((INPUT_LENGTH_MS - WINDOW_LENGTH_MS) / HOP_LENGTH_MS);
-   float output[MFCC_NUM_COEFFS * num_time_slices];
+   const uint32_t num_time_slices = AI_NUM_INPUT_FEATURES / MFCC_NUM_COEFFS;
+   float output[AI_NUM_INPUT_FEATURES];
    mfcc_compute(sine_wave, output);
 
    // Output MFCCs
