@@ -2,7 +2,6 @@
 
 #include <float.h>
 #include <math.h>
-#include "logging.h"
 #include "fft.h"
 #include "mfcc.h"
 

@@ -232,6 +232,7 @@ SRC += transpose.cc
 SRC += transpose_common.cc
 
 SRC += ai.cc
+SRC += clustering.c
 SRC += fft.c
 SRC += mfcc.c
 
