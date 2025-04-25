@@ -495,9 +495,9 @@ bool audio_read_data(int16_t *buffer)
          for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
          {
             buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
-            if ((buffer[i] >= 0) && (dc_offset < 0) && (buffer[i] - dc_offset < 0))
+            if ((buffer[i] >= 0) && (dc_offset < 0) && ((int16_t)(buffer[i] - dc_offset) < 0))
                buffer[i] = 32767;
-            else if ((buffer[i] < 0) && (dc_offset > 0) && (buffer[i] - dc_offset >= 0))
+            else if ((buffer[i] < 0) && (dc_offset > 0) && ((int16_t)(buffer[i] - dc_offset) >= 0))
                buffer[i] = -32768;
             else
                buffer[i] -= dc_offset;
@@ -539,9 +539,9 @@ int16_t* audio_read_data_direct(void)
          for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
          {
             buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
-            if ((buffer[i] >= 0) && (dc_offset < 0) && (buffer[i] - dc_offset < 0))
+            if ((buffer[i] >= 0) && (dc_offset < 0) && ((int16_t)(buffer[i] - dc_offset) < 0))
                buffer[i] = 32767;
-            else if ((buffer[i] < 0) && (dc_offset > 0) && (buffer[i] - dc_offset >= 0))
+            else if ((buffer[i] < 0) && (dc_offset > 0) && ((int16_t)(buffer[i] - dc_offset) >= 0))
                buffer[i] = -32768;
             else
                buffer[i] -= dc_offset;
