@@ -43,6 +43,8 @@ static uint8_t work_buf[FF_MAX_SS];
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
+// Mutex functions are only used if FF_FS_REENTRANT == 1 in ffconf.h
+
 static volatile uint32_t ff_mutexes[2] = { 0 };
 
 int ff_mutex_create(int _vol) { return 1; }
