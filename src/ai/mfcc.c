@@ -116,7 +116,7 @@ void mfcc_compute(const int16_t *audio, float *mfcc_out)
    memset(mfcc_out, 0, AI_NUM_INPUT_FEATURES * sizeof(float));
    for (uint32_t t = 0, a = 0; t < NUM_FRAMES; ++t, a += HOP_SIZE)
    {
-      // Normalize audio data to [-1, 1] and apply Hann window
+      // Normalize audio data to [-1, 1] and apply Hann window (zeroing out extra input samples)
       for (uint32_t i = 0; i < FFT_SIZE; ++i)
          mfcc.frame[i] = max_ampl_inv * audio[a + i] * mfcc.window[i];
       memset(mfcc.frame + FFT_SIZE, 0, sizeof(float) * (mfcc.frame_len_pow2 - FFT_SIZE));

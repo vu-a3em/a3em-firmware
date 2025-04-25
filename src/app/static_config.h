@@ -98,10 +98,10 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define MFCC_NUM_COEFFS                     32
 #define MFCC_NUM_FBANK_BINS                 16
 
-#define AI_AUDIO_SAMPLE_RATE_HZ             16000
+#define AI_AUDIO_SAMPLE_RATE_HZ             8000
 #define AI_INPUT_LENGTH_MS                  1000
 #define AI_WINDOW_LENGTH_MS                 30
-#define AI_HOP_LENGTH_MS                    30
+#define AI_HOP_LENGTH_MS                    15
 #define AI_NUM_INPUT_FEATURES               (MFCC_NUM_COEFFS * (1 + ((AI_INPUT_LENGTH_MS - AI_WINDOW_LENGTH_MS) / AI_HOP_LENGTH_MS)))
 #define AI_NUM_OUTPUT_FEATURES              16
 
