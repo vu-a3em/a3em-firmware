@@ -3,6 +3,7 @@
 #include "mfcc.h"
 #include "system.h"
 
+#define M_PI                    3.14159265358979323846
 #define NUM_SINE_WAVE_SAMPLES   (AI_AUDIO_SAMPLE_RATE_HZ * AI_INPUT_LENGTH_MS / 1000)
 #define TIMER_NUMBER            2
 

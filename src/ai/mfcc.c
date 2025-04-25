@@ -9,6 +9,7 @@
 
 // MFCC Local Type Definitions -----------------------------------------------------------------------------------------
 
+#define M_PI                        3.14159265358979323846
 #define M_2PI                       6.283185307179586476925286766559005
 
 #define NUM_INPUT_SAMPLES           (AI_INPUT_LENGTH_MS * AI_AUDIO_SAMPLE_RATE_HZ / 1000)

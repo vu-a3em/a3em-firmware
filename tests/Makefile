@@ -32,6 +32,14 @@ DEFINES += -D'SEGGER_RTT_SECTION="SHARED_RW"'
 DEFINES += -DAM_PACKAGE_BGA
 DEFINES += -DAM_DEBUG_PRINTF
 DEFINES += -DDISABLEFLOAT16
+DEFINES += -DTF_LITE_STATIC_MEMORY
+DEFINES += -DTF_LITE_DISABLE_X86_NEON
+DEFINES += -DCMSIS_NN
+DEFINES += -DKERNELS_OPTIMIZED_FOR_SPEED
+DEFINES += -DTF_LITE_STRIP_ERROR_STRINGS
+DEFINES += -DCPU_M4=1
+DEFINES += -DCMSIS_DEVICE_ARM_CORTEX_M_XX_HEADER_FILE=\""ARMCM4".h\"
+DEFINES += -D"ARMCM4"
 DEFINES += -Dgcc
 
 LINKER_FILE := ../AmbiqSDK/bsp/$(BSP)/linker/a3em.ld
@@ -67,6 +75,7 @@ INCLUDES += -I../AmbiqSDK/mcu/$(PART)/hal/mcu
 INCLUDES += -I../AmbiqSDK/CMSIS/AmbiqMicro/Include
 INCLUDES += -I../AmbiqSDK/CMSIS/ARM/PrivateInclude
 INCLUDES += -I../AmbiqSDK/CMSIS/ARM/Include
+INCLUDES += -I../AmbiqSDK/CMSIS/ARM
 INCLUDES += -I../AmbiqSDK/devices
 INCLUDES += -I../AmbiqSDK/utils
 INCLUDES += -I../src/ai
@@ -75,11 +84,26 @@ INCLUDES += -I../src/boards
 INCLUDES += -I../src/boards/rev$(REVISION)
 INCLUDES += -I../src/external
 INCLUDES += -I../src/external/fatfs
+INCLUDES += -I../src/external/flatbuffers/include
+INCLUDES += -I../src/external/gemmlowp
 INCLUDES += -I../src/external/segger
-INCLUDES += -I../src/external/tensorflow
-INCLUDES += -I../src/external/tensorflow/third_party
-INCLUDES += -I../src/external/tensorflow/third_party/flatbuffers/include
-INCLUDES += -I../src/external/tensorflow/third_party/gemmlowp
+INCLUDES += -I../src/external/ruy
+INCLUDES += -I../src/external/tflite-micro
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/c
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/core
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/core/api
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/core/c
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/kernels
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/kernels/internal
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/kernels/internal/optimized
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/kernels/internal/reference
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/arena_allocator
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/cortex_m_generic
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/kernels
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/memory_planner
+INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/tflite_bridge
 INCLUDES += -I../src/peripherals/include
 
 VPATH  = ../AmbiqSDK/bsp/$(BSP)/linker
@@ -121,6 +145,20 @@ VPATH += ../src/boards
 VPATH += ../src/boards/rev$(REVISION)
 VPATH += ../src/external/fatfs
 VPATH += ../src/external/segger
+VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/tflite_bridge
+VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/memory_planner
+VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/kernels/cmsis_nn
+VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/kernels
+VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/cortex_m_generic
+VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/arena_allocator
+VPATH += ../src/external/tflite-micro/tensorflow/lite/micro
+VPATH += ../src/external/tflite-micro/tensorflow/lite/kernels/internal
+VPATH += ../src/external/tflite-micro/tensorflow/lite/core/c
+VPATH += ../src/external/tflite-micro/tensorflow/lite/core/api
+VPATH += ../src/external/tflite-micro/tensorflow/lite/core
+VPATH += ../src/external/tflite-micro/tensorflow/lite/c
+VPATH += ../src/external/tflite-micro/tensorflow/lite/
+VPATH += ../src/external/tflite-micro/tensorflow/compiler/mlir/lite/schema
 VPATH += ../src/peripherals/src
 VPATH += ./peripherals
 VPATH += ./app
@@ -138,6 +176,67 @@ SRC += SEGGER_RTT.c
 
 SRC += CommonTables.c
 SRC += TransformFunctions.c
+SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/ConvolutionFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
+SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/FullyConnectedFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
+SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/NNSupportFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
+SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/TransposeFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
+
+SRC += flatbuffer_utils.cc
+SRC += memory_helpers.cc
+SRC += micro_allocation_info.cc
+SRC += micro_allocator.cc
+SRC += micro_context.cc
+SRC += micro_interpreter_context.cc
+SRC += micro_interpreter_graph.cc
+SRC += micro_interpreter.cc
+SRC += micro_op_resolver.cc
+SRC += micro_resource_variable.cc
+SRC += micro_utils.cc
+SRC += system_setup.cc
+SRC += non_persistent_arena_buffer_allocator.cc
+SRC += persistent_arena_buffer_allocator.cc
+SRC += single_arena_buffer_allocator.cc
+SRC += greedy_memory_planner.cc
+SRC += linear_memory_planner.cc
+SRC += non_persistent_buffer_planner_shim.cc
+SRC += flatbuffer_conversions_bridge.cc
+SRC += micro_error_reporter.cc
+SRC += kernel_util.cc
+SRC += kernel_util2.cc
+SRC += tensor_utils.cc
+SRC += common.cc
+SRC += common2.cc
+SRC += portable_tensor_utils.cc
+SRC += portable_tensor_utils2.cc
+SRC += tensor_ctypes.cc
+SRC += runtime_shape.cc
+SRC += quantization_util.cc
+SRC += flatbuffer_conversions.cc
+SRC += schema_utils.cc
+SRC += conv.cc
+SRC += conv_common.cc
+SRC += depthwise_conv.cc
+SRC += depthwise_conv_common.cc
+SRC += dequantize.cc
+SRC += dequantize_common.cc
+SRC += fully_connected.cc
+SRC += fully_connected_common.cc
+SRC += leaky_relu.cc
+SRC += leaky_relu_common.cc
+SRC += pad.cc
+SRC += pad_common.cc
+SRC += pooling.cc
+SRC += pooling_common.cc
+SRC += prelu.cc
+SRC += prelu_common.cc
+SRC += quantize.cc
+SRC += quantize_common.cc
+SRC += reduce.cc
+SRC += reduce_common.cc
+SRC += reshape.cc
+SRC += reshape_common.cc
+SRC += transpose.cc
+SRC += transpose_common.cc
 
 SRC += ai.cc
 SRC += fft.c
@@ -278,11 +377,10 @@ DEPS+= $(ASRC:%.s=$(CONFIG)/%.d)
 
 LIBS  = ../AmbiqSDK/bsp/$(BSP)/gcc/bin/libam_bsp.a
 LIBS += ../AmbiqSDK/mcu/$(PART)/hal/mcu/gcc/bin/libam_hal.a
-LIBS += ../src/external/tensorflow/lib/libtensorflow-microlite-cm4-gcc-release.a
 
 CFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
-CFLAGS+= -ffunction-sections -fdata-sections -fno-omit-frame-pointer -fno-exceptions
-CFLAGS+= -MMD -MP -Wall -g -O0
+CFLAGS+= -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-exceptions -fmessage-length=0 -funsigned-char
+CFLAGS+= -fno-omit-frame-pointer -MMD -MP -Wall -g -O0
 CFLAGS+= $(DEFINES)
 CFLAGS+= $(INCLUDES)
 
@@ -298,13 +396,33 @@ ODFLAGS = -S
 $(CONFIG):
 	@mkdir -p $@
 
+# TFLite defines a number of source files with the same name - workaround here
+$(CONFIG)/common.o: ../src/external/tflite-micro/tensorflow/lite/kernels/internal/common.cc $(CONFIG)/common.d
+	@echo " Compiling $<" ;\
+	$(CPP) -c -std=c++17 $(CFLAGS) -fno-rtti -fno-threadsafe-statics $< -o $@
+$(CONFIG)/common2.o: ../src/external/tflite-micro/tensorflow/lite/core/c/common.cc $(CONFIG)/common2.d
+	@echo " Compiling $<" ;\
+	$(CPP) -c -std=c++17 $(CFLAGS) -fno-rtti -fno-threadsafe-statics $< -o $@
+$(CONFIG)/kernel_util.o: ../src/external/tflite-micro/tensorflow/lite/kernels/kernel_util.cc $(CONFIG)/kernel_util.d
+	@echo " Compiling $<" ;\
+	$(CPP) -c -std=c++17 $(CFLAGS) -fno-rtti -fno-threadsafe-statics $< -o $@
+$(CONFIG)/kernel_util2.o: ../src/external/tflite-micro/tensorflow/lite/micro/kernels/kernel_util.cc $(CONFIG)/kernel_util2.d
+	@echo " Compiling $<" ;\
+	$(CPP) -c -std=c++17 $(CFLAGS) -fno-rtti -fno-threadsafe-statics $< -o $@
+$(CONFIG)/portable_tensor_utils.o: ../src/external/tflite-micro/tensorflow/lite/kernels/internal/portable_tensor_utils.cc $(CONFIG)/portable_tensor_utils.d
+	@echo " Compiling $<" ;\
+	$(CPP) -c -std=c++17 $(CFLAGS) -fno-rtti -fno-threadsafe-statics $< -o $@
+$(CONFIG)/portable_tensor_utils2.o: ../src/external/tflite-micro/tensorflow/lite/kernels/internal/reference/portable_tensor_utils.cc $(CONFIG)/portable_tensor_utils2.d
+	@echo " Compiling $<" ;\
+	$(CPP) -c -std=c++17 $(CFLAGS) -fno-rtti -fno-threadsafe-statics $< -o $@
+
 $(CONFIG)/%.o: %.cc $(CONFIG)/%.d
 	@echo " Compiling $<" ;\
-	$(CPP) -c $(CFLAGS) -fno-rtti -fno-threadsafe-statics -fno-unwind-tables $< -o $@
+	$(CPP) -c -std=c++17 $(CFLAGS) -fno-rtti -fno-threadsafe-statics $< -o $@
 
 $(CONFIG)/%.o: %.c $(CONFIG)/%.d
 	@echo " Compiling $<" ;\
-	$(CC) -c $(CFLAGS) $< -o $@
+	$(CC) -c -std=c17 $(CFLAGS) $< -o $@
 
 $(CONFIG)/%.o: %.s $(CONFIG)/%.d
 	@echo " Assembling $<" ;\
