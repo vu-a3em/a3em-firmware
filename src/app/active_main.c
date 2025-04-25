@@ -17,7 +17,7 @@
 
 static volatile uint8_t *imu_data_awaiting_storage;
 static volatile uint32_t num_clips_stored, imu_storage_index;
-static volatile bool *device_active, phase_ended, audio_timer_triggered, in_motion;
+static volatile bool *device_active, phase_ended, audio_timer_triggered, in_motion, new_imu_stream, validation_time;
 static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds, imu_sampling_rate_hz;
 static float imu_data_buffer[2*IMU_BUFFER_NUM_SAMPLES][3], (*imu_storage_buffer)[3];
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
@@ -96,6 +96,7 @@ static void validate_device_settings(uint32_t current_timestamp)
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time
+   validation_time = false;
    if (!phase_ended && *device_active)
       rtc_set_wakeup_timestamp(wakeup_timestamp);
 }
@@ -111,7 +112,7 @@ void am_rtc_isr(void)
    am_hal_rtc_alarm_get(NULL, &repeat_interval);
    am_hal_rtc_interrupt_clear(AM_HAL_RTC_INT_ALM);
    AM_CRITICAL_END
-   validate_device_settings(rtc_get_timestamp());
+   validation_time = true;
 }
 
 void imu_data_callback(float accel_x_mg, float accel_y_mg, float accel_z_mg)
@@ -139,7 +140,7 @@ void imu_motion_change_callback(bool new_in_motion)
       in_motion = new_in_motion;
       if (in_motion)
       {
-         storage_start_imu_data_stream(rtc_get_timestamp(), imu_sampling_rate_hz);
+         new_imu_stream = true;
          imu_enable_raw_data_output(in_motion, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
       }
       else
@@ -189,7 +190,17 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    while (!phase_ended && *device_active)
    {
+      // Determine if time to re-validate device settings
+      const uint32_t current_time = rtc_get_timestamp();
+      if (validation_time)
+         validate_device_settings(current_time);
+
       // Store any pending IMU data
+      if (new_imu_stream)
+      {
+         storage_start_imu_data_stream(current_time, imu_sampling_rate_hz);
+         new_imu_stream = false;
+      }
       if (imu_data_awaiting_storage)
       {
          storage_write_imu_data((uint8_t*)imu_data_awaiting_storage, sizeof(float) * 3 * IMU_BUFFER_NUM_SAMPLES);
@@ -197,14 +208,13 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
       }
 
       // Determine if time to create a new WAV file
-      const uint32_t current_time = rtc_get_timestamp();
       const uint32_t seconds_til_next_scheduled_recording = seconds_until_next_scheduled_recording(num_schedules, schedule, (uint32_t)((int32_t)current_time + config_get_utc_offset_seconds()) % 86400);
       if (!audio_clip_in_progress)
       {
          // Go to sleep if time remains until the next scheduled audio recording
          if (interval_based && !audio_timer_triggered)
          {
-            while (!audio_timer_triggered && !phase_ended && *device_active)
+            while (!audio_timer_triggered && !phase_ended && !validation_time && *device_active)
                system_enter_deep_sleep_mode();
             continue;
          }
@@ -217,7 +227,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
                audio_processing_timer_config.ui32Compare0 = (uint32_t)(seconds_to_sleep * TIMER_AUDIO_PROCESSING_TICK_RATE);
                am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
                am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
-               while (!audio_timer_triggered && !phase_ended && *device_active)
+               while (!audio_timer_triggered && !phase_ended && !validation_time && *device_active)
                   system_enter_deep_sleep_mode();
                continue;
             }
@@ -272,7 +282,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
                imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
          }
       }
-      else
+      else if (!validation_time)
          system_enter_deep_sleep_mode();
    }
 
@@ -299,6 +309,11 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    while (!phase_ended && *device_active)
    {
+      // Determine if time to re-validate device settings
+      const uint32_t current_time = rtc_get_timestamp();
+      if (validation_time)
+         validate_device_settings(current_time);
+
       // Determine if time to start listening for a new audio clip
       if (!awaiting_trigger && !audio_clip_in_progress && (num_clips_stored < max_clips))
       {
@@ -307,6 +322,11 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
       }
 
       // Store any pending IMU data
+      if (new_imu_stream)
+      {
+         storage_start_imu_data_stream(current_time, imu_sampling_rate_hz);
+         new_imu_stream = false;
+      }
       if (imu_data_awaiting_storage)
       {
          storage_write_imu_data((uint8_t*)imu_data_awaiting_storage, sizeof(float) * 3 * IMU_BUFFER_NUM_SAMPLES);
@@ -322,7 +342,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          if (!audio_clip_in_progress)
          {
             // Generate a new audio file using the current date and time
-            if (storage_open_wav_file(device_label, AUDIO_NUM_CHANNELS, sampling_rate, rtc_get_timestamp()))
+            if (storage_open_wav_file(device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
             {
                // Signal start of a new audio clip
                audio_clip_in_progress = true;
@@ -331,7 +351,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
                // Begin reading IMU data if enabled
                if (record_imu_with_audio)
                {
-                  storage_start_imu_data_stream(rtc_get_timestamp(), imu_sampling_rate_hz);
+                  storage_start_imu_data_stream(current_time, imu_sampling_rate_hz);
                   imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
                }
             }
@@ -354,7 +374,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
                imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
          }
       }
-      else
+      else if (!validation_time)
          system_enter_deep_sleep_mode();
    }
 
@@ -378,6 +398,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    print("%s\n", success ? "SUCCESS" : "FAILURE");
 
    // Validate device settings (and implicitly set an RTC alarm for the next important event)
+   validation_time = false;
    device_active = device_activated;
    vhf_enable_timestamp = config_get_vhf_start_timestamp();
    led_active_seconds = config_get_leds_active_seconds();
@@ -401,7 +422,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    imu_storage_index = 0;
    imu_data_awaiting_storage = NULL;
    imu_storage_buffer = imu_data_buffer;
-   in_motion = record_imu_with_audio = false;
+   in_motion = new_imu_stream = record_imu_with_audio = false;
    imu_degrees_of_freedom = config_get_imu_degrees_of_freedom(phase_index);
    imu_sampling_rate_hz = config_get_imu_sampling_rate_hz(phase_index);
    switch (config_get_imu_recording_mode(phase_index))
