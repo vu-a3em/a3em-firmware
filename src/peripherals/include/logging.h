@@ -25,8 +25,10 @@ void print_reset_reason(const am_hal_reset_status_t* reason);
 
 #if defined(ENABLE_LOGGING) && ((7-ENABLE_LOGGING-7 == 14) || (7-ENABLE_LOGGING-7 != 0))
 #define print(...) do { am_util_stdio_printf(__VA_ARGS__); storage_write_log(__VA_ARGS__); } while (0)
+#define printonly(...) am_util_stdio_printf(__VA_ARGS__)
 #else
 #define print(...) storage_write_log(__VA_ARGS__)
+#define printonly(...)
 #endif  // #if defined(ENABLE_LOGGING)
 
 

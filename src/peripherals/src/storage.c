@@ -77,21 +77,21 @@ DSTATUS disk_initialize(BYTE)
    sd_card_host = am_hal_get_card_host(AM_HAL_SDHC_CARD_HOST, true);
    if (!sd_card_host)
    {
-      print("ERROR: No SD card host found!\n");
+      printonly("ERROR: No SD card host found!\n");
       return sd_disk_status;
    }
 
    // Verify that an SD card is present
    if (am_hal_card_host_find_card(sd_card_host, &sd_card) != AM_HAL_STATUS_SUCCESS)
    {
-      print("ERROR: No SD card found!\n");
+      printonly("ERROR: No SD card found!\n");
       return sd_disk_status;
    }
 
    // Initialize the SD card
    if (am_hal_card_init(&sd_card, sd_card_config.card_type, NULL, sd_card_config.card_power_ctrl_policy) != AM_HAL_STATUS_SUCCESS)
    {
-      print("ERROR: SD card is not ready...\n");
+      printonly("ERROR: SD card is not ready...\n");
       return sd_disk_status;
    }
 
@@ -106,21 +106,21 @@ DSTATUS disk_initialize(BYTE)
    sd_card_config.sector_count = am_hal_sd_card_get_block_count(&sd_card);
    if (!sd_card_config.sector_count)
    {
-      print("ERROR: Failed to read the SD card sector count\n");
+      printonly("ERROR: Failed to read the SD card sector count\n");
       return sd_disk_status;
    }
 
    // Configure the SDIO host
    if (am_hal_card_cfg_set(&sd_card, sd_card_config.card_type, sd_card_config.bus_width, sd_card_config.clock, sd_card_config.bus_voltage, sd_card_config.uhs_mode) != AM_HAL_STATUS_SUCCESS)
    {
-      print("ERROR: Failed to configure the SDIO host\n");
+      printonly("ERROR: Failed to configure the SDIO host\n");
       return sd_disk_status;
    }
 
    // Power down the SDIO peripheral
    if (am_hal_card_pwrctrl_sleep(&sd_card) != AM_HAL_STATUS_SUCCESS)
    {
-      print("ERROR: Failed to power down the SDIO peripheral\n");
+      printonly("ERROR: Failed to power down the SDIO peripheral\n");
       return sd_disk_status;
    }
 
@@ -150,7 +150,7 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
    // Power on the SDIO peripheral
    if (am_hal_card_pwrctrl_wakeup(&sd_card) != AM_HAL_STATUS_SUCCESS)
    {
-      print("ERROR: Failed to power on the SDIO peripheral\n");
+      printonly("ERROR: Failed to power on the SDIO peripheral\n");
       return RES_ERROR;
    }
 
@@ -160,7 +160,7 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
       uint32_t status = am_hal_sd_card_block_read_sync(&sd_card, sector, count, (uint8_t*)buff);
       if ((status & 0xFFFF) != AM_HAL_STATUS_SUCCESS)
       {
-         print("ERROR: Failed to call the synchronous read API...Number of bytes read = %d\n", status);
+         printonly("ERROR: Failed to call the synchronous read API...Number of bytes read = %d\n", status);
          return RES_ERROR;
       }
    }
@@ -170,7 +170,7 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
       uint32_t status = am_hal_sd_card_block_read_async(&sd_card, sector, count, (uint8_t *)buff);
       if (status != AM_HAL_STATUS_SUCCESS)
       {
-         print("ERROR: Failed to call the asynchronous read API...Read Status = %d\n", status);
+         printonly("ERROR: Failed to call the asynchronous read API...Read Status = %d\n", status);
          NVIC_SetPriority(SDIO_IRQn, STORAGE_INTERRUPT_PRIORITY);
          return RES_ERROR;
       }
@@ -181,7 +181,7 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
          am_util_delay_ms(1);
          if (i == 1000)
          {
-            print("ERROR: Timed out reading from SD card\n");
+            printonly("ERROR: Timed out reading from SD card\n");
             return RES_ERROR;
          }
       }
@@ -190,7 +190,7 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
    // Power down the SDIO peripheral
    if (am_hal_card_pwrctrl_sleep(&sd_card) != AM_HAL_STATUS_SUCCESS)
    {
-      print("ERROR: Failed to power down the SDIO peripheral\n");
+      printonly("ERROR: Failed to power down the SDIO peripheral\n");
       return RES_ERROR;
    }
    return RES_OK;
@@ -207,7 +207,7 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
    // Power on the SDIO peripheral
    if (am_hal_card_pwrctrl_wakeup(&sd_card) != AM_HAL_STATUS_SUCCESS)
    {
-      print("ERROR: Failed to power on the SDIO peripheral\n");
+      printonly("ERROR: Failed to power on the SDIO peripheral\n");
       return RES_ERROR;
    }
 
@@ -217,7 +217,7 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
       uint32_t status = am_hal_sd_card_block_write_sync(&sd_card, sector, count, (uint8_t*)buff);
       if ((status & 0xFFFF) != AM_HAL_STATUS_SUCCESS)
       {
-         print("ERROR: Failed to call the synchronous write API...Number of bytes written = %d\n", status);
+         printonly("ERROR: Failed to call the synchronous write API...Number of bytes written = %d\n", status);
          return RES_ERROR;
       }
    }
@@ -227,7 +227,7 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
       uint32_t status = am_hal_sd_card_block_write_async(&sd_card, sector, count, (uint8_t*)buff);
       if (status != AM_HAL_STATUS_SUCCESS)
       {
-         print("ERROR: Failed to call the asynchronous write API...Write Status = %d\n", status);
+         printonly("ERROR: Failed to call the asynchronous write API...Write Status = %d\n", status);
          NVIC_SetPriority(SDIO_IRQn, STORAGE_INTERRUPT_PRIORITY);
          return RES_ERROR;
       }
@@ -238,7 +238,7 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
          am_util_delay_ms(1);
          if (i == 1000)
          {
-            print("ERROR: Timed out writing to SD card\n");
+            printonly("ERROR: Timed out writing to SD card\n");
             return RES_ERROR;
          }
       }
@@ -247,7 +247,7 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
    // Power down the SDIO peripheral
    if (am_hal_card_pwrctrl_sleep(&sd_card) != AM_HAL_STATUS_SUCCESS)
    {
-      print("ERROR: Failed to power down the SDIO peripheral\n");
+      printonly("ERROR: Failed to power down the SDIO peripheral\n");
       return RES_ERROR;
    }
    return RES_OK;
@@ -354,9 +354,9 @@ void storage_init(void)
    const MKFS_PARM opts = { .fmt = FM_EXFAT, .n_fat = 0, .align = 0, .n_root = 0, .au_size = 4096 };
    FRESULT res = f_mount(&file_system, (TCHAR const*)sd_card_path, 0);
    if ((res == FR_NO_FILESYSTEM) && ((res = f_mkfs((TCHAR const*)sd_card_path, &opts, work_buf, sizeof(work_buf))) != FR_OK))
-      print("ERROR: Unable to create a file system on the SD card\n");
+      printonly("ERROR: Unable to create a file system on the SD card\n");
    else if (res != FR_OK)
-      print("ERROR: Unable to mount the SD card file system\n");
+      printonly("ERROR: Unable to mount the SD card file system\n");
 }
 
 void storage_deinit(void)
@@ -391,7 +391,7 @@ void storage_setup_logs(void)
    if (!log_open)
       log_open = (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) == FR_OK);
    if (!log_open)
-      print("ERROR: Unable to open SD card log file for writing\n");
+      printonly("ERROR: Unable to open SD card log file for writing\n");
 }
 
 bool storage_sd_card_error(void)
