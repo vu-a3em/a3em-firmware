@@ -1,6 +1,7 @@
 #include <math.h>
-#include "ai.h"
+#include "nn.h"
 #include "logging.h"
+#include "mfcc.h"
 #include "system.h"
 
 #define M_PI                    3.14159265358979323846
@@ -26,21 +27,29 @@ int main(void)
    am_hal_timer_default_config_set(&timer_config);
    am_hal_timer_config(TIMER_NUMBER, &timer_config);
 
-   // Initialize the AI library components
-   ai_initialize();
+   // Initialize the MFCC and NN libraries
+   mfcc_initialize();
+   nn_initialize();
 
    // Generate a test sine wave
    int16_t sine_wave[NUM_SINE_WAVE_SAMPLES];
    generate_sine_wave(1234, sine_wave);
 
-   // Invoke the AI model and output the results
-   ai_invoke(sine_wave);
-   print("TODO!\n");
+   // Compute MFCCs for the sine wave
+   float mfccs[AI_NUM_INPUT_FEATURES];
+   mfcc_compute(sine_wave, mfccs);
+
+   // Pass the MFCCs as features to the NN model
+   float *embeddings = nn_invoke(mfccs);
+   print("Embeddings: [ ");
+   for (uint32_t i = 0; i < AI_NUM_OUTPUT_FEATURES; ++i)
+      print("%f ", embeddings[i]);
+   print("]\n");
 
    // Execute call again to time performance
    am_hal_delay_us(250000);
    am_hal_timer_clear(TIMER_NUMBER);
-   ai_invoke(sine_wave);
+   embeddings = nn_invoke(mfccs);
    uint32_t timer_val = am_hal_timer_read(TIMER_NUMBER);
    am_hal_timer_stop(TIMER_NUMBER);
    print("Execution time: %u ms\n", (uint32_t)(((float)timer_val / (AM_HAL_CLKGEN_FREQ_MAX_HZ / 16)) * 1000.0f));

@@ -231,7 +231,8 @@ SRC += reshape_common.cc
 SRC += transpose.cc
 SRC += transpose_common.cc
 
-SRC += ai.cc
+SRC += ai.c
+SRC += nn.cc
 SRC += clustering.c
 SRC += fft.c
 SRC += mfcc.c

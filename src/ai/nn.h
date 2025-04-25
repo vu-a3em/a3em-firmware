@@ -1,16 +1,22 @@
-#ifndef __AI_HEADER_H__
-#define __AI_HEADER_H__
+#ifndef __NN_HEADER_H__
+#define __NN_HEADER_H__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
-#include "runtime_config.h"
+#include <stdbool.h>
 
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
-bool ai_initialize(void);
-bool ai_worth_exploring(const int16_t *audio);
-void ai_continue(void);
-void ai_invoke(const int16_t *audio);
+bool nn_initialize(void);
+float* nn_invoke(float *input);
 
-#endif  // #ifndef __AI_HEADER_H__
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // #ifndef __NN_HEADER_H__

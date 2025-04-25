@@ -238,7 +238,8 @@ SRC += reshape_common.cc
 SRC += transpose.cc
 SRC += transpose_common.cc
 
-SRC += ai.cc
+SRC += ai.c
+SRC += nn.cc
 SRC += clustering.c
 SRC += fft.c
 SRC += mfcc.c
@@ -263,12 +264,12 @@ SRC += vhf.c
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/mcu/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-.PHONY: all program clean ai app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc power_off rtc_set rtc storage system vhf
+.PHONY: all program clean ai app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf
 .PRECIOUS: $(CONFIG)/%.axf
 .SECONDEXPANSION:
 
 all:
-	$(error Make targets include: ai app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc power_off rtc_set rtc storage system vhf)
+	$(error Make targets include: ai app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf)
 
 program:
 ifneq ($(BUILT_BY), eclipse)
@@ -342,6 +343,10 @@ magnet: $(CONFIG) $(CONFIG)/test_magnet.o $(CONFIG)/$$(TARGET).bin program
 mfcc: TARGET = TestMFCC
 mfcc: SRC += test_mfcc.c
 mfcc: $(CONFIG) $(CONFIG)/test_mfcc.o $(CONFIG)/$$(TARGET).bin program
+
+nn: TARGET = TestNN
+nn: SRC += test_nn.c
+nn: $(CONFIG) $(CONFIG)/test_nn.o $(CONFIG)/$$(TARGET).bin program
 
 power_off: TARGET = TestPowerOff
 power_off: SRC += test_power_off.c

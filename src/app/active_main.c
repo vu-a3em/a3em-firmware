@@ -377,10 +377,6 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    const bool success = storage_mkdir(device_label);
    print("%s\n", success ? "SUCCESS" : "FAILURE");
 
-   // Initialize the AI model and interpreter
-   if (!ai_initialize())
-      print("ERROR: AI model initialization failed!\n");
-
    // Validate device settings (and implicitly set an RTC alarm for the next important event)
    device_active = device_activated;
    vhf_enable_timestamp = config_get_vhf_start_timestamp();
