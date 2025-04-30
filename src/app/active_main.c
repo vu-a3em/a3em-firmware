@@ -171,7 +171,6 @@ static void henrik_data_available(henrik_data_t new_data)
 static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds_per_clip, time_scale_t align_to, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule)
 {
    // Initialize all necessary local variables
-   const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(num_seconds_per_clip);
    bool audio_clip_in_progress = false, reading_audio = false;
    uint32_t num_audio_reads = 0;
    int16_t *audio_buffer;
@@ -262,8 +261,8 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          led_indicate_clip_progress();
-         storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
-         if (++num_audio_reads >= num_reads_per_clip)
+         storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate);
+         if (++num_audio_reads >= num_seconds_per_clip)
          {
             // Finalize the current WAV file and stop reading if interval-based or if the current schedule has ended
             storage_close_audio();
@@ -293,7 +292,6 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
 static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_seconds_per_clip, uint32_t max_clips, uint32_t per_num_seconds)
 {
    // Initialize all necessary local variables
-   const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(num_seconds_per_clip);
    bool audio_clip_in_progress = false, awaiting_trigger = false;
    uint32_t num_audio_reads = 0;
    int16_t *audio_buffer;
@@ -358,8 +356,8 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
 
          // Store the audio data to the WAV file
          led_indicate_clip_progress();
-         storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
-         if (++num_audio_reads >= num_reads_per_clip)
+         storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate);
+         if (++num_audio_reads >= num_seconds_per_clip)
          {
             awaiting_trigger = audio_clip_in_progress = false;
             led_indicate_clip_end();

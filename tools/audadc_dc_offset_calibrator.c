@@ -3,16 +3,17 @@
 #include "mram.h"
 #include "system.h"
 
+static const uint32_t sample_rate = 40000;
+
 int main(void)
 {
    // Set up the system hardware
    setup_hardware();
-   audio_analog_init(AUDIO_NUM_CHANNELS, 40000, 35.0f, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f);
+   audio_analog_init(AUDIO_NUM_CHANNELS, sample_rate, 35.0f, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f);
    system_enable_interrupts(true);
 
    // Read audio for long enough to skip startup noise and determine the DC offset
-   const uint32_t num_reads_per_skip = audio_num_reads_per_n_seconds(5);
-   const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(10);
+   const uint32_t num_reads_per_skip = 5, num_reads_per_clip = 10;
    audio_begin_reading();
 
    // Skip first five seconds of audio
@@ -48,13 +49,13 @@ int main(void)
          if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
          {
             ++num_reads;
-            for (int i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+            for (int i = 0; i < sample_rate; ++i)
                average += (int64_t)audio_buffer[i];
          }
       }
 
       // Output the measured DC offset and store to persistent memory
-      average /= (num_reads_per_clip * AUDIO_BUFFER_NUM_SAMPLES);
+      average /= (num_reads_per_clip * sample_rate);
       print("Measured DC Offset: %d\n", (int32_t)average);
       bool success = mram_store_audadc_dc_offset(average);
       print("Storage to persistent memory %s!\n", success ? "SUCCESSFUL" : "FAILED");

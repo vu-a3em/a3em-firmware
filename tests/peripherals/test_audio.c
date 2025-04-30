@@ -23,7 +23,6 @@ int main(void)
    system_enable_interrupts(true);
 
    // Loop forever handling incoming audio clips
-   const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(AUDIO_CLIP_LENGTH_SECONDS);
    static int16_t audio_buffer[AUDIO_BUFFER_NUM_SAMPLES];
    bool audio_clip_in_progress = false;
    uint32_t num_audio_reads = 0;
@@ -48,7 +47,7 @@ int main(void)
       {
          print("New audio data available: %u\n", num_audio_reads+1);
          transmit_audio(audio_buffer, sizeof(audio_buffer));
-         if (AUDIO_CLIP_LENGTH_SECONDS && (++num_audio_reads >= num_reads_per_clip))
+         if (AUDIO_CLIP_LENGTH_SECONDS && (++num_audio_reads >= AUDIO_CLIP_LENGTH_SECONDS))
          {
             print("Full audio clip processed...stopping reading\n");
             audio_clip_in_progress = false;

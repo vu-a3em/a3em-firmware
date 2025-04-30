@@ -179,6 +179,7 @@ void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, float ga
    configASSERT0(am_hal_pdm_power_control(audio_handle, AM_HAL_PDM_POWER_ON, false));
 
    // Set up the DMA configuration structure
+   pdm_transfer_config.ui32TotalCount = sample_rate_hz * sizeof(uint32_t);
    pdm_transfer_config.ui32TargetAddr = (uint32_t)((uint32_t)(sample_buffer + 3) & ~0xF);
    pdm_transfer_config.ui32TargetAddrReverse = pdm_transfer_config.ui32TargetAddr + pdm_transfer_config.ui32TotalCount;
 
@@ -298,6 +299,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    sampling_rate_hz = sample_rate_hz;
    const float sample_rate_khz = (float)sample_rate_hz / 1000.0;
    audadc_irtt_config.ui32IrttCountMax = (uint32_t)lroundf((6000.0f / sample_rate_khz) - 1.0f);   // Sample rate = eClock/eClkDiv/(ui32IrttCountMax+1)
+   audadc_dma_config.ui32SampleCount = sample_rate_hz;
    audadc_dma_config.ui32TargetAddress = (uint32_t)((uint32_t)(sample_buffer + 3) & ~0xF);
    audadc_dma_config.ui32TargetAddressReverse = audadc_dma_config.ui32TargetAddress + (sizeof(uint32_t) * audadc_dma_config.ui32SampleCount);
 
@@ -411,11 +413,6 @@ void audio_deinit(void)
    }
 }
 
-uint32_t audio_num_reads_per_n_seconds(uint32_t seconds)
-{
-   return MAX(1, seconds * (sampling_rate_hz / AUDIO_BUFFER_NUM_SAMPLES));
-}
-
 void audio_begin_reading(void)
 {
    // Start the audio peripheral and DMA data conversions
@@ -476,7 +473,7 @@ bool audio_read_data(int16_t *buffer)
       if (is_digital_mic)
       {
          const int32_t *data = (int32_t*)am_hal_pdm_dma_get_buffer(audio_handle);
-         for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+         for (uint32_t i = 0; i < sampling_rate_hz; ++i)
             buffer[i] = (int16_t)(data[i] >> 8);
       }
       else
@@ -486,13 +483,13 @@ bool audio_read_data(int16_t *buffer)
          if (dc_calculated < 5)
          {
             int32_t dc_total = 0;
-            for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+            for (uint32_t i = 0; i < sampling_rate_hz; ++i)
                dc_total += (int32_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
-            dc_total /= AUDIO_BUFFER_NUM_SAMPLES;
+            dc_total /= sampling_rate_hz;
             dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
             dc_offset = (int16_t)dc_total;
          }
-         for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+         for (uint32_t i = 0; i < sampling_rate_hz; ++i)
          {
             buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
             if ((buffer[i] >= 0) && (dc_offset < 0) && ((int16_t)(buffer[i] - dc_offset) < 0))
@@ -519,7 +516,7 @@ int16_t* audio_read_data_direct(void)
       {
          int32_t *data = (int32_t*)am_hal_pdm_dma_get_buffer(audio_handle);
          buffer = (int16_t*)data;
-         for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+         for (uint32_t i = 0; i < sampling_rate_hz; ++i)
             buffer[i] = (int16_t)(data[i] >> 8);
       }
       else
@@ -530,13 +527,13 @@ int16_t* audio_read_data_direct(void)
          if (dc_calculated < 5)
          {
             int32_t dc_total = 0;
-            for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+            for (uint32_t i = 0; i < sampling_rate_hz; ++i)
                dc_total += (int32_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
-            dc_total /= AUDIO_BUFFER_NUM_SAMPLES;
+            dc_total /= sampling_rate_hz;
             dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
             dc_offset = (int16_t)dc_total;
          }
-         for (uint32_t i = 0; i < AUDIO_BUFFER_NUM_SAMPLES; ++i)
+         for (uint32_t i = 0; i < sampling_rate_hz; ++i)
          {
             buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
             if ((buffer[i] >= 0) && (dc_offset < 0) && ((int16_t)(buffer[i] - dc_offset) < 0))
