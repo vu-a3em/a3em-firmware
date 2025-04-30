@@ -34,13 +34,13 @@ int main(void)
    generate_sine_wave(1234, sine_wave);
 
    // Invoke the AI model and output the results
-   ai_invoke(sine_wave);
-   print("TODO!\n");
+   bool store = ai_invoke(sine_wave);
+   print("AI Result: %s item\n", store ? "STORE" : "DO NOT store");
 
    // Execute call again to time performance
    am_hal_delay_us(250000);
    am_hal_timer_clear(TIMER_NUMBER);
-   ai_invoke(sine_wave);
+   store = ai_invoke(sine_wave);
    uint32_t timer_val = am_hal_timer_read(TIMER_NUMBER);
    am_hal_timer_stop(TIMER_NUMBER);
    print("Execution time: %u ms\n", (uint32_t)(((float)timer_val / (AM_HAL_CLKGEN_FREQ_MAX_HZ / 16)) * 1000.0f));

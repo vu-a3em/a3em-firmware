@@ -9,6 +9,8 @@
 // Public API Functions ------------------------------------------------------------------------------------------------
 
 void clustering_initialize(void);
-void clustering_invoke(float *embeddings);
+bool clustering_invoke(const float *embedding);
+const float (*clustering_get_means(void))[AI_NUM_OUTPUT_FEATURES];
+const float* clustering_get_weights(void);
 
 #endif  // #ifndef __CLUSTERING_HEADER_H__

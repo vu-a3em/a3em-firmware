@@ -28,16 +28,16 @@ bool ai_worth_exploring(const int16_t *audio)
    return true;
 }
 
-void ai_continue(void)
+bool ai_continue(void)
 {
    // Simply invoke the neural network and carry out clustering
    // under the assumption that ai_worth_exploring was called first
-   clustering_invoke(nn_invoke(mfccs));
+   return clustering_invoke(nn_invoke(mfccs));
 }
 
-void ai_invoke(const int16_t *audio)
+bool ai_invoke(const int16_t *audio)
 {
    // Compute MFCC features, invoke the neural network, and carry out clustering
    mfcc_compute(audio, mfccs);
-   clustering_invoke(nn_invoke(mfccs));
+   return clustering_invoke(nn_invoke(mfccs));
 }

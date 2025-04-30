@@ -1,7 +1,7 @@
 #include <math.h>
-#include "nn.h"
 #include "logging.h"
 #include "mfcc.h"
+#include "nn.h"
 #include "system.h"
 
 #define M_PI                    3.14159265358979323846
