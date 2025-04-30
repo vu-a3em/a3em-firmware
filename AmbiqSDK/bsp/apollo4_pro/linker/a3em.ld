@@ -97,17 +97,17 @@ SECTIONS
         _estack = .;
     } > MCU_TCM
 
-    .ai (NOLOAD):
-    {
-        . = ALIGN(4);
-        KEEP(*(.ai))
-        . = ALIGN(4);
-    } > SHARED_SRAM
-
     .shared (NOLOAD):
     {
         . = ALIGN(4);
         KEEP(*(.shared))
+        . = ALIGN(4);
+    } > SHARED_SRAM
+    
+    .segger (NOLOAD):
+    {
+        . = ALIGN(4);
+        KEEP(*(.segger))
         . = ALIGN(4);
     } > SHARED_SRAM2
 
