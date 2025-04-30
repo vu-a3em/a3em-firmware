@@ -84,26 +84,7 @@ INCLUDES += -I../src/boards
 INCLUDES += -I../src/boards/rev$(REVISION)
 INCLUDES += -I../src/external
 INCLUDES += -I../src/external/fatfs
-INCLUDES += -I../src/external/flatbuffers/include
-INCLUDES += -I../src/external/gemmlowp
 INCLUDES += -I../src/external/segger
-INCLUDES += -I../src/external/ruy
-INCLUDES += -I../src/external/tflite-micro
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/c
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/core
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/core/api
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/core/c
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/kernels
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/kernels/internal
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/kernels/internal/optimized
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/kernels/internal/reference
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/arena_allocator
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/cortex_m_generic
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/kernels
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/memory_planner
-INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/micro/tflite_bridge
 INCLUDES += -I../src/peripherals/include
 
 VPATH  = ../AmbiqSDK/bsp/$(BSP)/linker
@@ -145,20 +126,6 @@ VPATH += ../src/boards
 VPATH += ../src/boards/rev$(REVISION)
 VPATH += ../src/external/fatfs
 VPATH += ../src/external/segger
-VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/tflite_bridge
-VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/memory_planner
-VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/kernels/cmsis_nn
-VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/kernels
-VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/cortex_m_generic
-VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/arena_allocator
-VPATH += ../src/external/tflite-micro/tensorflow/lite/micro
-VPATH += ../src/external/tflite-micro/tensorflow/lite/kernels/internal
-VPATH += ../src/external/tflite-micro/tensorflow/lite/core/c
-VPATH += ../src/external/tflite-micro/tensorflow/lite/core/api
-VPATH += ../src/external/tflite-micro/tensorflow/lite/core
-VPATH += ../src/external/tflite-micro/tensorflow/lite/c
-VPATH += ../src/external/tflite-micro/tensorflow/lite/
-VPATH += ../src/external/tflite-micro/tensorflow/compiler/mlir/lite/schema
 VPATH += ../src/peripherals/src
 VPATH += ./peripherals
 VPATH += ./app
@@ -181,69 +148,6 @@ SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/FullyConnectedFu
 SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/NNSupportFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/TransposeFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-SRC += flatbuffer_utils.cc
-SRC += memory_helpers.cc
-SRC += micro_allocation_info.cc
-SRC += micro_allocator.cc
-SRC += micro_context.cc
-SRC += micro_interpreter_context.cc
-SRC += micro_interpreter_graph.cc
-SRC += micro_interpreter.cc
-SRC += micro_op_resolver.cc
-SRC += micro_resource_variable.cc
-SRC += micro_utils.cc
-SRC += system_setup.cc
-SRC += non_persistent_arena_buffer_allocator.cc
-SRC += persistent_arena_buffer_allocator.cc
-SRC += single_arena_buffer_allocator.cc
-SRC += greedy_memory_planner.cc
-SRC += linear_memory_planner.cc
-SRC += non_persistent_buffer_planner_shim.cc
-SRC += flatbuffer_conversions_bridge.cc
-SRC += micro_error_reporter.cc
-SRC += kernel_util.cc
-SRC += kernel_util2.cc
-SRC += tensor_utils.cc
-SRC += common.cc
-SRC += common2.cc
-SRC += portable_tensor_utils.cc
-SRC += portable_tensor_utils2.cc
-SRC += tensor_ctypes.cc
-SRC += runtime_shape.cc
-SRC += quantization_util.cc
-SRC += flatbuffer_conversions.cc
-SRC += schema_utils.cc
-SRC += conv.cc
-SRC += conv_common.cc
-SRC += depthwise_conv.cc
-SRC += depthwise_conv_common.cc
-SRC += dequantize.cc
-SRC += dequantize_common.cc
-SRC += fully_connected.cc
-SRC += fully_connected_common.cc
-SRC += leaky_relu.cc
-SRC += leaky_relu_common.cc
-SRC += pad.cc
-SRC += pad_common.cc
-SRC += pooling.cc
-SRC += pooling_common.cc
-SRC += prelu.cc
-SRC += prelu_common.cc
-SRC += quantize.cc
-SRC += quantize_common.cc
-SRC += reduce.cc
-SRC += reduce_common.cc
-SRC += reshape.cc
-SRC += reshape_common.cc
-SRC += transpose.cc
-SRC += transpose_common.cc
-
-SRC += ai.c
-SRC += nn.cc
-SRC += clustering.c
-SRC += fft.c
-SRC += mfcc.c
-
 SRC += audio.c
 SRC += battery.c
 SRC += comparator.c
@@ -264,12 +168,12 @@ SRC += vhf.c
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/mcu/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-.PHONY: all program clean ai app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf
+.PHONY: all program clean app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot full imu led logging magnet power_off rtc_set rtc storage system vhf
 .PRECIOUS: $(CONFIG)/%.axf
 .SECONDEXPANSION:
 
 all:
-	$(error Make targets include: ai app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf)
+	$(error Make targets include: app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot full imu led logging magnet power_off rtc_set rtc storage system vhf)
 
 program:
 ifneq ($(BUILT_BY), eclipse)
@@ -277,10 +181,6 @@ ifneq ($(BUILT_BY), eclipse)
 	printf "loadfile $(CONFIG)/$(TARGET).bin $(FLASH_START)\nr\ng\nexit\n" >> $(CONFIG)/flash.jlink
 	$(JLINK) $(JLINK_FLAGS) $(CONFIG)/flash.jlink
 endif
-
-ai: TARGET = TestAI
-ai: SRC += test_ai.c
-ai: $(CONFIG) $(CONFIG)/test_ai.o $(CONFIG)/$$(TARGET).bin program
 
 app_magnet_no_gps: TARGET = TestAppMagnetNoGps
 app_magnet_no_gps: SRC += test_app_magnet_no_gps.c
@@ -316,10 +216,6 @@ digipot: TARGET = TestDigipot
 digipot: SRC += test_digipot.c
 digipot: $(CONFIG) $(CONFIG)/test_digipot.o $(CONFIG)/$$(TARGET).bin program
 
-fft: TARGET = TestFFT
-fft: SRC += test_fft.c
-fft: $(CONFIG) $(CONFIG)/test_fft.o $(CONFIG)/$$(TARGET).bin program
-
 full: TARGET = TestFull
 full: SRC += active_main.c main.c
 full: $(CONFIG) $(CONFIG)/active_main.o $(CONFIG)/main.o $(CONFIG)/$$(TARGET).bin program
@@ -339,14 +235,6 @@ logging: $(CONFIG) $(CONFIG)/test_logging.o $(CONFIG)/$$(TARGET).bin program
 magnet: TARGET = TestMagnet
 magnet: SRC += test_magnet.c
 magnet: $(CONFIG) $(CONFIG)/test_magnet.o $(CONFIG)/$$(TARGET).bin program
-
-mfcc: TARGET = TestMFCC
-mfcc: SRC += test_mfcc.c
-mfcc: $(CONFIG) $(CONFIG)/test_mfcc.o $(CONFIG)/$$(TARGET).bin program
-
-nn: TARGET = TestNN
-nn: SRC += test_nn.c
-nn: $(CONFIG) $(CONFIG)/test_nn.o $(CONFIG)/$$(TARGET).bin program
 
 power_off: TARGET = TestPowerOff
 power_off: SRC += test_power_off.c
