@@ -146,12 +146,21 @@ void setup_hardware(void)
    };
    am_hal_pwrctrl_sram_memcfg_t sram_mem_config =
    {
+#if defined(ENABLE_AUDIO_DL) && ((7-ENABLE_AUDIO_DL-7 == 14) || (7-ENABLE_AUDIO_DL-7 != 0))
       .eSRAMCfg           = AM_HAL_PWRCTRL_SRAM_ALL,
       .eActiveWithMCU     = AM_HAL_PWRCTRL_SRAM_ALL,
+#else
+      .eSRAMCfg           = AM_HAL_PWRCTRL_SRAM_1M_GRP0,
+      .eActiveWithMCU     = AM_HAL_PWRCTRL_SRAM_1M_GRP0,
+#endif
       .eActiveWithGFX     = AM_HAL_PWRCTRL_SRAM_NONE,
       .eActiveWithDISP    = AM_HAL_PWRCTRL_SRAM_NONE,
       .eActiveWithDSP     = AM_HAL_PWRCTRL_SRAM_NONE,
+#if defined(ENABLE_AUDIO_DL) && ((7-ENABLE_AUDIO_DL-7 == 14) || (7-ENABLE_AUDIO_DL-7 != 0))
       .eSRAMRetain        = AM_HAL_PWRCTRL_SRAM_ALL
+#else
+      .eSRAMRetain        = AM_HAL_PWRCTRL_SRAM_1M_GRP0
+#endif
    };
    am_hal_pwrctrl_dsp_memory_config(AM_HAL_DSP0, &dsp_mem_config);
    am_hal_pwrctrl_dsp_memory_config(AM_HAL_DSP1, &dsp_mem_config);
