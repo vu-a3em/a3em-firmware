@@ -21,15 +21,11 @@ with open(config_file_path, 'r') as config_file:
       num_channels = int(line.split()[2])
     elif '#define AUDIO_DEFAULT_SAMPLING_RATE_HZ' in line:
       sample_rate = int(line.split()[2])
-    elif '#define AUDIO_BUFFER_NUM_SAMPLES' in line:
-      num_samples_per_chunk = int(line.split()[2])
     elif '#define AUDIO_DEFAULT_CLIP_LENGTH_SECONDS' in line:
       clip_length_seconds = int(line.split()[2])
-      num_chunks_per_clip = int(0.5 + (clip_length_seconds / (num_samples_per_chunk / sample_rate)))
 bytes_per_sample = 2 * num_channels
-bytes_per_chunk = bytes_per_sample * num_samples_per_chunk
-bytes_per_clip = bytes_per_chunk * num_chunks_per_clip
-num_samples_per_clip = num_samples_per_chunk * num_chunks_per_clip
+num_samples_per_clip = sample_rate * clip_length_seconds
+bytes_per_clip = bytes_per_sample * num_samples_per_clip
 
 # Run the RTT Logger utility briefly to clear any buffered data
 process = subprocess.Popen([rtt_bin_name, '-Device', 'AMAP42KK-KBR', '-If', 'SWD', '-speed', '4000', pcm_file_name])

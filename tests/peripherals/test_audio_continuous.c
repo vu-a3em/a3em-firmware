@@ -28,7 +28,6 @@ int main(void)
    audio_begin_reading();
 
    // Loop forever handling incoming audio clips
-   const uint32_t num_reads_per_clip = audio_num_reads_per_n_seconds(DESIRED_CLIP_LENGTH_SECONDS);
    int16_t *audio_buffer;
    while (true)
    {
@@ -41,9 +40,9 @@ int main(void)
       // Store any newly available audio data
       if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
-         bool success = storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_BUFFER_NUM_SAMPLES);
+         bool success = storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_DEFAULT_SAMPLING_RATE_HZ);
          print("%s: %u\n", success ? "Wrote audio data" : "ERROR writing audio data", num_audio_reads+1);
-         if (++num_audio_reads >= num_reads_per_clip)
+         if (++num_audio_reads >= DESIRED_CLIP_LENGTH_SECONDS)
          {
             // Stop reading audio and close the WAV file
             audio_stop_reading();
