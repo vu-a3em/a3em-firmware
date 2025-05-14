@@ -264,12 +264,12 @@ SRC += vhf.c
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/mcu/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-.PHONY: all program clean ai app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf
+.PHONY: all program clean ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf
 .PRECIOUS: $(CONFIG)/%.axf
 .SECONDEXPANSION:
 
 all:
-	$(error Make targets include: ai app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf)
+	$(error Make targets include: ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf)
 
 program:
 ifneq ($(BUILT_BY), eclipse)
@@ -281,6 +281,10 @@ endif
 ai: TARGET = TestAI
 ai: SRC += test_ai.c
 ai: $(CONFIG) $(CONFIG)/test_ai.o $(CONFIG)/$$(TARGET).bin program
+
+ai_live: TARGET = TestAiLive
+ai_live: SRC += test_ai_live.c
+ai_live: $(CONFIG) $(CONFIG)/test_ai_live.o $(CONFIG)/$$(TARGET).bin program
 
 app_magnet_no_gps: TARGET = TestAppMagnetNoGps
 app_magnet_no_gps: SRC += test_app_magnet_no_gps.c
