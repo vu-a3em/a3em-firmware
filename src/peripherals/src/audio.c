@@ -17,7 +17,7 @@
 #define am_pdm_isr1(n)      am_pdm_isr(n)
 #define am_pdm_isr(n)       am_pdm ## n ## _isr
 
-AM_SHARED_RW uint32_t sample_buffer[(2*AUDIO_BUFFER_NUM_SAMPLES) + 3];
+__attribute__((section(".shared"), aligned(16))) uint32_t sample_buffer[2*AUDIO_BUFFER_NUM_SAMPLES];
 
 static void *audio_handle;
 static float pga_gain_db;
@@ -175,7 +175,7 @@ void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, float ga
 
    // Set up the DMA configuration structure
    pdm_transfer_config.ui32TotalCount = sample_rate_hz * sizeof(uint32_t);
-   pdm_transfer_config.ui32TargetAddr = (uint32_t)((uint32_t)(sample_buffer + 3) & ~0xF);
+   pdm_transfer_config.ui32TargetAddr = (uint32_t)sample_buffer;
    pdm_transfer_config.ui32TargetAddrReverse = pdm_transfer_config.ui32TargetAddr + pdm_transfer_config.ui32TotalCount;
 
    // Determine the correct gain definition
@@ -295,7 +295,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    const float sample_rate_khz = (float)sample_rate_hz / 1000.0;
    audadc_irtt_config.ui32IrttCountMax = (uint32_t)lroundf((6000.0f / sample_rate_khz) - 1.0f);   // Sample rate = eClock/eClkDiv/(ui32IrttCountMax+1)
    audadc_dma_config.ui32SampleCount = sample_rate_hz;
-   audadc_dma_config.ui32TargetAddress = (uint32_t)((uint32_t)(sample_buffer + 3) & ~0xF);
+   audadc_dma_config.ui32TargetAddress = (uint32_t)sample_buffer;
    audadc_dma_config.ui32TargetAddressReverse = audadc_dma_config.ui32TargetAddress + (sizeof(uint32_t) * audadc_dma_config.ui32SampleCount);
 
    // Configure the AUDADC peripheral and HFRC clock source
