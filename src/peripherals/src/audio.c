@@ -229,8 +229,17 @@ void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, float ga
    else
       gain_settings = AM_HAL_PDM_GAIN_P345DB;
 
-   // Configure the PDM peripheral and HFRC2 clock source (F_CLK = 3.072MHz)
-   pdm_config.ui32DecimationRate = 3072000 / (2 * sample_rate_hz);
+   // Configure the PDM peripheral and HFRC2 clock source
+   if (sample_rate_hz <= 16000)
+   {
+      pdm_config.ePDMAClkOutDivder = AM_HAL_PDM_PDMA_CLKO_DIV7;  // F_CLK = 1.536MHz
+      pdm_config.ui32DecimationRate = 1536000 / (2 * sample_rate_hz);
+   }
+   else
+   {
+      pdm_config.ePDMAClkOutDivder = AM_HAL_PDM_PDMA_CLKO_DIV3;  // F_CLK = 3.072MHz
+      pdm_config.ui32DecimationRate = 3072000 / (2 * sample_rate_hz);
+   }
    pdm_config.eLeftGain = gain_settings;
    pdm_config.eRightGain = gain_settings;
    pdm_config.ePCMChannels = (num_channels == 1) ? AM_HAL_PDM_CHANNEL_LEFT : AM_HAL_PDM_CHANNEL_STEREO;
