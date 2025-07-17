@@ -492,6 +492,8 @@ bool audio_read_data(int16_t *buffer)
             dc_total /= sampling_rate_hz;
             dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
             dc_offset = (int16_t)dc_total;
+            if (dc_calculated >= 5)
+               print("INFO: Analog microphone DC offset calculated: %d\n", (uint32_t)dc_offset);
          }
          for (uint32_t i = 0; i < sampling_rate_hz; ++i)
          {
@@ -536,6 +538,8 @@ int16_t* audio_read_data_direct(void)
             dc_total /= sampling_rate_hz;
             dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
             dc_offset = (int16_t)dc_total;
+            if (dc_calculated >= 5)
+               print("INFO: Analog microphone DC offset calculated: %d\n", (uint32_t)dc_offset);
          }
          for (uint32_t i = 0; i < sampling_rate_hz; ++i)
          {
