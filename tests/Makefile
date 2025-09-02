@@ -243,6 +243,7 @@ SRC += nn.cc
 SRC += clustering.c
 SRC += fft.c
 SRC += mfcc.c
+SRC += silence.c
 
 SRC += audio.c
 SRC += battery.c

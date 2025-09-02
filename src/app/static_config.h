@@ -41,8 +41,12 @@
 #define LOG_FILE_NAME                               "a3em.log"
 #define IMU_FILE_NAME                               "a3em.imu"
 
+#ifndef MIN
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))
+#endif
+#ifndef MAX
 #define MAX(a, b)                                   (((a) < (b)) ? (b) : (a))
+#endif
 
 #ifdef AM_DEBUG_PRINTF
 extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);

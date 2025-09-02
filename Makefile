@@ -235,8 +235,6 @@ ifdef AI
 	SRC += ai.c
 	SRC += nn.cc
 	SRC += clustering.c
-	SRC += fft.c
-	SRC += mfcc.c
 endif
 
 SRC += audio.c
@@ -254,6 +252,11 @@ SRC += runtime_config.c
 SRC += storage.c
 SRC += system.c
 SRC += vhf.c
+
+SRC += fft.c
+SRC += mfcc.c
+SRC += silence.c
+
 SRC += active_main.c
 SRC += main.c
 
