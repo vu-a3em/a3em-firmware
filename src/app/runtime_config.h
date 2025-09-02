@@ -9,6 +9,7 @@
 // Configuration Type Definitions --------------------------------------------------------------------------------------
 
 typedef struct { uint32_t start_time, end_time; } start_end_time_t;
+typedef struct { uint32_t min_frequency, max_frequency; } frequency_range_t;
 
 typedef enum { MIC_ANALOG, MIC_DIGITAL } audio_mic_type_t;
 typedef enum { AMPLITUDE, SCHEDULED, INTERVAL, CONTINUOUS } audio_recording_mode_t;
@@ -53,5 +54,7 @@ imu_recording_mode_t config_get_imu_recording_mode(int32_t phase_index);
 float config_get_imu_trigger_threshold_level(int32_t phase_index);
 uint8_t config_get_imu_degrees_of_freedom(int32_t phase_index);
 uint32_t config_get_imu_sampling_rate_hz(int32_t phase_index);
+float config_get_silence_filter_threshold(int32_t phase_index);
+frequency_range_t config_get_frequencies_of_interest(int32_t phase_index);
 
 #endif  // #ifndef __RUNTIME_CONFIG_HEADER_H__

@@ -12,11 +12,12 @@ typedef struct {
    imu_recording_mode_t imu_recording_mode;
    audio_recording_mode_t audio_recording_mode;
    bool extend_clip_if_continuous_audio;
-   float audio_trigger_threshold, imu_trigger_threshold;
+   float audio_trigger_threshold, imu_trigger_threshold, silence_threshold;
    uint32_t max_audio_clips, audio_trigger_interval, audio_sampling_rate;
    uint32_t audio_clip_length, imu_sampling_rate, num_audio_trigger_times;
    time_scale_t max_clips_time_scale, audio_trigger_interval_time_scale;
    start_end_time_t phase_time, audio_trigger_times[MAX_AUDIO_TRIGGER_TIMES];
+   frequency_range_t frequencies_of_interest;
    uint8_t imu_degrees_of_freedom;
 } deployment_phase_t;
 
@@ -158,7 +159,11 @@ static void parse_line(char *line, int32_t line_length)
       deployment_phases[num_deployment_phases].audio_trigger_times[deployment_phases[num_deployment_phases].num_audio_trigger_times++].end_time = strtoul(end_time, NULL, 10);
    }
    else if (memcmp(key, "AUDIO_SAMPLING_RATE_HZ", sizeof("AUDIO_SAMPLING_RATE_HZ")-1) == 0)
+   {
       deployment_phases[num_deployment_phases].audio_sampling_rate = strtoul(value, NULL, 10);
+      if (!deployment_phases[num_deployment_phases].frequencies_of_interest.max_frequency)
+         deployment_phases[num_deployment_phases].frequencies_of_interest.max_frequency = deployment_phases[num_deployment_phases].audio_sampling_rate / 2;
+   }
    else if (memcmp(key, "AUDIO_CLIP_LENGTH_SECONDS", sizeof("AUDIO_CLIP_LENGTH_SECONDS")-1) == 0)
       deployment_phases[num_deployment_phases].audio_clip_length = strtoul(value, NULL, 10);
    else if (memcmp(key, "IMU_RECORDING_MODE", sizeof("IMU_RECORDING_MODE")-1) == 0)
@@ -169,6 +174,12 @@ static void parse_line(char *line, int32_t line_length)
       deployment_phases[num_deployment_phases].imu_trigger_threshold = strtof(value, NULL);
    else if (memcmp(key, "IMU_SAMPLING_RATE_HZ", sizeof("IMU_SAMPLING_RATE_HZ")-1) == 0)
       deployment_phases[num_deployment_phases].imu_sampling_rate = strtoul(value, NULL, 10);
+   else if (memcmp(key, "SILENCE_THRESHOLD", sizeof("SILENCE_THRESHOLD")-1) == 0)
+      deployment_phases[num_deployment_phases].silence_threshold = strtof(value, NULL);
+   else if (memcmp(key, "MIN_FREQUENCY", sizeof("MIN_FREQUENCY")-1) == 0)
+      deployment_phases[num_deployment_phases].frequencies_of_interest.min_frequency = strtoul(value, NULL, 10);
+   else if (memcmp(key, "MAX_FREQUENCY", sizeof("MAX_FREQUENCY")-1) == 0)
+      deployment_phases[num_deployment_phases].frequencies_of_interest.max_frequency = strtoul(value, NULL, 10);
 }
 
 
@@ -200,12 +211,15 @@ bool fetch_runtime_configuration(void)
       memset(deployment_phases[i].audio_trigger_times, 0, sizeof(deployment_phases[i].audio_trigger_times));
       deployment_phases[i].extend_clip_if_continuous_audio = false;
       deployment_phases[i].imu_degrees_of_freedom = 3;
+      deployment_phases[i].silence_threshold = 0.0;
       deployment_phases[i].imu_recording_mode = AUDIO;
       deployment_phases[i].imu_sampling_rate = IMU_DEFAULT_SAMPLING_RATE_HZ;
       deployment_phases[i].imu_trigger_threshold = 0.25;
       deployment_phases[i].max_audio_clips = 0;
       deployment_phases[i].max_clips_time_scale = HOURS;
       deployment_phases[i].num_audio_trigger_times = 0;
+      deployment_phases[i].frequencies_of_interest.min_frequency = 0;
+      deployment_phases[i].frequencies_of_interest.max_frequency = 0;
    }
 
    // Open and parse the stored runtime configuration file
@@ -215,6 +229,12 @@ bool fetch_runtime_configuration(void)
    while (success && (line_length = storage_read_line(line_buffer, sizeof(line_buffer))) >= 0)
       parse_line(line_buffer, line_length);
    storage_close();
+
+   // Validate maximum frequency settings
+   for (int32_t i = 0; i <= num_deployment_phases; ++i)
+      if (!deployment_phases[i].frequencies_of_interest.max_frequency ||
+          (deployment_phases[i].frequencies_of_interest.max_frequency > ((deployment_phases[i].audio_sampling_rate / 2) - 200)))
+         deployment_phases[i].frequencies_of_interest.max_frequency = (deployment_phases[i].audio_sampling_rate / 2) - 200;
 
    // Check whether the device is currently activated for the current deployment
    device_activated = mram_is_activated();
@@ -416,4 +436,14 @@ uint8_t config_get_imu_degrees_of_freedom(int32_t phase_index)
 uint32_t config_get_imu_sampling_rate_hz(int32_t phase_index)
 {
    return deployment_phases[phase_index].imu_sampling_rate;
+}
+
+float config_get_silence_filter_threshold(int32_t phase_index)
+{
+   return deployment_phases[phase_index].silence_threshold;
+}
+
+frequency_range_t config_get_frequencies_of_interest(int32_t phase_index)
+{
+   return deployment_phases[phase_index].frequencies_of_interest;
 }
