@@ -7,6 +7,7 @@
 #include "logging.h"
 #include "mram.h"
 #include "rtc.h"
+#include "silence.h"
 #include "storage.h"
 #include "system.h"
 #include "vhf.h"
@@ -21,9 +22,9 @@ static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds, i
 static float imu_data_buffer[2*IMU_BUFFER_NUM_SAMPLES][3], (*imu_storage_buffer)[3];
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
+static bool record_imu_with_audio, use_silence_filter;
 static char device_label[MAX_DEVICE_LABEL_LEN];
 static uint8_t imu_degrees_of_freedom;
-static bool record_imu_with_audio;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -168,7 +169,91 @@ static void henrik_data_available(henrik_data_t new_data)
 
 // Audio Processing Loops ----------------------------------------------------------------------------------------------
 
-static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds_per_clip, time_scale_t align_to, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule)
+static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_seconds_per_clip)
+{
+   // Initialize all necessary local variables
+   bool audio_clip_in_progress = false;
+   uint32_t num_audio_reads = 0;
+   int16_t *audio_buffer;
+
+   // Begin reading audio data and IMU data if enabled
+   audio_begin_reading();
+   if (record_imu_with_audio)
+   {
+      storage_start_imu_data_stream(rtc_get_timestamp(), imu_sampling_rate_hz);
+      imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
+   }
+
+   // Handling incoming audio clips until the phase has ended or the device has been deactivated
+   while (!phase_ended && *device_active)
+   {
+      // Determine if time to re-validate device settings
+      const uint32_t current_time = rtc_get_timestamp();
+      if (validation_time)
+         validate_device_settings(current_time);
+
+      // Store any pending IMU data
+      if (new_imu_stream)
+      {
+         storage_start_imu_data_stream(current_time, imu_sampling_rate_hz);
+         new_imu_stream = false;
+      }
+      if (imu_data_awaiting_storage)
+      {
+         storage_write_imu_data((uint8_t*)imu_data_awaiting_storage, sizeof(float) * 3 * IMU_BUFFER_NUM_SAMPLES);
+         imu_data_awaiting_storage = NULL;
+      }
+
+      // Handle any newly available audio data
+      if (audio_error_encountered())
+         system_reset();
+      else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
+      {
+         // Determine if time to create a new WAV file
+         if (!audio_clip_in_progress)
+         {
+            // Check for total silence if silence filtering is enabled
+            if (!use_silence_filter || !silence_filter_is_silence(audio_buffer, sampling_rate))
+            {
+               // Generate a new audio file using the current date and time
+               if (storage_open_wav_file(device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+               {
+                  // Signal start of a new audio clip
+                  audio_clip_in_progress = true;
+                  led_indicate_clip_begin();
+               }
+            }
+         }
+
+         // Write the audio clip to storage if currently in-progress
+         if (audio_clip_in_progress)
+         {
+            led_indicate_clip_progress();
+            storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate);
+            if (++num_audio_reads >= num_seconds_per_clip)
+            {
+               // Finalize the current WAV file
+               storage_close_audio();
+               led_indicate_clip_end();
+               audio_clip_in_progress = false;
+               num_audio_reads = 0;
+            }
+         }
+      }
+      else if (!validation_time)
+         system_enter_deep_sleep_mode();
+   }
+
+   // Stop reading IMU data if enabled
+   if (record_imu_with_audio)
+      imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
+
+   // Ensure that the most recent audio file has been gracefully closed
+   led_indicate_clip_end();
+   storage_close_audio();
+}
+
+static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds_per_clip, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule)
 {
    // Initialize all necessary local variables
    bool audio_clip_in_progress = false, reading_audio = false;
@@ -402,6 +487,16 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    phase_end_timestamp = config_get_end_time(phase_index);
    validate_device_settings(rtc_get_timestamp());
 
+   // Set up the silence detection filter if enabled
+   use_silence_filter = config_get_silence_filter_threshold(phase_index) > 0.0f;
+   if (use_silence_filter)
+   {
+      const float threshold = config_get_silence_filter_threshold(phase_index);
+      const uint32_t audio_sampling_rate = config_get_audio_sampling_rate_hz(phase_index);
+      const frequency_range_t frequencies = config_get_frequencies_of_interest(phase_index);
+      silence_filter_initialize(audio_sampling_rate, frequencies.min_frequency, frequencies.max_frequency, threshold);
+   }
+
    // Initialize the audio processing timer
    am_hal_timer_default_config_set(&audio_processing_timer_config);
    audio_processing_timer_config.eInputClock = TIMER_AUDIO_PROCESSING_CLOCK;
@@ -479,7 +574,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
             audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
          else
             audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db());
-         process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, SECONDS, false, 0, num_schedules, schedule);
+         process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, false, 0, num_schedules, schedule);
          break;
       }
       case INTERVAL:
@@ -507,7 +602,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
             audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
          else
             audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db());
-         process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, unit_time, true, (int32_t)audio_recording_interval, 0, NULL);
+         process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, true, (int32_t)audio_recording_interval, 0, NULL);
          break;
       }
       case CONTINUOUS:  // Intentional fall-through
@@ -516,7 +611,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
             audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
          else
             audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db());
-         process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, SECONDS, false, 0, 0, NULL);
+         process_audio_continuous(audio_sampling_rate_hz, num_seconds_per_clip);
          break;
    }
 

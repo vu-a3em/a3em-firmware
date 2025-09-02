@@ -1,6 +1,7 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
 #include <arm_math.h>
+#include <math.h>
 #include "fft.h"
 #include "silence.h"
 
@@ -55,24 +56,30 @@ void silence_filter_initialize(uint32_t audio_sample_rate_hz, uint32_t min_frequ
       window[i] = 0.5 * (1.0 - arm_cos_f32(M_2PI * ((float)i) / fft_length));
 }
 
-bool silence_filter_test(const int16_t *audio)
+bool silence_filter_is_silence(const int16_t *audio, uint32_t num_samples)
 {
-   // Apply the Hanning window to the input audio data
+   // Iterate through all FFT frames in the audio
    static float input[MAX_INPUT_LEN], output[MAX_INPUT_LEN];
-   arm_q15_to_float(audio, output, fft_length);
-   arm_mult_f32(output, window, input, fft_length);
-
-   // Compute the FFT (stored as [r0, rN/2-1, r1, i1, r2, i2, ...])
-   rfft_fast_f32(&fft, input, output);
-
-   // Calculate the total amplitude within the frequency bands of interest
-   float total_amplitude = 0.0f;
-   for (uint16_t bin = min_bin; bin <= max_bin; ++bin)
+   for (uint32_t start_sample = 0; start_sample + fft_length <= num_samples; start_sample += fft_length)
    {
-      const float real = output[2*bin], im = output[2*bin + 1];
-      total_amplitude += normalizer * sqrtf(real * real + im * im);
-   }
+      // Apply the Hanning window to the input audio data
+      arm_q15_to_float(audio + start_sample, output, fft_length);
+      arm_mult_f32(output, window, input, fft_length);
 
-   // Return whether the total amplitude is below the silence threshold
-   return total_amplitude < threshold;
+      // Compute the FFT (stored as [r0, rN/2-1, r1, i1, r2, i2, ...])
+      rfft_fast_f32(&fft, input, output);
+
+      // Calculate the total amplitude within the frequency bands of interest
+      float total_amplitude = 0.0f;
+      for (uint16_t bin = min_bin; bin <= max_bin; ++bin)
+      {
+         const float real = output[2*bin], im = output[2*bin + 1];
+         total_amplitude += normalizer * sqrtf(real * real + im * im);
+      }
+
+      // Immediately return false if any frame does not contain silence
+      if (total_amplitude >= threshold)
+         return false;
+   }
+   return true;
 }
