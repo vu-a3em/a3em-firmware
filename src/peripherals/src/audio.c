@@ -344,8 +344,6 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    NVIC_SetPriority(AUDADC0_IRQn, AUDIO_ADC_INTERRUPT_PRIORITY);
    NVIC_EnableIRQ(AUDADC0_IRQn);
    system_enable_interrupts(true);
-   dc_calculated = 0;
-   dc_offset = 0;
 
    // Temporarily start the ADC to internally initialize the PGAs and optionally connect them to a comparator
    audio_adc_start();
@@ -364,8 +362,9 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
 
    // Calculate the DC offset calibration parameters and put the AUDADC to sleep
    configASSERT0(am_hal_audadc_slot_dc_offset_calculate(audio_handle, 2*num_channels, &offset_calibration));
-   dc_calculated = 0;
    audio_stop_reading();
+   dc_calculated = 0;
+   dc_offset = 0;
 }
 
 void audio_deinit(void)
