@@ -1,0 +1,4 @@
+cmsisdsp
+scipy
+matplotlib
+argparse
