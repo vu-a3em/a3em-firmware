@@ -156,14 +156,29 @@ void am_timer00_isr(void)
    num_clips_stored = 0;
 }
 
-static void henrik_data_available(henrik_data_t new_data)
+static void henrik_data_available(henrik_msg_t message_type, const void *new_data)
 {
-   // Sync RTC to GPS time whenever an update is received
-   mram_set_last_known_timestamp(new_data.utc_timestamp);
-   rtc_set_time_from_timestamp(new_data.utc_timestamp);
-   last_height = new_data.height;
-   last_lat = new_data.lat;
-   last_lon = new_data.lon;
+   // Handle the incoming message based on type
+   switch (message_type)
+   {
+      case MSG_GPS:
+      {
+         // Sync RTC to GPS time whenever an update is received
+         const henrik_gps_data_t *gps_data = (const henrik_gps_data_t*)new_data;
+         mram_set_last_known_timestamp(gps_data->utc_timestamp);
+         rtc_set_time_from_timestamp(gps_data->utc_timestamp);
+         last_height = gps_data->height;
+         last_lat = gps_data->lat;
+         last_lon = gps_data->lon;
+         break;
+      }
+      case MSG_CONFIG:
+         // TODO: Handle configuration change requests
+         //const henrik_config_data_t *config_data = (const henrik_config_data_t*)new_data;
+         break;
+      default:
+         break;
+   }
 }
 
 

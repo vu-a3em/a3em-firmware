@@ -27,6 +27,7 @@
 #define VOLTAGE_DIVIDER_UPPER                       1000
 
 // External Sensor Board
+#define EXT_HW_I2C_NUMBER                           0
 #define EXT_HW_I2C_ADDRESS                          0x58
 #define PIN_EXT_HW_I2C_SCL                          0
 #define PIN_EXT_HW_I2C_SDA                          1

@@ -93,7 +93,7 @@ int main(void)
          {
             // Wait until a valid GPS time has been received
             print("INFO: Obtaining current time from GPS...\n");
-            uint32_t utc_time = henrik_get_data().utc_timestamp;
+            uint32_t utc_time = henrik_get_current_time();
             if (utc_time)
             {
                print("INFO: GPS time obtained: %u\n", utc_time);

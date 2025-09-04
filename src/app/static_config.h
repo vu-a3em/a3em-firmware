@@ -68,6 +68,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define RTC_ALARM_INTERRUPT_PRIORITY                    (AM_IRQ_PRIORITY_DEFAULT)
 #define BATT_ADC_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 1)
 #define AUDIO_TIMER_INTERRUPT_PRIORITY                  (AM_IRQ_PRIORITY_DEFAULT + 1)
+#define EXT_HW_INTERRUPT_PRIORITY                       (AM_IRQ_PRIORITY_DEFAULT)
 
 
 // Audio Sampling Definitions ------------------------------------------------------------------------------------------
