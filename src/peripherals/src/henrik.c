@@ -19,9 +19,9 @@ static void *i2c_handle = NULL;
 void alert_host(void)
 {
    // Wake up the host to initiate communications
-   am_hal_gpio_state_write(PIN_EXT_HW_INTERRUPT, AM_HAL_GPIO_OUTPUT_CLEAR);
+   am_hal_gpio_state_set(PIN_EXT_HW_INTERRUPT);
    am_hal_ios_control(i2c_handle, AM_HAL_IOS_REQ_FIFO_UPDATE_CTR, NULL);
-   am_hal_gpio_state_write(PIN_EXT_HW_INTERRUPT, AM_HAL_GPIO_OUTPUT_SET);
+   am_hal_gpio_output_clear(PIN_EXT_HW_INTERRUPT);
 }
 
 void am_ioslave_ios_isr(void)
@@ -30,7 +30,7 @@ void am_ioslave_ios_isr(void)
    static uint32_t status;
    am_hal_ios_interrupt_status_get(i2c_handle, false, &status);
    am_hal_ios_interrupt_clear(i2c_handle, status);
-   am_hal_gpio_state_write(PIN_EXT_HW_INTERRUPT, AM_HAL_GPIO_OUTPUT_CLEAR);
+   am_hal_gpio_state_set(PIN_EXT_HW_INTERRUPT);
 
    // Handle any incoming data
    if (status & AM_HAL_IOS_INT_FSIZE)
@@ -77,12 +77,9 @@ void henrik_init(void)
    };
 
    // Configure the external interrupt request pin
-   am_hal_gpio_pincfg_t ext_hw_interrupt_pin_config = AM_HAL_GPIO_PINCFG_OPENDRAIN;
-   ext_hw_interrupt_pin_config.GP.cfg_b.eDriveStrength = AM_HAL_GPIO_PIN_DRIVESTRENGTH_0P5X;
-   ext_hw_interrupt_pin_config.GP.cfg_b.eCEpol = AM_HAL_GPIO_PIN_CEPOL_ACTIVEHIGH;
-   ext_hw_interrupt_pin_config.GP.cfg_b.ePullup = AM_HAL_GPIO_PIN_PULLUP_24K;
+   const am_hal_gpio_pincfg_t ext_hw_interrupt_pin_config = AM_HAL_GPIO_PINCFG_OPENDRAIN;
    configASSERT0(am_hal_gpio_pinconfig(PIN_EXT_HW_INTERRUPT, ext_hw_interrupt_pin_config));
-   am_hal_gpio_state_write(PIN_EXT_HW_INTERRUPT, AM_HAL_GPIO_OUTPUT_CLEAR);
+   am_hal_gpio_output_set(PIN_EXT_HW_INTERRUPT);
 
    // Initialize the I2C module and enable all relevant I2C pins
    am_hal_gpio_pincfg_t scl_config = g_AM_BSP_GPIO_IOS_SCL;
@@ -109,7 +106,7 @@ void henrik_deinit(void)
    if (i2c_handle)
    {
       // Disable all I2C communications
-      am_hal_gpio_output_clear(PIN_EXT_HW_INTERRUPT);
+      am_hal_gpio_output_set(PIN_EXT_HW_INTERRUPT);
       while (am_hal_ios_disable(i2c_handle) != AM_HAL_STATUS_SUCCESS);
       am_hal_ios_uninitialize(i2c_handle);
       data_callback = NULL;

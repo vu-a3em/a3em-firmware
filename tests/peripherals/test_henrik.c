@@ -90,9 +90,10 @@ static am_hal_iom_config_t i2c_config = { .eInterfaceMode = AM_HAL_IOM_I2C_MODE,
 const am_hal_gpio_pincfg_t hw_int_pin_config =
 {
    .GP.cfg_b.uFuncSel       = AM_HAL_PIN_35_GPIO,
-   .GP.cfg_b.eDriveStrength = AM_HAL_GPIO_PIN_DRIVESTRENGTH_0P5X,
-   .GP.cfg_b.eIntDir        = AM_HAL_GPIO_PIN_INTDIR_LO2HI,
+   .GP.cfg_b.ePullup        = AM_HAL_GPIO_PIN_PULLUP_24K,
+   .GP.cfg_b.eDriveStrength = AM_HAL_GPIO_PIN_DRIVESTRENGTH_0P1X,
    .GP.cfg_b.eGPInput       = AM_HAL_GPIO_PIN_INPUT_ENABLE,
+   .GP.cfg_b.eIntDir        = AM_HAL_GPIO_PIN_INTDIR_HI2LO
 };
 
 void iom_slave_read(uint32_t offset, uint32_t *pBuf, uint32_t size)
@@ -160,7 +161,6 @@ int main(void)
    // Set up the HW interrupt pin
    uint32_t int_num = PIN_EXT_HW_INTERRUPT;
    am_hal_gpio_pinconfig(PIN_EXT_HW_INTERRUPT, hw_int_pin_config);
-   am_hal_gpio_state_write(PIN_EXT_HW_INTERRUPT, AM_HAL_GPIO_OUTPUT_CLEAR);
    am_hal_gpio_interrupt_clear(AM_HAL_GPIO_INT_CHANNEL_0, (am_hal_gpio_mask_t*)&int_num);
    am_hal_gpio_interrupt_register(AM_HAL_GPIO_INT_CHANNEL_0, PIN_EXT_HW_INTERRUPT, i2c_interrupt_handler, NULL);
    am_hal_gpio_interrupt_control(AM_HAL_GPIO_INT_CHANNEL_0, AM_HAL_GPIO_INT_CTRL_INDV_ENABLE, &int_num);
@@ -197,11 +197,11 @@ int main(void)
             default:
                break;
          }
-      }
 
-      // Send config message every 5 wake-ups
-      if ((++num_wakeups % 5) == 0)
-         iom_slave_write(REG_WRITE, (uint32_t*)&config_data, sizeof(config_data));
+         // Send config message every 5 wake-ups
+         if ((++num_wakeups % 5) == 0)
+            iom_slave_write(REG_WRITE, (uint32_t*)&config_data, sizeof(config_data));
+      }
    }
 
    // Should never reach this point
