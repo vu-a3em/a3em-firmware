@@ -19,7 +19,7 @@ static void *i2c_handle = NULL;
 void alert_host(void)
 {
    // Wake up the host to initiate communications
-   am_hal_gpio_state_set(PIN_EXT_HW_INTERRUPT);
+   am_hal_gpio_output_set(PIN_EXT_HW_INTERRUPT);
    am_hal_ios_control(i2c_handle, AM_HAL_IOS_REQ_FIFO_UPDATE_CTR, NULL);
    am_hal_gpio_output_clear(PIN_EXT_HW_INTERRUPT);
 }
@@ -30,7 +30,7 @@ void am_ioslave_ios_isr(void)
    static uint32_t status;
    am_hal_ios_interrupt_status_get(i2c_handle, false, &status);
    am_hal_ios_interrupt_clear(i2c_handle, status);
-   am_hal_gpio_state_set(PIN_EXT_HW_INTERRUPT);
+   am_hal_gpio_output_set(PIN_EXT_HW_INTERRUPT);
 
    // Handle any incoming data
    if (status & AM_HAL_IOS_INT_FSIZE)

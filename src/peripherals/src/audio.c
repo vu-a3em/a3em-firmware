@@ -3,6 +3,7 @@
 #include <math.h>
 #include "audio.h"
 #include "comparator.h"
+#include "led.h"
 #include "logging.h"
 #include "system.h"
 
@@ -23,12 +24,10 @@ static void *audio_handle;
 static float pga_gain_db;
 static int16_t dc_offset;
 static bool is_digital_mic;
-static uint8_t dc_calculated;
 static volatile uint32_t skip_samples;
 static audio_trigger_t trigger_criterion;
 static uint32_t num_audio_channels, sampling_rate_hz;
 static volatile bool dma_complete = false, dma_error = false, adc_awake;
-static am_hal_offset_cal_coeffs_array_t offset_calibration;
 static am_hal_audadc_dma_config_t audadc_dma_config =
 {
    .bDynamicPriority = false,
@@ -294,6 +293,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
       am_hal_audadc_micbias_powerdown();
 
    // Initialize the AUDADC peripheral
+   dc_offset = 0;
    adc_awake = true;
    is_digital_mic = false;
    configASSERT0(am_hal_audadc_initialize(0, &audio_handle));
@@ -345,26 +345,39 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    NVIC_EnableIRQ(AUDADC0_IRQn);
    system_enable_interrupts(true);
 
-   // Temporarily start the ADC to internally initialize the PGAs and optionally connect them to a comparator
+   // Temporarily start the ADC to calculate the audio DC offset
+   led_off(LED_ALL);
    audio_adc_start();
-   for (uint32_t num_audio_reads = 0; num_audio_reads < 2; )
+   uint8_t dc_calculated = 0;
+   print("INFO: Calculating analog microphone DC offset...");
+   while (dc_calculated < 5)
    {
       if (dma_error)
          system_reset();
       else if (!dma_complete)
          system_enter_deep_sleep_mode();
-      if (audio_read_data_direct())
+      else
       {
-         if (!num_audio_reads++ && (trigger == COMPARATOR_THRESHOLD))
-            comparator_init(false, 0, trigger_threshold_percent, true);
+         led_toggle(LED_ALL);
+         int32_t dc_total = 0;
+         const uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
+         for (uint32_t i = 0; i < sampling_rate_hz; ++i)
+            dc_total += (int32_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
+         dc_total /= sampling_rate_hz;
+         dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
+         dc_offset = (int16_t)dc_total;
+         dma_complete = false;
       }
    }
+   led_off(LED_ALL);
+   print("INFO: Analog microphone DC offset calculated: %d\n", (int32_t)dc_offset);
 
-   // Calculate the DC offset calibration parameters and put the AUDADC to sleep
-   configASSERT0(am_hal_audadc_slot_dc_offset_calculate(audio_handle, 2*num_channels, &offset_calibration));
+   // Optionally connect the audio input to a comparator
+   if (trigger == COMPARATOR_THRESHOLD)
+      comparator_init(false, 0, trigger_threshold_percent, true);
+
+   // Put the AUDADC to sleep
    audio_stop_reading();
-   dc_calculated = 0;
-   dc_offset = 0;
 }
 
 void audio_deinit(void)
@@ -483,17 +496,6 @@ bool audio_read_data(int16_t *buffer)
       {
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          const uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
-         if (dc_calculated < 5)
-         {
-            int32_t dc_total = 0;
-            for (uint32_t i = 0; i < sampling_rate_hz; ++i)
-               dc_total += (int32_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
-            dc_total /= sampling_rate_hz;
-            dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
-            dc_offset = (int16_t)dc_total;
-            if (dc_calculated >= 5)
-               print("INFO: Analog microphone DC offset calculated: %d\n", (uint32_t)dc_offset);
-         }
          for (uint32_t i = 0; i < sampling_rate_hz; ++i)
          {
             buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
@@ -529,17 +531,6 @@ int16_t* audio_read_data_direct(void)
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
          buffer = (int16_t*)data;
-         if (dc_calculated < 5)
-         {
-            int32_t dc_total = 0;
-            for (uint32_t i = 0; i < sampling_rate_hz; ++i)
-               dc_total += (int32_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
-            dc_total /= sampling_rate_hz;
-            dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
-            dc_offset = (int16_t)dc_total;
-            if (dc_calculated >= 5)
-               print("INFO: Analog microphone DC offset calculated: %d\n", (uint32_t)dc_offset);
-         }
          for (uint32_t i = 0; i < sampling_rate_hz; ++i)
          {
             buffer[i] = (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
