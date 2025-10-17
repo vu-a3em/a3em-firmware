@@ -1,5 +1,6 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
+#include <stdio.h>
 #include "logging.h"
 #include "mram.h"
 #include "rtc.h"
@@ -27,7 +28,7 @@ typedef struct {
 
 static char device_label[1 + MAX_DEVICE_LABEL_LEN];
 static uint32_t leds_active_seconds, vhf_start_timestamp, battery_level_low;
-static uint32_t magnetic_field_validation_length_ms, deactivation_forbidden_length_seconds;
+static uint32_t magnetic_field_validation_length_ms, deactivation_forbidden_length_seconds, current_activation_number;
 static bool set_rtc_at_magnet_detect, vhf_enabled, leds_enabled, device_activated, gps_available, awake_on_magnet;
 static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES];
 static int32_t num_deployment_phases, utc_offset, utc_offset_hour;
@@ -234,6 +235,9 @@ bool fetch_runtime_configuration(void)
       parse_line(line_buffer, line_length);
    storage_close();
 
+   // Retrieve the most recent activation number based on the storage directories present
+   current_activation_number = storage_get_current_activation_number(device_label);
+
    // Validate maximum frequency settings
    for (int32_t i = 0; i <= num_deployment_phases; ++i)
       if (!deployment_phases[i].frequencies_of_interest.max_frequency ||
@@ -251,6 +255,20 @@ bool fetch_runtime_configuration(void)
    // Return whether configuration parsing was successful
    ++num_deployment_phases;
    return success;
+}
+
+uint32_t config_get_activation_number(void)
+{
+   return current_activation_number;
+}
+
+void config_increase_activation_number(void)
+{
+   char directory[MAX_DEVICE_LABEL_LEN + 24] = { 0 };
+   snprintf(directory, sizeof(directory), "%s", device_label);
+   storage_mkdir(directory);
+   snprintf(directory, sizeof(directory), "%s/Activation_%04lu", device_label, ++current_activation_number);
+   storage_mkdir(directory);
 }
 
 void config_get_device_label(char *label, uint32_t max_size)

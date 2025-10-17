@@ -226,6 +226,7 @@ int main(void)
          handle_magnetic_field(true, false);
       }
       print("INFO: Device activated!\n");
+      config_increase_activation_number();
       if (config_set_rtc_at_magnet_detect())
       {
          print("INFO: Setting RTC to the deployment start time: %u\n", config_get_deployment_start_time());

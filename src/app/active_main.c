@@ -18,7 +18,7 @@
 static volatile uint8_t *imu_data_awaiting_storage;
 static volatile uint32_t num_clips_stored, imu_storage_index;
 static volatile bool *device_active, phase_ended, audio_timer_triggered, in_motion, new_imu_stream, validation_time;
-static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds, imu_sampling_rate_hz;
+static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds, imu_sampling_rate_hz, activation_number;
 static float imu_data_buffer[2*IMU_BUFFER_NUM_SAMPLES][3], (*imu_storage_buffer)[3];
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
@@ -231,7 +231,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_second
             if (!use_silence_filter || !silence_filter_is_silence(audio_buffer, sampling_rate))
             {
                // Generate a new audio file using the current date and time
-               if (storage_open_wav_file(device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+               if (storage_open_wav_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
                {
                   // Signal start of a new audio clip
                   audio_clip_in_progress = true;
@@ -333,7 +333,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
          audio_timer_triggered = false;
 
          // Generate a new audio file using the current date and time
-         if (storage_open_wav_file(device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+         if (storage_open_wav_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
          {
             // Signal start of a new audio clip
             audio_clip_in_progress = true;
@@ -439,7 +439,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          if (!audio_clip_in_progress)
          {
             // Generate a new audio file using the current date and time
-            if (storage_open_wav_file(device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+            if (storage_open_wav_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
             {
                // Signal start of a new audio clip
                audio_clip_in_progress = true;
@@ -489,6 +489,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    print("INFO: Starting main deployment activity for Phase #%d\n", phase_index+1);
    print("INFO: Validating existence of SD card storage directory...");
    config_get_device_label(device_label, sizeof(device_label));
+   activation_number = config_get_activation_number();
    if (device_label[0] == '\0')
       memcpy(device_label, "Default", sizeof("Default"));
    const bool success = storage_mkdir(device_label);
@@ -537,12 +538,12 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       case ACTIVITY:
       {
          // TODO: Use this: float motion_trigger_threshold = config_get_imu_trigger_threshold_level(phase_index);
-         if (storage_open_imu_file())
+         if (storage_open_imu_file(activation_number, device_label, 0))
             imu_enable_motion_change_detection(true, imu_motion_change_callback);
          break;
       }
       case AUDIO:
-         record_imu_with_audio = storage_open_imu_file();
+         record_imu_with_audio = storage_open_imu_file(activation_number, device_label, 0);
          break;
       case NONE:   // Intentional fall-through
       default:

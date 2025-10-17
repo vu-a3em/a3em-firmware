@@ -39,7 +39,6 @@
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define LOG_FILE_NAME                               "a3em.log"
-#define IMU_FILE_NAME                               "a3em.imu"
 
 #ifndef MIN
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))

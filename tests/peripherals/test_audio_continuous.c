@@ -21,7 +21,7 @@ int main(void)
 
    // Open a new WAV file and immediately begin reading continuous audio
    uint32_t num_audio_reads = 0;
-   if (storage_mkdir("wav_test") && storage_open_wav_file("wav_test", AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 1729274454))
+   if (storage_mkdir("wav_test") && storage_open_wav_file(1, "wav_test", AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 1729274454))
       print("Opening \"wav_test.wav\" for writing\n");
    else
       print("ERROR: Unable to open WAV file for writing\n");

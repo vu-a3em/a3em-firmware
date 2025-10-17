@@ -419,7 +419,7 @@ bool storage_open(const char *file_path, bool writeable)
    return file_open;
 }
 
-bool storage_open_wav_file(const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time)
+bool storage_open_wav_file(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time)
 {
    // Close an already-opened audio file
    if (audio_file_open)
@@ -428,7 +428,7 @@ bool storage_open_wav_file(const char *device_label, uint32_t num_channels, uint
    // Determine if time to create a new audio storage directory
    const time_t timestamp = (time_t)current_time;
    struct tm *curr_time = gmtime(&timestamp);
-   static char time_string[24] = { 0 }, audio_directory[MAX_DEVICE_LABEL_LEN + 16] = { 0 };
+   static char time_string[24] = { 0 }, audio_directory[MAX_DEVICE_LABEL_LEN + 32] = { 0 };
    strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
    if ((current_time - audio_directory_timestamp) >= NUM_SECONDS_PER_AUDIO_DIRECTORY)
    {
@@ -439,10 +439,13 @@ bool storage_open_wav_file(const char *device_label, uint32_t num_channels, uint
       size_t label_len = strlen(device_label);
       memset(audio_directory, 0, sizeof(audio_directory));
       strncpy(audio_directory, device_label, label_len + 1);
-      strftime(audio_directory + label_len, sizeof(audio_directory) - label_len, "/%F", curr_time);
+      snprintf(audio_directory + label_len, sizeof(audio_directory) - label_len, "/Activation_%04lu", activation_number);
       if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
          print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      strftime(audio_directory + label_len, sizeof(audio_directory) - label_len, "/%F/%H", curr_time);
+      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F", curr_time);
+      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F/%H", curr_time);
       if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
          print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
       audio_directory_timestamp = (uint32_t)mktime(curr_time);
@@ -483,14 +486,58 @@ bool storage_open_wav_file(const char *device_label, uint32_t num_channels, uint
    return audio_file_open;
 }
 
-bool storage_open_imu_file(void)
+bool storage_open_imu_file(uint32_t activation_number, const char *device_label, uint32_t current_time)
 {
-   // Open an IMU data file if one is not already open
-   if (!imu_file_open)
-      imu_file_open = (f_open(&imu_file, IMU_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) == FR_OK);
-   if (!imu_file_open)
-      print("ERROR: Unable to open SD card IMU file for writing\n");
+   // Close an already-opened IMU file
+   if (imu_file_open)
+      storage_close_imu();
+
+   // Determine if time to create a new audio storage directory
+   const time_t timestamp = (time_t)current_time;
+   struct tm *curr_time = gmtime(&timestamp);
+   static char time_string[24] = { 0 }, audio_directory[MAX_DEVICE_LABEL_LEN + 32] = { 0 };
+   strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
+   if ((current_time - audio_directory_timestamp) >= NUM_SECONDS_PER_AUDIO_DIRECTORY)
+   {
+      // Generate a new directory name from the current date and time
+      static FILINFO file_info;
+      curr_time->tm_min = curr_time->tm_sec = 0;
+      curr_time->tm_hour = (curr_time->tm_hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY;
+      size_t label_len = strlen(device_label);
+      memset(audio_directory, 0, sizeof(audio_directory));
+      strncpy(audio_directory, device_label, label_len + 1);
+      snprintf(audio_directory + label_len, sizeof(audio_directory) - label_len, "/Activation_%04lu", activation_number);
+      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F", curr_time);
+      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F/%H", curr_time);
+      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+      audio_directory_timestamp = (uint32_t)mktime(curr_time);
+   }
+
+   // Open the requested file
+   static char file_name[FF_MAX_LFN] = { 0 };
+   snprintf(file_name, sizeof(file_name), "%s/%s.imu", audio_directory, time_string);
+   imu_file_open = (f_open(&imu_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
    return imu_file_open;
+}
+
+uint32_t storage_get_current_activation_number(const char *device_label)
+{
+   // Search for the most recent activation directory
+   FILINFO file_info;
+   bool directory_found = true;
+   uint32_t activation_number = 1;
+   char audio_directory[MAX_DEVICE_LABEL_LEN + 24] = { 0 };
+   while (directory_found)
+   {
+      snprintf(audio_directory, sizeof(audio_directory), "%s/Activation_%04lu", device_label, activation_number);
+      directory_found = (f_stat(audio_directory, &file_info) == FR_OK);
+   }
+   return activation_number - 1;
 }
 
 bool storage_write(const void *data, uint32_t data_len)
