@@ -16,7 +16,13 @@ extern void active_main(volatile bool*, int32_t);
 static void magnet_sensor_validated(bool validated)
 {
    // Set device activation and field verification flags and indicate status via LED
-   device_activated = validated ? !device_activated : device_activated;
+   if (validated)
+   {
+      if (!device_activated)
+         device_activated = true;
+      else if (config_is_deactivation_allowed())
+         device_activated = false;
+   }
    led_indicate_activation(device_activated);
    magnetic_field_verified = true;
 }

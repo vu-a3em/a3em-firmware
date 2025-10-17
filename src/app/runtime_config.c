@@ -2,6 +2,7 @@
 
 #include "logging.h"
 #include "mram.h"
+#include "rtc.h"
 #include "runtime_config.h"
 #include "storage.h"
 
@@ -25,8 +26,8 @@ typedef struct {
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
 static char device_label[1 + MAX_DEVICE_LABEL_LEN];
-static uint32_t magnetic_field_validation_length_ms;
 static uint32_t leds_active_seconds, vhf_start_timestamp, battery_level_low;
+static uint32_t magnetic_field_validation_length_ms, deactivation_forbidden_length_seconds;
 static bool set_rtc_at_magnet_detect, vhf_enabled, leds_enabled, device_activated, gps_available, awake_on_magnet;
 static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES];
 static int32_t num_deployment_phases, utc_offset, utc_offset_hour;
@@ -126,6 +127,8 @@ static void parse_line(char *line, int32_t line_length)
       battery_level_low = strtoul(value, NULL, 10);
    else if (memcmp(key, "MAGNET_FIELD_VALIDATION_MS", sizeof("MAGNET_FIELD_VALIDATION_MS")-1) == 0)
       magnetic_field_validation_length_ms = strtoul(value, NULL, 10);
+   else if (memcmp(key, "FORBID_DEACTIVATION_SECONDS", sizeof("FORBID_DEACTIVATION_SECONDS")-1) == 0)
+      deactivation_forbidden_length_seconds = strtoul(value, NULL, 10);
    else if (memcmp(key, "VHF_MODE", sizeof("VHF_MODE")-1) == 0)
       vhf_enabled = (memcmp(value, "NEVER", sizeof("NEVER")) != 0);
    else if (memcmp(key, "VHF_RADIO_START_TIME", sizeof("VHF_RADIO_START_TIME")-1) == 0)
@@ -197,6 +200,7 @@ bool fetch_runtime_configuration(void)
    battery_level_low = BATTERY_DEFAULT_LOW_LEVEL_MV;
    set_rtc_at_magnet_detect = leds_enabled = device_activated = gps_available = false;
    magnetic_field_validation_length_ms = MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS;
+   deactivation_forbidden_length_seconds = 0;
    memset(device_label, 0, sizeof(device_label));
    memset(&deployment_time, 0, sizeof(deployment_time));
    for (int i = 0; i < MAX_NUM_DEPLOYMENT_PHASES; ++i)
@@ -259,6 +263,11 @@ void config_get_device_label(char *label, uint32_t max_size)
 bool config_is_device_activated(void)
 {
    return device_activated || (gps_available && !awake_on_magnet);
+}
+
+bool config_is_deactivation_allowed(void)
+{
+   return (rtc_get_timestamp() - deployment_time.start_time) >= deactivation_forbidden_length_seconds;
 }
 
 void config_set_activation_status(bool active)
@@ -328,6 +337,11 @@ uint32_t config_get_deployment_end_time(void)
 uint32_t config_get_magnetic_field_validation_length(void)
 {
    return magnetic_field_validation_length_ms;
+}
+
+uint32_t config_get_deactivation_forbidden_time(void)
+{
+   return deactivation_forbidden_length_seconds;
 }
 
 bool config_set_rtc_at_magnet_detect(void)
