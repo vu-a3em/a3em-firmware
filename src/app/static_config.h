@@ -88,7 +88,6 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 #define IMU_DEFAULT_SAMPLING_RATE_HZ                    25
 #define IMU_BUFFER_NUM_SAMPLES                          128
-#define IMU_DATA_DELIMITER                              0xFFFEFDFC
 
 
 // Magnetic Sensing Definitions ----------------------------------------------------------------------------------------

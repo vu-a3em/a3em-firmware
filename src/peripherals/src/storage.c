@@ -486,7 +486,7 @@ bool storage_open_wav_file(uint32_t activation_number, const char *device_label,
    return audio_file_open;
 }
 
-bool storage_open_imu_file(uint32_t activation_number, const char *device_label, uint32_t current_time)
+bool storage_open_imu_file(uint32_t activation_number, const char *device_label, uint32_t current_time, uint32_t sample_rate_hz)
 {
    // Close an already-opened IMU file
    if (imu_file_open)
@@ -522,7 +522,12 @@ bool storage_open_imu_file(uint32_t activation_number, const char *device_label,
    static char file_name[FF_MAX_LFN] = { 0 };
    snprintf(file_name, sizeof(file_name), "%s/%s.imu", audio_directory, time_string);
    imu_file_open = (f_open(&imu_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
-   return imu_file_open;
+
+   // Write the sample rate and starting timestamp
+   UINT data_written = 0;
+   return imu_file_open &&
+          (f_write(&imu_file, &sample_rate_hz, sizeof(sample_rate_hz), &data_written) == FR_OK) &&
+          (f_write(&imu_file, &timestamp, sizeof(timestamp), &data_written) == FR_OK);
 }
 
 uint32_t storage_get_current_activation_number(const char *device_label)
@@ -576,17 +581,6 @@ void storage_flush_log(void)
    // Flush the log file to ensure that contents are not lost upon power loss
    if (log_open)
       f_sync(&log_file);
-}
-
-bool storage_start_imu_data_stream(uint32_t timestamp, uint32_t sample_rate_hz)
-{
-   // Write an IMU data delimiter, sample rate, and timestamp
-   UINT data_written = 0;
-   static uint32_t imu_delimiter = IMU_DATA_DELIMITER;
-   return imu_file_open &&
-          (f_write(&imu_file, &imu_delimiter, sizeof(imu_delimiter), &data_written) == FR_OK) &&
-          (f_write(&imu_file, &sample_rate_hz, sizeof(sample_rate_hz), &data_written) == FR_OK) &&
-          (f_write(&imu_file, &timestamp, sizeof(timestamp), &data_written) == FR_OK);
 }
 
 bool storage_write_imu_data(const void *data, uint32_t data_len)

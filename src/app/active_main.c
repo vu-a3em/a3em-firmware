@@ -195,7 +195,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_second
    audio_begin_reading();
    if (record_imu_with_audio)
    {
-      storage_start_imu_data_stream(rtc_get_timestamp(), imu_sampling_rate_hz);
+      new_imu_stream = true;
       imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
    }
 
@@ -210,7 +210,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_second
       // Store any pending IMU data
       if (new_imu_stream)
       {
-         storage_start_imu_data_stream(current_time, imu_sampling_rate_hz);
+         storage_open_imu_file(activation_number, device_label, current_time, imu_sampling_rate_hz);
          new_imu_stream = false;
       }
       if (imu_data_awaiting_storage)
@@ -234,6 +234,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_second
                if (storage_open_wav_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
                {
                   // Signal start of a new audio clip
+                  new_imu_stream = new_imu_stream || record_imu_with_audio;
                   audio_clip_in_progress = true;
                   led_indicate_clip_begin();
                }
@@ -296,7 +297,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
       // Store any pending IMU data
       if (new_imu_stream)
       {
-         storage_start_imu_data_stream(current_time, imu_sampling_rate_hz);
+         storage_open_imu_file(activation_number, device_label, current_time, imu_sampling_rate_hz);
          new_imu_stream = false;
       }
       if (imu_data_awaiting_storage)
@@ -342,7 +343,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_seconds
             // Begin reading IMU data if enabled
             if (record_imu_with_audio)
             {
-               storage_start_imu_data_stream(rtc_get_timestamp(), imu_sampling_rate_hz);
+               storage_open_imu_file(activation_number, device_label, current_time, imu_sampling_rate_hz);
                imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
             }
 
@@ -421,7 +422,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
       // Store any pending IMU data
       if (new_imu_stream)
       {
-         storage_start_imu_data_stream(current_time, imu_sampling_rate_hz);
+         storage_open_imu_file(activation_number, device_label, current_time, imu_sampling_rate_hz);
          new_imu_stream = false;
       }
       if (imu_data_awaiting_storage)
@@ -448,7 +449,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
                // Begin reading IMU data if enabled
                if (record_imu_with_audio)
                {
-                  storage_start_imu_data_stream(current_time, imu_sampling_rate_hz);
+                  storage_open_imu_file(activation_number, device_label, current_time, imu_sampling_rate_hz);
                   imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
                }
             }
@@ -536,14 +537,11 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    switch (config_get_imu_recording_mode(phase_index))
    {
       case ACTIVITY:
-      {
          // TODO: Use this: float motion_trigger_threshold = config_get_imu_trigger_threshold_level(phase_index);
-         if (storage_open_imu_file(activation_number, device_label, 0))
-            imu_enable_motion_change_detection(true, imu_motion_change_callback);
+         imu_enable_motion_change_detection(true, imu_motion_change_callback);
          break;
-      }
       case AUDIO:
-         record_imu_with_audio = storage_open_imu_file(activation_number, device_label, 0);
+         record_imu_with_audio = true;
          break;
       case NONE:   // Intentional fall-through
       default:
