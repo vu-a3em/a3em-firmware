@@ -194,10 +194,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_second
    // Begin reading audio data and IMU data if enabled
    audio_begin_reading();
    if (record_imu_with_audio)
-   {
-      new_imu_stream = true;
       imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz, imu_data_callback);
-   }
 
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    while (!phase_ended && *device_active)
@@ -234,7 +231,8 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_second
                if (storage_open_wav_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
                {
                   // Signal start of a new audio clip
-                  new_imu_stream = new_imu_stream || record_imu_with_audio;
+                  if (record_imu_with_audio)
+                     storage_open_imu_file(activation_number, device_label, current_time, imu_sampling_rate_hz);
                   audio_clip_in_progress = true;
                   led_indicate_clip_begin();
                }

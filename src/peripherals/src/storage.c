@@ -35,6 +35,7 @@ static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
 static bool log_open, file_open, imu_file_open, audio_file_open;
 static volatile bool async_write_complete, async_read_complete, card_present;
+static char time_string[24], audio_directory[MAX_DEVICE_LABEL_LEN + 32];
 static FIL current_file, log_file, imu_file, audio_file;
 static uint32_t audio_directory_timestamp, data_size;
 static volatile DSTATUS sd_disk_status;
@@ -320,6 +321,8 @@ void am_sdio_isr(void)
 void storage_init(void)
 {
    // Initialize all static local variables
+   memset(time_string, 0, sizeof(time_string));
+   memset(audio_directory, 0, sizeof(audio_directory));
    async_write_complete = async_read_complete = card_present = false;
    file_open = imu_file_open = audio_file_open = false;
    audio_directory_timestamp = 0;
@@ -428,7 +431,6 @@ bool storage_open_wav_file(uint32_t activation_number, const char *device_label,
    // Determine if time to create a new audio storage directory
    const time_t timestamp = (time_t)current_time;
    struct tm *curr_time = gmtime(&timestamp);
-   static char time_string[24] = { 0 }, audio_directory[MAX_DEVICE_LABEL_LEN + 32] = { 0 };
    strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
    if ((current_time - audio_directory_timestamp) >= NUM_SECONDS_PER_AUDIO_DIRECTORY)
    {
@@ -495,7 +497,6 @@ bool storage_open_imu_file(uint32_t activation_number, const char *device_label,
    // Determine if time to create a new audio storage directory
    const time_t timestamp = (time_t)current_time;
    struct tm *curr_time = gmtime(&timestamp);
-   static char time_string[24] = { 0 }, audio_directory[MAX_DEVICE_LABEL_LEN + 32] = { 0 };
    strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
    if ((current_time - audio_directory_timestamp) >= NUM_SECONDS_PER_AUDIO_DIRECTORY)
    {
@@ -535,11 +536,11 @@ uint32_t storage_get_current_activation_number(const char *device_label)
    // Search for the most recent activation directory
    FILINFO file_info;
    bool directory_found = true;
-   uint32_t activation_number = 1;
+   uint32_t activation_number = 0;
    char audio_directory[MAX_DEVICE_LABEL_LEN + 24] = { 0 };
    while (directory_found)
    {
-      snprintf(audio_directory, sizeof(audio_directory), "%s/Activation_%04lu", device_label, activation_number);
+      snprintf(audio_directory, sizeof(audio_directory), "%s/Activation_%04lu", device_label, ++activation_number);
       directory_found = (f_stat(audio_directory, &file_info) == FR_OK);
    }
    return activation_number - 1;
