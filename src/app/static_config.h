@@ -26,8 +26,6 @@
 
 // Common Application Definitions --------------------------------------------------------------------------------------
 
-#define MRAM_PERSISTENT_STORAGE_ADDRESS             AM_HAL_MRAM_INSTANCE_SIZE
-
 #define DEVICE_ID_LEN                               6
 #define MAX_DEVICE_LABEL_LEN                        31
 #define MAX_AUDIO_TRIGGER_TIMES                     12
