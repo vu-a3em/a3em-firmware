@@ -202,10 +202,13 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
 DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
 {
    // Validate status and transfer parameters
+   static uint8_t error_count = 0;
    if (!count)
       return RES_PARERR;
    if (sd_disk_status & STA_NOINIT)
       return RES_NOTRDY;
+   if (++error_count > 2)
+      system_reset();
 
    // Power on the SDIO peripheral
    if (am_hal_card_pwrctrl_wakeup(&sd_card) != AM_HAL_STATUS_SUCCESS)
@@ -253,6 +256,7 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
       printonly("ERROR: Failed to power down the SDIO peripheral\n");
       return RES_ERROR;
    }
+   error_count = 0;
    return RES_OK;
 }
 
@@ -324,7 +328,7 @@ void storage_init(void)
    memset(time_string, 0, sizeof(time_string));
    memset(audio_directory, 0, sizeof(audio_directory));
    async_write_complete = async_read_complete = card_present = false;
-   file_open = imu_file_open = audio_file_open = false;
+   log_open = file_open = imu_file_open = audio_file_open = false;
    audio_directory_timestamp = 0;
    sd_disk_status = STA_NOINIT;
 
@@ -357,7 +361,7 @@ void storage_init(void)
    // Mount and initialize the file system on the SD card
    char sd_card_path[4];
    const MKFS_PARM opts = { .fmt = FM_EXFAT, .n_fat = 0, .align = 0, .n_root = 0, .au_size = 4096 };
-   FRESULT res = f_mount(&file_system, (TCHAR const*)sd_card_path, 0);
+   FRESULT res = f_mount(&file_system, (TCHAR const*)sd_card_path, 1);
    if ((res == FR_NO_FILESYSTEM) && ((res = f_mkfs((TCHAR const*)sd_card_path, &opts, work_buf, sizeof(work_buf))) != FR_OK))
       printonly("ERROR: Unable to create a file system on the SD card\n");
    else if (res != FR_OK)
@@ -393,7 +397,7 @@ void storage_deinit(void)
 void storage_setup_logs(void)
 {
    // Ensure that a log file is present on the device
-   if (!log_open)
+   if (card_present && !log_open)
       log_open = (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) == FR_OK);
    if (!log_open)
       printonly("ERROR: Unable to open SD card log file for writing\n");

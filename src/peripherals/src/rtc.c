@@ -154,7 +154,7 @@ bool rtc_is_valid(void)
    AM_CRITICAL_BEGIN
    rtc_stat = RTC->RTCSTAT;  // Read RTCSTAT to mitigate RTC hanging as per errata
    static am_hal_rtc_time_t rtc_time;
-   success = (am_hal_rtc_time_get(&rtc_time) == AM_HAL_STATUS_SUCCESS) && (rtc_time.ui32Year > 23) && (rtc_time.ui32Year < 40);
+   success = (am_hal_rtc_time_get(&rtc_time) == AM_HAL_STATUS_SUCCESS) && (rtc_time.ui32Year > 24) && (rtc_time.ui32Year < 40);
    AM_CRITICAL_END
    return success;
 }
