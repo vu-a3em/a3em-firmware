@@ -227,6 +227,10 @@ bool fetch_runtime_configuration(void)
       deployment_phases[i].frequencies_of_interest.max_frequency = 0;
    }
 
+   // Ensure that an SD card is present and accessible
+   if (storage_sd_card_error())
+      return false;
+
    // Open and parse the stored runtime configuration file
    int32_t line_length;
    char line_buffer[MAX_CFG_FILE_LINE_LENGTH];
@@ -248,8 +252,10 @@ bool fetch_runtime_configuration(void)
    device_activated = mram_is_activated();
    if (device_activated && mram_get_deployment_start_time() != deployment_time.start_time)
    {
+      print("WARNING: Device was activated with a different start time (%u) than specified on the SD card: %u\n", mram_get_deployment_start_time(), deployment_time.start_time);
+      print("WARNING: SD card may have been swapped without first deactivating the device...forcing deactivation now!\n");
       device_activated = false;
-      mram_set_activated(false, 0);
+      while (!mram_set_activated(false, 0));
    }
 
    // Return whether configuration parsing was successful
@@ -290,7 +296,7 @@ bool config_is_deactivation_allowed(void)
 
 void config_set_activation_status(bool active)
 {
-   mram_set_activated(active, deployment_time.start_time);
+   while (!mram_set_activated(active, deployment_time.start_time));
 }
 
 bool config_gps_available(void)

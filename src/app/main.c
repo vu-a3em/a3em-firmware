@@ -64,13 +64,24 @@ int main(void)
 
    // Retrieve the runtime configuration from storage
    bool success = fetch_runtime_configuration();
-   print("INFO: Fetching runtime configuration...%s\n", success ? "SUCCESS" : "FAILURE (Using defaults)");
+   print("INFO: Fetching runtime configuration...%s\n", success ? "SUCCESS" : "FAILURE");
    const bool use_magnetic_activation = config_awake_on_magnet();
    if (storage_sd_card_error())
       led_indicate_sd_card_error();
    else if (!success)
       led_indicate_missing_config_file();
    leds_enable(config_get_leds_enabled());
+
+   // Ensure that the RTC has a usable (but "invalid") time so that it can function for sleeping/wake-up
+   if (!rtc_is_valid())
+      rtc_set_time_from_timestamp(1604083082);
+
+   // Reboot after 15 seconds if missing SD card or configuration file
+   if (storage_sd_card_error() || !success)
+   {
+      system_enter_power_off_mode(PIN_MAG_SENSOR_INP, rtc_get_timestamp() + 15, false);
+      system_reset();
+   }
 
    // Determine if the battery voltage is too low to continue
    bool battery_too_low = false;
