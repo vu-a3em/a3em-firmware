@@ -2,3 +2,4 @@ cmsisdsp
 scipy
 matplotlib
 argparse
+pydub
