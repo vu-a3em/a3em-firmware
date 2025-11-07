@@ -58,7 +58,7 @@
 #define PIN_MAG_SENSOR_INP                          66
 // TODO: Use these for the next revision
 //#define PIN_MAG_SENSOR_INP_RISING                   66
-//#define PIN_MAG_SENSOR_INP_FALLING                  51
+//#define PIN_MAG_SENSOR_INP_FALLING                  69
 #define PIN_MAG_SENSOR_INP2                         49
 #define PIN_MAG_SENSOR_DIS                          65
 
@@ -87,5 +87,14 @@
 
 // VHF
 #define PIN_VHF_ENABLE                              34
+
+// Unused pins
+#define UNUSED_PINS { \
+   0, 1, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 16, 17, 18, 19, 22, 23, \
+   24, 25, 26, 29, 30, 31, 32, 33, 36, 37, 38, 39, 41, 42, 43, 44, 45, \
+   46, 47, 48, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 67, 70, 71, 72, \
+   73, 74, 75, 76, 77, 78, 80, 81, 82, 89, 90, 91, 92, 93, 94, 95, 96, \
+   97, 98, 99, 100, 101, 102, 103, 104 \
+}
 
 #endif  // #ifndef __PINOUT_HEADER_H__

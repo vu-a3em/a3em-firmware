@@ -107,6 +107,18 @@ void vAssertCalled(const char * const pcFileName, unsigned long ulLine)
 }
 
 
+// Private Helper Functions --------------------------------------------------------------------------------------------
+
+static void system_initialize_unused_pins(void)
+{
+   // Initialize all unused pins as pulled up and disabled
+   const uint32_t unused_pins[] = UNUSED_PINS;
+   const am_hal_gpio_pincfg_t unused_pin_config = AM_HAL_GPIO_PINCFG_PULLEDUP_DISABLED;
+   for (uint32_t i = 0; i < (sizeof(unused_pins) / sizeof(unused_pins[0])); ++i)
+      am_hal_gpio_pinconfig(unused_pins[i], unused_pin_config);
+}
+
+
 // Public API Functions ------------------------------------------------------------------------------------------------
 
 void setup_hardware(void)
@@ -167,6 +179,9 @@ void setup_hardware(void)
    am_hal_pwrctrl_mcu_memory_config(&mcu_mem_config);
    am_hal_pwrctrl_sram_config(&sram_mem_config);
    am_hal_cachectrl_disable();
+
+   // Initialize all unused GPIO pins to a known state
+   system_initialize_unused_pins();
 
    // Set up printing to the console
    mram_init();

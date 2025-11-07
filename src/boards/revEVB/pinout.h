@@ -85,4 +85,7 @@
 // VHF
 #define PIN_VHF_ENABLE                              34
 
+// Unused pins
+#define UNUSED_PINS                                 {}
+
 #endif  // #ifndef __PINOUT_HEADER_H__
