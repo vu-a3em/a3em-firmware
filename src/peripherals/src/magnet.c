@@ -1,5 +1,6 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
+#include "led.h"
 #include "magnet.h"
 #include "system.h"
 
@@ -7,14 +8,16 @@
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
 #define VALIDATION_TIMER_TICK_RATE_MS 50
+#define VALIDATION_TRANSITION_TIME_BUFFER_MS 2000
+#define VALIDATION_NUM_PHASES 5
 
-static uint32_t validation_ticks_requested;
 static uint32_t input_pin = PIN_MAG_SENSOR_INP;
 static magnet_sensor_callback_t detection_callback;
+static int32_t validation_ticks_requested, transition_ticks;
 static magnetic_field_validation_callback_t validation_callback;
-static volatile bool magnetic_field_present, timer_manually_started;
+static volatile int32_t validation_tick_count, transition_tick_count, validation_phase;
 static volatile am_hal_gpio_pincfg_t input_pin_config;
-static volatile uint32_t validation_tick_count;
+static volatile bool magnetic_field_present;
 static bool sensor_enabled;
 
 
@@ -39,19 +42,60 @@ static void magnet_sensor_isr(void*)
    // Forward this interrupt to the user callback
    if (detection_callback)
       detection_callback(magnetic_field_present);
+
+   // Potentially move to the next stage of validation mode
+   if (transition_tick_count >= 0)
+      transition_tick_count = transition_ticks;
 }
 
 void am_timer02_isr(void)
 {
-   // Verify that the magnetic field is still present
+   // Verify that the magnetic field is still as expected
+   const bool required_field_presence = (validation_phase % 2) == 0;
    const bool field_present = am_hal_gpio_input_read(PIN_MAG_SENSOR_INP);
    am_hal_timer_interrupt_clear(AM_HAL_TIMER_MASK(MAG_DETECT_TIMER_NUMBER, AM_HAL_TIMER_COMPARE_BOTH));
-   if (!field_present && !timer_manually_started)
+
+   // Handle verification based on the current phase
+   if (transition_tick_count >= 0)
+   {
+      if (++transition_tick_count >= transition_ticks)
+      {
+         transition_tick_count = -1;
+         if (field_present != required_field_presence)
+         {
+            led_indicate_validation_failed();
+            validation_callback(false);
+            validation_callback = NULL;
+         }
+         else
+            am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+      }
+      else
+      {
+         led_toggle_validation_phase_change();
+         am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+      }
+   }
+   else if (field_present != required_field_presence)
+   {
+      validation_callback(false);
       validation_callback = NULL;
+   }
    else if (++validation_tick_count >= validation_ticks_requested)
    {
-      validation_callback(field_present);
-      validation_callback = NULL;
+      validation_tick_count = 0;
+      if (++validation_phase == VALIDATION_NUM_PHASES)
+      {
+         validation_callback(true);
+         validation_callback = NULL;
+      }
+      else
+      {
+         led_off(LED_ALL);
+         transition_tick_count = 0;
+         led_toggle_validation_phase_change();
+         am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+      }
    }
    else
       am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
@@ -79,6 +123,7 @@ void magnet_sensor_init(void)
    // Ensure detection callbacks are initially unregistered
    detection_callback = NULL;
    validation_callback = NULL;
+   transition_tick_count = -1;
 
    // Initialize all magnet sensor GPIOs
    input_pin_config = (am_hal_gpio_pincfg_t)AM_HAL_GPIO_PINCFG_INPUT;
@@ -98,7 +143,7 @@ void magnet_sensor_init(void)
    field_validation_timer_config.ui32Compare0 = (uint32_t)(VALIDATION_TIMER_TICK_RATE_MS * MAGNET_FIELD_VALIDATION_TIMER_TICK_RATE_HZ / 1000);
    am_hal_timer_config(MAG_DETECT_TIMER_NUMBER, &field_validation_timer_config);
    am_hal_timer_interrupt_enable(AM_HAL_TIMER_MASK(MAG_DETECT_TIMER_NUMBER, AM_HAL_TIMER_COMPARE0));
-   NVIC_SetPriority(TIMER0_IRQn + MAG_DETECT_TIMER_NUMBER, MAGNET_SENSOR_INTERRUPT_PRIORITY);
+   NVIC_SetPriority(TIMER0_IRQn + MAG_DETECT_TIMER_NUMBER, MAGNET_VALIDATION_TIMER_INTERRUPT_PRIORITY );
    NVIC_EnableIRQ(TIMER0_IRQn + MAG_DETECT_TIMER_NUMBER);
 }
 
@@ -165,12 +210,17 @@ void magnet_sensor_register_callback(magnet_sensor_callback_t callback)
       magnet_sensor_isr(NULL);
 }
 
-void magnet_sensor_verify_field(uint32_t milliseconds, magnetic_field_validation_callback_t callback, bool calling_from_detection_callback)
+void magnet_sensor_verify_field(uint32_t milliseconds, magnetic_field_validation_callback_t callback)
 {
-   // Start the field validation timer for the requested number of milliseconds
-   validation_tick_count = 0;
-   validation_callback = callback;
-   timer_manually_started = !calling_from_detection_callback;
-   validation_ticks_requested = milliseconds / VALIDATION_TIMER_TICK_RATE_MS;
-   am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+   // Only proceed if there is not a pending verification in progress
+   if (!validation_callback)
+   {
+      // Start the field validation timer for the requested number of milliseconds
+      transition_tick_count = -1;
+      validation_callback = callback;
+      validation_phase = validation_tick_count = 0;
+      validation_ticks_requested = milliseconds / VALIDATION_TIMER_TICK_RATE_MS;
+      transition_ticks = VALIDATION_TRANSITION_TIME_BUFFER_MS / VALIDATION_TIMER_TICK_RATE_MS;
+      am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+   }
 }

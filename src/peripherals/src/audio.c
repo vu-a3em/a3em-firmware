@@ -349,7 +349,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    led_off(LED_ALL);
    audio_adc_start();
    uint8_t dc_calculated = 0;
-   print("INFO: Calculating analog microphone DC offset...");
+   print("INFO: Calculating analog microphone DC offset...\n");
    while (dc_calculated < 5)
    {
       if (dma_error)

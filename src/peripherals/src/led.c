@@ -191,3 +191,24 @@ void led_indicate_activation(bool activated)
       system_delay(100000);
    }
 }
+
+void led_toggle_validation_phase_change(void)
+{
+   led_toggle(LED_ALL);
+}
+
+void led_indicate_validation_failed(void)
+{
+   led_off(LED_RED);
+   led_on(LED_GREEN);
+   for (int i = 0; i < 6; ++i)
+   {
+      led_on(LED_RED);
+      led_off(LED_GREEN);
+      system_delay(100000);
+      led_off(LED_RED);
+      led_on(LED_GREEN);
+      system_delay(100000);
+   }
+   led_off(LED_ALL);
+}
