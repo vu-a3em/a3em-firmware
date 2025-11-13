@@ -39,8 +39,8 @@ static void handle_magnetic_field(bool store_activated_result, bool store_deacti
 {
    // Validate a magnetic activation or deactivation
    magnetic_field_verified = false;
-   magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated);
    magnet_sensor_register_callback(magnet_sensor_activated);
+   magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated);
    while (!magnetic_field_verified)
       system_enter_deep_sleep_mode();
    if (store_activated_result && device_activated)

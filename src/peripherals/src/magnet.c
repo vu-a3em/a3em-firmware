@@ -7,7 +7,11 @@
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
-#define VALIDATION_TIMER_TICK_RATE_MS 50
+#define SENSOR_SAMPLING_TIME_US 15
+#define SENSOR_SLEEP_TIME_MS 90
+#define SENSOR_DEEP_SLEEP_TIME_MS 500
+
+#define VALIDATION_TIMER_TICK_RATE_MS 100
 #define VALIDATION_TRANSITION_TIME_BUFFER_MS 2000
 #define VALIDATION_NUM_PHASES 5
 
@@ -106,12 +110,15 @@ static void enable_sensor(bool enable)
    // Clear or set the DISABLE pin to wake up or shut down the sensor
    if (enable && !sensor_enabled)
    {
-      // Delay long enough for the sensor to wake up and make a measurement (from datasheet)
-      am_hal_gpio_output_clear(PIN_MAG_SENSOR_DIS);
-      system_delay(1050);
+      // Give sensor time to make the first measurement
+      am_hal_timer_clear(MAG_SAMPLING_TIMER_NUMBER);
+      system_delay(1200);
    }
    else if (!enable && sensor_enabled)
+   {
+      am_hal_timer_disable(MAG_SAMPLING_TIMER_NUMBER);
       am_hal_gpio_output_set(PIN_MAG_SENSOR_DIS);
+   }
    sensor_enabled = enable;
 }
 
@@ -129,30 +136,42 @@ void magnet_sensor_init(void)
    input_pin_config = (am_hal_gpio_pincfg_t)AM_HAL_GPIO_PINCFG_INPUT;
    input_pin_config.GP.cfg_b.ePullup = AM_HAL_GPIO_PIN_PULLUP_6K;
    input_pin_config.GP.cfg_b.eIntDir = AM_HAL_GPIO_PIN_INTDIR_LO2HI;
-   const am_hal_gpio_pincfg_t disable_pin_config = AM_HAL_GPIO_PINCFG_OUTPUT;
+   am_hal_gpio_pincfg_t disable_pin_config = AM_HAL_GPIO_PINCFG_OUTPUT;
+   disable_pin_config.GP.cfg_b.uFuncSel = PIN_MAG_SENSOR_DIS_FUNCTION;
    configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_INP, input_pin_config));
    configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_INP2, input_pin_config));
    configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_DIS, disable_pin_config));
 
    // Ensure that the sensor is asleep
+   sensor_enabled = true;
    enable_sensor(false);
 
    // Initialize the magnetic field validation timer
    am_hal_timer_config_t field_validation_timer_config;
    am_hal_timer_default_config_set(&field_validation_timer_config);
-   field_validation_timer_config.ui32Compare0 = (uint32_t)(VALIDATION_TIMER_TICK_RATE_MS * MAGNET_FIELD_VALIDATION_TIMER_TICK_RATE_HZ / 1000);
+   field_validation_timer_config.ui32Compare0 = (uint32_t)(VALIDATION_TIMER_TICK_RATE_MS * MAGNET_FIELD_TIMER_TICK_RATE_HZ / 1000);
    am_hal_timer_config(MAG_DETECT_TIMER_NUMBER, &field_validation_timer_config);
    am_hal_timer_interrupt_enable(AM_HAL_TIMER_MASK(MAG_DETECT_TIMER_NUMBER, AM_HAL_TIMER_COMPARE0));
    NVIC_SetPriority(TIMER0_IRQn + MAG_DETECT_TIMER_NUMBER, MAGNET_VALIDATION_TIMER_INTERRUPT_PRIORITY );
    NVIC_EnableIRQ(TIMER0_IRQn + MAG_DETECT_TIMER_NUMBER);
+
+   // Initialize the magnetic field sampling timer
+   am_hal_timer_config_t field_sampling_timer_config;
+   am_hal_timer_default_config_set(&field_sampling_timer_config);
+   field_sampling_timer_config.eFunction = AM_HAL_TIMER_FN_PWM;
+   field_sampling_timer_config.ui32Compare0 = (uint32_t)(SENSOR_SLEEP_TIME_MS * MAGNET_FIELD_TIMER_TICK_RATE_HZ / 1000);
+   field_sampling_timer_config.ui32Compare1 = (uint32_t)(SENSOR_SAMPLING_TIME_US * MAGNET_FIELD_TIMER_TICK_RATE_HZ / 1000000);
+   am_hal_timer_config(MAG_SAMPLING_TIMER_NUMBER, &field_sampling_timer_config);
+   am_hal_timer_output_config(PIN_MAG_SENSOR_DIS, 2 * MAG_SAMPLING_TIMER_NUMBER);
 }
 
 void magnet_sensor_deinit(void)
 {
    // Stop all running timers
    am_hal_timer_disable(MAG_DETECT_TIMER_NUMBER);
+   am_hal_timer_disable(MAG_SAMPLING_TIMER_NUMBER);
    NVIC_DisableIRQ(TIMER0_IRQn + MAG_DETECT_TIMER_NUMBER);
-   am_hal_timer_interrupt_disable(AM_HAL_TIMER_MASK(MAG_DETECT_TIMER_NUMBER, AM_HAL_TIMER_COMPARE0));;
+   am_hal_timer_interrupt_disable(AM_HAL_TIMER_MASK(MAG_DETECT_TIMER_NUMBER, AM_HAL_TIMER_COMPARE0));
 
    // Disable magnet sensing interrupts
    NVIC_DisableIRQ(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_MAG_SENSOR_INP));
@@ -167,8 +186,23 @@ void magnet_sensor_deinit(void)
 
 void magnet_sensor_enable_for_wakeup(void)
 {
-   // Simply power on the sensor without any interrupt machinery
-   enable_sensor(true);
+   // Initialize the magnetic field sampling pin
+   am_hal_gpio_pincfg_t disable_pin_config = AM_HAL_GPIO_PINCFG_OUTPUT;
+   disable_pin_config.GP.cfg_b.uFuncSel = PIN_MAG_SENSOR_DIS_FUNCTION;
+   configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_DIS, disable_pin_config));
+
+   // Initialize the magnetic field sampling timer using a low-power, always-on LFRC (nominally 900Hz)
+   am_hal_timer_config_t field_sampling_timer_config;
+   am_hal_timer_default_config_set(&field_sampling_timer_config);
+   field_sampling_timer_config.eFunction = AM_HAL_TIMER_FN_PWM;
+   field_sampling_timer_config.eInputClock = AM_HAL_TIMER_CLOCK_LFRC;
+   field_sampling_timer_config.ui32Compare0 = (uint32_t)(SENSOR_DEEP_SLEEP_TIME_MS * 900 / 1000);
+   field_sampling_timer_config.ui32Compare1 = 1;
+   am_hal_timer_config(MAG_SAMPLING_TIMER_NUMBER, &field_sampling_timer_config);
+   am_hal_timer_output_config(PIN_MAG_SENSOR_DIS, 2 * MAG_SAMPLING_TIMER_NUMBER);
+
+   // Start the low-frequency sampling timer
+   am_hal_timer_clear(MAG_SAMPLING_TIMER_NUMBER);
 }
 
 bool magnet_sensor_field_present(void)
@@ -177,7 +211,7 @@ bool magnet_sensor_field_present(void)
    if (!sensor_enabled)
    {
       am_hal_gpio_output_clear(PIN_MAG_SENSOR_DIS);
-      system_delay(1050);
+      system_delay(1200);
    }
    const bool field_present = am_hal_gpio_input_read(PIN_MAG_SENSOR_INP);
    if (!sensor_enabled)
@@ -187,16 +221,6 @@ bool magnet_sensor_field_present(void)
 
 void magnet_sensor_register_callback(magnet_sensor_callback_t callback)
 {
-   // Enable magnet sensing interrupts
-   NVIC_SetPriority(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_MAG_SENSOR_INP), MAGNET_SENSOR_INTERRUPT_PRIORITY);
-   NVIC_EnableIRQ(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_MAG_SENSOR_INP));
-
-   // Ensure that the interrupts are initially set to trigger upon a transition to high
-   magnetic_field_present = false;
-   input_pin_config.GP.cfg_b.eIntDir = AM_HAL_GPIO_PIN_INTDIR_LO2HI;
-   configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_INP, input_pin_config));
-   configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_INP2, input_pin_config));
-
    // Register a private callback with the interrupt control mechanism
    detection_callback = callback;
    configASSERT0(am_hal_gpio_interrupt_register(AM_HAL_GPIO_INT_CHANNEL_0, PIN_MAG_SENSOR_INP, magnet_sensor_isr, (void*)input_pin));
@@ -205,9 +229,18 @@ void magnet_sensor_register_callback(magnet_sensor_callback_t callback)
    // Wake up the sensor
    enable_sensor(true);
 
-   // Check for a pre-existing magnetic field so we don't miss firing the initial callback
-   if (magnet_sensor_field_present())
-      magnet_sensor_isr(NULL);
+   // Ensure that interrupts are initially set to trigger on the correct transition
+   magnetic_field_present = am_hal_gpio_input_read(PIN_MAG_SENSOR_INP);
+   input_pin_config.GP.cfg_b.eIntDir = magnetic_field_present ? AM_HAL_GPIO_PIN_INTDIR_HI2LO : AM_HAL_GPIO_PIN_INTDIR_LO2HI;
+   configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_INP, input_pin_config));
+   configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_INP2, input_pin_config));
+
+   // Manually fire the initial callback
+   detection_callback(magnetic_field_present);
+
+   // Enable magnet sensing interrupts
+   NVIC_SetPriority(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_MAG_SENSOR_INP), MAGNET_SENSOR_INTERRUPT_PRIORITY);
+   NVIC_EnableIRQ(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_MAG_SENSOR_INP));
 }
 
 void magnet_sensor_verify_field(uint32_t milliseconds, magnetic_field_validation_callback_t callback)

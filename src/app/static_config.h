@@ -92,7 +92,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 // Magnetic Sensing Definitions ----------------------------------------------------------------------------------------
 
 #define MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS       5000
-#define MAGNET_FIELD_VALIDATION_TIMER_TICK_RATE_HZ      (AM_HAL_CLKGEN_FREQ_MAX_HZ / 16)
+#define MAGNET_FIELD_TIMER_TICK_RATE_HZ                 (AM_HAL_CLKGEN_FREQ_MAX_HZ / 16)
 
 
 // AI and Clustering Definitions ---------------------------------------------------------------------------------------
