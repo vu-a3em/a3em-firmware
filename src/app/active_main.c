@@ -574,7 +574,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                max_clips_interval_seconds = 1;
                break;
          }
-         audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, COMPARATOR_THRESHOLD, config_get_audio_trigger_threshold(phase_index));
+         audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, COMPARATOR_THRESHOLD, config_get_audio_trigger_threshold(phase_index), device_activated);
          process_audio_triggered(allow_extended_audio_clips, audio_sampling_rate_hz, num_seconds_per_clip, max_num_clips, max_clips_interval_seconds);
          break;
       }
@@ -583,7 +583,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
          start_end_time_t *schedule;
          uint32_t num_schedules = config_get_audio_trigger_schedule(phase_index, &schedule);
          if (config_get_mic_type() == MIC_ANALOG)
-            audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
+            audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
          else
             audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db());
          process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, false, 0, num_schedules, schedule);
@@ -611,7 +611,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                break;
          }
          if (config_get_mic_type() == MIC_ANALOG)
-            audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
+            audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
          else
             audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db());
          process_audio_scheduled(audio_sampling_rate_hz, num_seconds_per_clip, true, (int32_t)audio_recording_interval, 0, NULL);
@@ -620,7 +620,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       case CONTINUOUS:  // Intentional fall-through
       default:
          if (config_get_mic_type() == MIC_ANALOG)
-            audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0);
+            audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
          else
             audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db());
          process_audio_continuous(audio_sampling_rate_hz, num_seconds_per_clip);

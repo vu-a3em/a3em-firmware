@@ -256,7 +256,7 @@ void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, float ga
    NVIC_EnableIRQ(PDM0_IRQn + PDM_MODULE);
 }
 
-void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, float mic_bias_voltage, audio_trigger_t trigger, float trigger_threshold_percent)
+void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, float mic_bias_voltage, audio_trigger_t trigger, float trigger_threshold_percent, volatile bool *device_activated)
 {
    // Turn on the external microphone
    const am_hal_gpio_pincfg_t mic_en_config = AM_HAL_GPIO_PINCFG_OUTPUT;
@@ -350,7 +350,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    audio_adc_start();
    uint8_t dc_calculated = 0;
    print("INFO: Calculating analog microphone DC offset...\n");
-   while (dc_calculated < 5)
+   while (*device_activated && (dc_calculated < 5))
    {
       if (dma_error)
          system_reset();
@@ -362,7 +362,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
          int32_t dc_total = 0;
          const uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
          for (uint32_t i = 0; i < sampling_rate_hz; ++i)
-            dc_total += (int32_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
+            dc_total += (int16_t)(AM_HAL_AUDADC_FIFO_HGDATA(data[i]) << 4);
          dc_total /= sampling_rate_hz;
          dc_calculated = (abs((int16_t)dc_total - dc_offset) < (40 * (dc_calculated + 1))) ? (dc_calculated + 1) : 0;
          dc_offset = (int16_t)dc_total;
