@@ -202,12 +202,12 @@ void system_initialize_peripherals(void)
    leds_init();
    rtc_init();
    vhf_init();
-   storage_init();
    imu_init();
    henrik_init();
    magnet_sensor_init();
    battery_monitor_init();
    system_enable_interrupts(true);
+   storage_init();
    storage_setup_logs();
 }
 
