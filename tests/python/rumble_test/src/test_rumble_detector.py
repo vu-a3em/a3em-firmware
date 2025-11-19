@@ -174,6 +174,6 @@ for key, value in frequency_bins.items():
   row += value
   formated_data.append(row)
 
-with open('expirement-results/low-frequency-experiment.csv', 'w', newline='') as csvfile:
+with open('experiment-results/low-frequency-experiment.csv', 'w', newline='') as csvfile:
   csv_writer = csv.writer(csvfile)
   csv_writer.writerows(formated_data)

@@ -132,7 +132,7 @@ print(len(data))
 
 # store data in csv file
 fields = ['name', 'maxAmplitude']
-with open('expirement-results/maximum_amplitude_discarded.csv', 'w', newline='') as csvfile:
+with open('experiment-results/maximum_amplitude_discarded.csv', 'w', newline='') as csvfile:
   csv_writer = csv.DictWriter(csvfile, fieldnames=fields)
   csv_writer.writeheader()
   for row in data:
