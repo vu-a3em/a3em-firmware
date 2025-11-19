@@ -112,8 +112,8 @@ parser.add_argument('-d', '--dir', help='Directory containing the clips of inter
 args = parser.parse_args()
 
 # Configurations used for testing various sample rates and thresholds
-min_frequencies = [0.1, 0.2, 0.4, 0.8, 1, 2, 3, 4, 5]
-thresholds = [0.01, 0.02, 0.03, 0.04, 0.05, 0.10]
+min_frequencies = [10, 20, 30, 40, 50, 100, 200]
+thresholds = [0.000, 0.002, 0.004, 0.006, 0.008, 0.01, 0.012, 0.014, 0.016, 0.02]
 configurations = create_configurations(min_frequencies, thresholds)
 
 # global data type for storing data across threads
