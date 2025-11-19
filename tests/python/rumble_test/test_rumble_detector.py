@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 import cmsisdsp as dsp
+import csv
 import os
 import queue
 from scipy.io import wavfile
@@ -16,11 +17,9 @@ def read_wav_file(file, sample_rate):
   return fft_length, signal.resample(data, int(len(data) * sample_rate / fs))
 
 
-def process_audio(file_path):
-  print(f'processing: {file_path}')
-
+def process_audio(file_path, parameters):
   # Read the WAV file and determine the ideal FFT length
-  fft_length, audio = read_wav_file(file_path, args.sample_rate)
+  fft_length, audio = read_wav_file(file_path, parameters['sampleRate'])
 
   # Create and initialize an FFT structure
   fft = dsp.arm_rfft_fast_instance_f32()
@@ -34,10 +33,10 @@ def process_audio(file_path):
   # Locate the minimum and maximum FFT bins of interest
   min_bin, max_bin = 1, 1
   for bin in range(1, (fft_length // 2) - 1):
-    center_frequency = bin * args.sample_rate / fft_length
-    if center_frequency + (0.5 * args.sample_rate / fft_length) < args.min_freq:
+    center_frequency = bin * parameters['sampleRate'] / fft_length
+    if center_frequency + (0.5 * parameters['sampleRate'] / fft_length) < parameters['minFreq']:
       min_bin = max_bin = bin + 1
-    if center_frequency - (0.5 * args.sample_rate / fft_length) < args.max_freq:
+    if center_frequency - (0.5 * parameters['sampleRate'] / fft_length) < parameters['maxFreq']:
       max_bin = bin
 
   # Iterate through all FFT windows
@@ -58,7 +57,10 @@ def process_audio(file_path):
       amplitudes[i // fft_length] += (1.0 / fft_length) * np.sqrt(real * real + imag * imag)
 
     # Check if the frame is silent
-    if amplitudes[i // fft_length] < args.threshold:
+    # TODO write this amplitude to a csv
+    # TODO store all discarded clips in a csv
+    # TODO store max amplitude of each clip in a csv
+    if amplitudes[i // fft_length] < parameters['threshold']:
       silence[i // fft_length] = True
 
   # Output if a sound was detected
@@ -68,7 +70,16 @@ def process_audio(file_path):
       frames_with_sound_detection += 1
     #label = ', Sound Detected' if not silence[frame] else ''
     #print(f'Frame: {frame}, Amplitude: {amplitude:.10f}{label}')
-  processed_data.put({ 'name': file_path, 'framesDetected': frames_with_sound_detection })
+  data_queue.put({ 'name': file_path, 'framesDetected': frames_with_sound_detection })
+
+
+def create_configurations(min_frequencies, thresholds):
+  configurations = []
+  print('creating configurations...')
+  for m in min_frequencies:
+    for t in thresholds:
+      configurations.append({'minFreq': m, 'threshold': t})
+  return configurations
 
 
 def create_thread_partitions(data, thread_count):
@@ -84,15 +95,15 @@ def create_thread_partitions(data, thread_count):
   return partitions
 
 
-def thread_logic(data):
+def thread_logic(data, parameters):
   for file_path in data:
-    process_audio(file_path)
+    process_audio(file_path, parameters)
 
 
-def start_threads(partitions):
+def start_threads(partitions, parameters):
   threads = []
   for partition in partitions:
-    t = threading.Thread(target=thread_logic, args=(partition,))
+    t = threading.Thread(target=thread_logic, args=(partition,parameters))
     t.start()
     threads.append(t)
   return threads
@@ -101,25 +112,63 @@ def start_threads(partitions):
 # Parse the expected sample rate and min and max frequencies of interest
 parser = argparse.ArgumentParser(prog='test_silence_filter', description='Tests silence filtering on a WAV file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('-s', '--sample-rate', help='Target audio sample rate', default=8000, type=int)
-parser.add_argument('-f1', '--min-freq', help='Minimum frequency of interest', default=250, type=int)
-parser.add_argument('-f2', '--max-freq', help='Maximum frequency of interest', default=3800, type=int)
-parser.add_argument('-t', '--threshold', help='Silence threshold', default=0.02, type=float)
 parser.add_argument('-tr', '--threads', help='Number of threads used for processing', default=1, type=int)
 parser.add_argument('-d', '--dir', help='Directory containing the clips of interest', default='$HOME/')
 args = parser.parse_args()
+
+# Configurations used for testing various sample rates and thresholds
+min_frequencies = [1, 5]
+thresholds = [0.01]
+configurations = create_configurations(min_frequencies, thresholds)
+
+# global data type for storing data across threads
+data_queue = queue.Queue()
+processed_data = []
 
 file_names = os.listdir(args.dir)
 file_paths = list(map(lambda x: os.path.join(args.dir, x), file_names))
 partitions = create_thread_partitions(file_paths, args.threads)
 
-processed_data = queue.Queue()
-threads = start_threads(partitions)
-for t in threads:
-  t.join()
-data_points = processed_data.qsize()
-print(f'data points: {data_points}')
+# Run the algorithm across all configuration possibilities
+parameters = {'sampleRate': args.sample_rate, 'maxFreq': args.sample_rate // 2 - 200}
+for conf in configurations:
+  min_freq = conf['minFreq']
+  threshold = conf['threshold']
 
-#for file_name in audio_files:
-#  file_path = os.path.join(args.dir, file_name)
-#  process_audio(file_path)
+  parameters['minFreq'] = min_freq
+  parameters['threshold'] = threshold
 
+  print(f'Processing --> minFreq: {min_freq} threshold: {threshold}')
+
+  threads = start_threads(partitions, parameters)
+  for t in threads:
+    t.join()
+  
+  data = []
+  while not data_queue.empty():
+    data.append(data_queue.get())
+  processed_data.append({ 'configuration': conf, 'data': data })
+
+# format data for a csv files
+csv_data = []
+for data_log in processed_data:
+  data = data_log['data']
+  min_freq = data_log['configuration']['minFreq']
+  threshold = data_log['configuration']['threshold']
+
+  points_with_detections = 0
+  for point in data:
+    if point['framesDetected'] > 0:
+      points_with_detections += 1
+  percent_detection = round(points_with_detections / len(data) * 100, 2)
+
+  csv_data.append({'Minimum Frequency': min_freq, 'Threshold': threshold, 'Percent Detection': percent_detection})
+
+# store data in a csv files
+output_file_path = 'rumble_detector_test.csv'
+field_names = ['Minimum Frequency', 'Threshold', 'Percent Detection']
+with open(output_file_path, 'w', newline='') as csvfile:
+  csv_writer = csv.DictWriter(csvfile, fieldnames=field_names)
+  csv_writer.writeheader()
+  csv_writer.writerows(csv_data)
+print(f"Data successfully written to {output_file_path}")
