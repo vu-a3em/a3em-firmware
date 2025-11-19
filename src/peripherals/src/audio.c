@@ -18,7 +18,8 @@
 #define am_pdm_isr1(n)      am_pdm_isr(n)
 #define am_pdm_isr(n)       am_pdm ## n ## _isr
 
-__attribute__((section(".shared"), aligned(16))) uint32_t sample_buffer[2*AUDIO_BUFFER_NUM_SAMPLES];
+__attribute__((section(".shared"), aligned(16)))
+uint32_t sample_buffer[2*AUDIO_BUFFER_MAX_SAMPLES_PER_SECOND*AUDIO_BUFFER_NUM_SECONDS];
 
 static void *audio_handle;
 static float pga_gain_db;
@@ -68,7 +69,7 @@ void audio_adc_start(void)
       // Wake up the PDM peripheral
       if (!adc_awake)
          am_hal_pdm_power_control(audio_handle, AM_HAL_PDM_POWER_ON, true);
-      skip_samples = (sampling_rate_hz <= (2 * AUDIO_BUFFER_NUM_SAMPLES)) ? 1 : (sampling_rate_hz / (2 * AUDIO_BUFFER_NUM_SAMPLES));
+      skip_samples = (sampling_rate_hz <= (2 * AUDIO_BUFFER_MAX_SAMPLES_PER_SECOND)) ? 1 : (sampling_rate_hz / (2 * AUDIO_BUFFER_MAX_SAMPLES_PER_SECOND));
       configASSERT0(am_hal_pdm_configure(audio_handle, &pdm_config));
       configASSERT0(am_hal_pdm_fifo_threshold_setup(audio_handle, 24));
       configASSERT0(am_hal_pdm_interrupt_enable(audio_handle, (AM_HAL_PDM_INT_DERR | AM_HAL_PDM_INT_DCMP | AM_HAL_PDM_INT_UNDFL | AM_HAL_PDM_INT_OVF)));
@@ -172,7 +173,7 @@ void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, float ga
    configASSERT0(am_hal_pdm_power_control(audio_handle, AM_HAL_PDM_POWER_ON, false));
 
    // Set up the DMA configuration structure
-   pdm_transfer_config.ui32TotalCount = sample_rate_hz * sizeof(uint32_t);
+   pdm_transfer_config.ui32TotalCount = sample_rate_hz * AUDIO_BUFFER_NUM_SECONDS * sizeof(uint32_t);
    pdm_transfer_config.ui32TargetAddr = (uint32_t)sample_buffer;
    pdm_transfer_config.ui32TargetAddrReverse = pdm_transfer_config.ui32TargetAddr + pdm_transfer_config.ui32TotalCount;
 
@@ -301,7 +302,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    sampling_rate_hz = sample_rate_hz;
    const float sample_rate_khz = (float)sample_rate_hz / 1000.0;
    audadc_irtt_config.ui32IrttCountMax = (uint32_t)lroundf((6000.0f / sample_rate_khz) - 1.0f);   // Sample rate = eClock/eClkDiv/(ui32IrttCountMax+1)
-   audadc_dma_config.ui32SampleCount = sample_rate_hz;
+   audadc_dma_config.ui32SampleCount = sample_rate_hz * AUDIO_BUFFER_NUM_SECONDS;
    audadc_dma_config.ui32TargetAddress = (uint32_t)sample_buffer;
    audadc_dma_config.ui32TargetAddressReverse = audadc_dma_config.ui32TargetAddress + (sizeof(uint32_t) * audadc_dma_config.ui32SampleCount);
 
@@ -349,7 +350,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    audio_adc_start();
    uint32_t dc_calculated = 0;
    print("INFO: Calculating analog microphone DC offset...\n");
-   while (*device_activated && (dc_calculated < 5))
+   while (*device_activated && (dc_calculated < 4))
    {
       if (dma_error)
          system_reset();
@@ -489,14 +490,14 @@ bool audio_read_data(int16_t *buffer)
       if (is_digital_mic)
       {
          const int32_t *data = (int32_t*)am_hal_pdm_dma_get_buffer(audio_handle);
-         for (uint32_t i = 0; i < sampling_rate_hz; ++i)
+         for (uint32_t i = 0; i < (sampling_rate_hz * AUDIO_BUFFER_NUM_SECONDS); ++i)
             buffer[i] = (int16_t)(data[i] >> 8);
       }
       else
       {
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          const uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
-         for (uint32_t i = 0; i < sampling_rate_hz; ++i)
+         for (uint32_t i = 0; i < (sampling_rate_hz * AUDIO_BUFFER_NUM_SECONDS); ++i)
             buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
       }
       dma_complete = false;
@@ -515,7 +516,7 @@ int16_t* audio_read_data_direct(void)
       {
          int32_t *data = (int32_t*)am_hal_pdm_dma_get_buffer(audio_handle);
          buffer = (int16_t*)data;
-         for (uint32_t i = 0; i < sampling_rate_hz; ++i)
+         for (uint32_t i = 0; i < (sampling_rate_hz * AUDIO_BUFFER_NUM_SECONDS); ++i)
             buffer[i] = (int16_t)(data[i] >> 8);
       }
       else
@@ -523,7 +524,7 @@ int16_t* audio_read_data_direct(void)
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
          buffer = (int16_t*)data;
-         for (uint32_t i = 0; i < sampling_rate_hz; ++i)
+         for (uint32_t i = 0; i < (sampling_rate_hz * AUDIO_BUFFER_NUM_SECONDS); ++i)
             buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
       }
       dma_complete = false;
