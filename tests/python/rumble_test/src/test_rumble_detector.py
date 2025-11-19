@@ -57,9 +57,6 @@ def process_audio(file_path, parameters):
       amplitudes[i // fft_length] += (1.0 / fft_length) * np.sqrt(real * real + imag * imag)
 
     # Check if the frame is silent
-    # TODO write this amplitude to a csv
-    # TODO store all discarded clips in a csv
-    # TODO store max amplitude of each clip in a csv
     if amplitudes[i // fft_length] < parameters['threshold']:
       silence[i // fft_length] = True
 
@@ -68,8 +65,6 @@ def process_audio(file_path, parameters):
   for frame, amplitude in enumerate(amplitudes):
     if not silence[frame]:
       frames_with_sound_detection += 1
-    #label = ', Sound Detected' if not silence[frame] else ''
-    #print(f'Frame: {frame}, Amplitude: {amplitude:.10f}{label}')
   data_queue.put({ 'name': file_path, 'framesDetected': frames_with_sound_detection })
 
 
@@ -117,8 +112,8 @@ parser.add_argument('-d', '--dir', help='Directory containing the clips of inter
 args = parser.parse_args()
 
 # Configurations used for testing various sample rates and thresholds
-min_frequencies = [1, 5]
-thresholds = [0.01]
+min_frequencies = [0.1, 0.2, 0.4, 0.8, 1, 2, 3, 4, 5]
+thresholds = [0.01, 0.02, 0.03, 0.04, 0.05, 0.10]
 configurations = create_configurations(min_frequencies, thresholds)
 
 # global data type for storing data across threads
@@ -164,11 +159,21 @@ for data_log in processed_data:
 
   csv_data.append({'Minimum Frequency': min_freq, 'Threshold': threshold, 'Percent Detection': percent_detection})
 
-# store data in a csv files
-output_file_path = 'rumble_detector_test.csv'
-field_names = ['Minimum Frequency', 'Threshold', 'Percent Detection']
-with open(output_file_path, 'w', newline='') as csvfile:
-  csv_writer = csv.DictWriter(csvfile, fieldnames=field_names)
-  csv_writer.writeheader()
-  csv_writer.writerows(csv_data)
-print(f"Data successfully written to {output_file_path}")
+# store data in a csv file
+frequency_bins = {}
+for freq in min_frequencies:
+  frequency_bins[freq] = []
+
+for row in csv_data:
+  print(row)
+  frequency_bins[row['Minimum Frequency']].append(str(row['Percent Detection']) + '%')
+
+formated_data = [thresholds]
+for key, value in frequency_bins.items():
+  row = [key]
+  row += value
+  formated_data.append(row)
+
+with open('expirement-results/low-frequency-experiment.csv', 'w', newline='') as csvfile:
+  csv_writer = csv.writer(csvfile)
+  csv_writer.writerows(formated_data)
