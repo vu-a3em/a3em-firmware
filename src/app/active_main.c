@@ -107,11 +107,15 @@ static void flush_remaining_imu_data(void)
    __disable_irq();
    if (imu_storage_index)
    {
-      storage_write_imu_data((uint8_t*)imu_storage_buffer, sizeof(float) * 3 * imu_storage_index);
+      const uint8_t* imu_data = (uint8_t*)imu_storage_buffer;
+      const uint32_t imu_data_len = sizeof(float) * 3 * imu_storage_index;
       imu_storage_buffer = (imu_storage_buffer == imu_data_buffer) ? &imu_data_buffer[IMU_BUFFER_NUM_SAMPLES] : &imu_data_buffer[0];
       imu_storage_index = 0;
+      __enable_irq();
+      storage_write_imu_data(imu_data, imu_data_len);
    }
-   __enable_irq();
+   else
+      __enable_irq();
 }
 
 
@@ -210,6 +214,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
       imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, imu_sampling_rate_hz * AUDIO_BUFFER_NUM_SECONDS, imu_data_callback);
 
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
+   system_enable_watchdog();
    while (!phase_ended && *device_active)
    {
       // Determine if time to re-validate device settings
@@ -259,6 +264,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
          // Write the audio clip to storage if currently in-progress
          if (audio_clip_in_progress)
          {
+            system_feed_watchdog();  // TODO: FINISH WATCHDOG EVERYWHERE - ALSO NEED TO HANDLE IF SILENCE FILTER IS USED SINCE THIS MAY BE DELAYED
             led_indicate_clip_progress();
             storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate * AUDIO_BUFFER_NUM_SECONDS);
             if (++num_audio_reads >= num_audio_reads_per_clip)
