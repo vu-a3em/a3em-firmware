@@ -22,8 +22,8 @@ static void magnet_sensor_validated(bool validated)
          device_activated = true;
       else if (config_is_deactivation_allowed())
          device_activated = false;
+      led_indicate_activation(device_activated);
    }
-   led_indicate_activation(device_activated);
    magnetic_field_verified = true;
 }
 
@@ -31,17 +31,16 @@ static void magnet_sensor_activated(bool field_detected)
 {
    // Indicate magnetic field presence via LED and begin verification
    led_indicate_magnet_presence(field_detected);
-   magnetic_field_verified = !field_detected;
    if (field_detected)
-      magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated, true);
+      magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated);
 }
 
 static void handle_magnetic_field(bool store_activated_result, bool store_deactivated_result)
 {
    // Validate a magnetic activation or deactivation
    magnetic_field_verified = false;
-   magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated, false);
    magnet_sensor_register_callback(magnet_sensor_activated);
+   magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated);
    while (!magnetic_field_verified)
       system_enter_deep_sleep_mode();
    if (store_activated_result && device_activated)
@@ -144,6 +143,7 @@ int main(void)
 
       // Determine if the VHF radio should already be active
       print("INFO: Device is ACTIVATED\n");
+      print("INFO: Current activation is #%u\n", config_get_activation_number());
       uint32_t current_timestamp = rtc_get_timestamp();
       print("INFO: Current RTC timestamp = %u\n", current_timestamp);
       const uint32_t vhf_enable_timestamp = config_get_vhf_start_timestamp();

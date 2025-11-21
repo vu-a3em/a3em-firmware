@@ -27,5 +27,7 @@ void led_indicate_sd_card_error(void);
 void led_indicate_missing_config_file(void);
 void led_indicate_magnet_presence(bool field_present);
 void led_indicate_activation(bool activated);
+void led_toggle_validation_phase_change(void);
+void led_indicate_validation_failed(void);
 
 #endif  // #ifndef __LED_HEADER_H__

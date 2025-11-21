@@ -4,12 +4,13 @@
 #include "system.h"
 
 static const uint32_t sample_rate = 40000;
+static volatile bool device_activated = true;
 
 int main(void)
 {
    // Set up the system hardware
    setup_hardware();
-   audio_analog_init(AUDIO_NUM_CHANNELS, sample_rate, 35.0f, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f);
+   audio_analog_init(AUDIO_NUM_CHANNELS, sample_rate, 35.0f, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f, &device_activated);
    system_enable_interrupts(true);
 
    // Read audio for long enough to skip startup noise and determine the DC offset

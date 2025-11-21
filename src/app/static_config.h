@@ -59,6 +59,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 #define COMPARATOR_THRESHOLD_INTERRUPT_PRIORITY         (AM_IRQ_PRIORITY_DEFAULT)
 #define MAGNET_SENSOR_INTERRUPT_PRIORITY                (AM_IRQ_PRIORITY_DEFAULT)
+#define MAGNET_VALIDATION_TIMER_INTERRUPT_PRIORITY      (AM_IRQ_PRIORITY_DEFAULT)
 #define AUDIO_ADC_INTERRUPT_PRIORITY                    (AM_IRQ_PRIORITY_DEFAULT - 1)
 #define IMU_DATA_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 2)
 #define STORAGE_INTERRUPT_PRIORITY                      (AM_IRQ_PRIORITY_DEFAULT - 2)
@@ -73,7 +74,8 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define AUDIO_NUM_CHANNELS                              1
 #define AUDIO_MIC_BIAS_VOLTAGE                          0.0f
 #define AUDIO_DEFAULT_SAMPLING_RATE_HZ                  16000
-#define AUDIO_BUFFER_NUM_SAMPLES                        48000
+#define AUDIO_BUFFER_MAX_SAMPLES_PER_SECOND             48000
+#define AUDIO_BUFFER_NUM_SECONDS                        2
 #define AUDIO_DEFAULT_CLIP_LENGTH_SECONDS               10
 
 
@@ -91,7 +93,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 // Magnetic Sensing Definitions ----------------------------------------------------------------------------------------
 
 #define MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS       5000
-#define MAGNET_FIELD_VALIDATION_TIMER_TICK_RATE_HZ      (AM_HAL_CLKGEN_FREQ_MAX_HZ / 16)
+#define MAGNET_FIELD_TIMER_TICK_RATE_HZ                 (AM_HAL_CLKGEN_FREQ_MAX_HZ / 16)
 
 
 // AI and Clustering Definitions ---------------------------------------------------------------------------------------

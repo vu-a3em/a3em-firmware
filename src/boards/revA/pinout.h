@@ -54,6 +54,7 @@
 #define PIN_SWO_FUNCTION                            AM_HAL_PIN_28_SWO
 
 // Magnet Sensor
+#define MAG_SAMPLING_TIMER_NUMBER                   1
 #define MAG_DETECT_TIMER_NUMBER                     2
 #define PIN_MAG_SENSOR_INP                          66
 // TODO: Use these for the next revision
@@ -61,6 +62,7 @@
 //#define PIN_MAG_SENSOR_INP_FALLING                  69
 #define PIN_MAG_SENSOR_INP2                         49
 #define PIN_MAG_SENSOR_DIS                          65
+#define PIN_MAG_SENSOR_DIS_FUNCTION                 AM_HAL_PIN_65_CT65
 
 // Reference Voltage
 #define DIGIPOT_I2C_NUMBER                          3

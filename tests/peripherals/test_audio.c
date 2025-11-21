@@ -13,12 +13,14 @@
 #define AUDIO_TRIGGER_THRESHOLD_PERCENT         0.5
 #define AUDIO_CLIP_LENGTH_SECONDS               AUDIO_DEFAULT_CLIP_LENGTH_SECONDS
 
+static volatile bool device_activated = true;
+
 int main(void)
 {
    // Set up the system hardware
    setup_hardware();
    if (AUDIO_MIC_TYPE == MIC_ANALOG)
-      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, AUDIO_READ_TRIGGER, AUDIO_TRIGGER_THRESHOLD_PERCENT);
+      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, AUDIO_READ_TRIGGER, AUDIO_TRIGGER_THRESHOLD_PERCENT, &device_activated);
    else
       audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_GAIN_DB);
    system_enable_interrupts(true);

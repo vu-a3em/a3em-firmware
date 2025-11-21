@@ -412,12 +412,27 @@ int32_t lis2du12_fifo_data_get(const stmdev_ctx_t *ctx, lis2du12_md_t *md, lis2d
    {
       for (int8_t i = 0; i < 3; i++)
       {
-         data->xl[0].raw[i] = (int16_t)fifo_data[2 * i + 1];
-         data->xl[0].raw[i] = data->xl[0].raw[i] * 256 + (int16_t)fifo_data[2 * i];
+         data->xl[0].raw[i] = *(int16_t*)&fifo_data[2*i];
+         switch (md->fs)
+         {
+            case LIS2DU12_2g:
+               data->xl[0].mg[i] = lis2du12_from_fs2g_to_mg(data->xl[0].raw[i]);
+               break;
+            case LIS2DU12_4g:
+               data->xl[0].mg[i] = lis2du12_from_fs4g_to_mg(data->xl[0].raw[i]);
+               break;
+            case LIS2DU12_8g:
+               data->xl[0].mg[i] = lis2du12_from_fs8g_to_mg(data->xl[0].raw[i]);
+               break;
+            case LIS2DU12_16g:
+               data->xl[0].mg[i] = lis2du12_from_fs16g_to_mg(data->xl[0].raw[i]);
+               break;
+            default:
+               data->xl[0].mg[i] = 0.0f;
+               break;
+         }
       }
-
-      data->heat.raw = (int16_t)fifo_data[7U];
-      data->heat.raw = (data->heat.raw * 256) + (int16_t)fifo_data[6U];
+      data->heat.raw = *(int16_t*)&fifo_data[6U];
       data->heat.deg_c = lis2du12_from_lsb_to_celsius(data->heat.raw);
    }
    else
@@ -426,33 +441,29 @@ int32_t lis2du12_fifo_data_get(const stmdev_ctx_t *ctx, lis2du12_md_t *md, lis2d
       {
          data->xl[0].raw[i] = (int16_t)fifo_data[i] * 256;
          data->xl[1].raw[i] = (int16_t)fifo_data[3 + i] * 256;
-      }
-   }
-
-   for (int8_t i = 0; i < 3; i++)
-   {
-      switch (md->fs)
-      {
-         case LIS2DU12_2g:
-            data->xl[0].mg[i] = lis2du12_from_fs2g_to_mg(data->xl[0].raw[i]);
-            data->xl[1].mg[i] = lis2du12_from_fs2g_to_mg(data->xl[1].raw[i]);
-            break;
-         case LIS2DU12_4g:
-            data->xl[0].mg[i] = lis2du12_from_fs4g_to_mg(data->xl[0].raw[i]);
-            data->xl[1].mg[i] = lis2du12_from_fs4g_to_mg(data->xl[1].raw[i]);
-            break;
-         case LIS2DU12_8g:
-            data->xl[0].mg[i] = lis2du12_from_fs8g_to_mg(data->xl[0].raw[i]);
-            data->xl[1].mg[i] = lis2du12_from_fs8g_to_mg(data->xl[1].raw[i]);
-            break;
-         case LIS2DU12_16g:
-            data->xl[0].mg[i] = lis2du12_from_fs16g_to_mg(data->xl[0].raw[i]);
-            data->xl[1].mg[i] = lis2du12_from_fs16g_to_mg(data->xl[1].raw[i]);
-            break;
-         default:
-            data->xl[0].mg[i] = 0.0f;
-            data->xl[1].mg[i] = 0.0f;
-            break;
+         switch (md->fs)
+         {
+            case LIS2DU12_2g:
+               data->xl[0].mg[i] = lis2du12_from_fs2g_to_mg(data->xl[0].raw[i]);
+               data->xl[1].mg[i] = lis2du12_from_fs2g_to_mg(data->xl[1].raw[i]);
+               break;
+            case LIS2DU12_4g:
+               data->xl[0].mg[i] = lis2du12_from_fs4g_to_mg(data->xl[0].raw[i]);
+               data->xl[1].mg[i] = lis2du12_from_fs4g_to_mg(data->xl[1].raw[i]);
+               break;
+            case LIS2DU12_8g:
+               data->xl[0].mg[i] = lis2du12_from_fs8g_to_mg(data->xl[0].raw[i]);
+               data->xl[1].mg[i] = lis2du12_from_fs8g_to_mg(data->xl[1].raw[i]);
+               break;
+            case LIS2DU12_16g:
+               data->xl[0].mg[i] = lis2du12_from_fs16g_to_mg(data->xl[0].raw[i]);
+               data->xl[1].mg[i] = lis2du12_from_fs16g_to_mg(data->xl[1].raw[i]);
+               break;
+            default:
+               data->xl[0].mg[i] = 0.0f;
+               data->xl[1].mg[i] = 0.0f;
+               break;
+         }
       }
    }
    return ret;
@@ -826,7 +837,7 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
       // Configure the data FIFO settings
       skip_first_result = 1;
       fifo_mode.store = LIS2DU12_8_BIT;
-      fifo_mode.watermark = MIN(fifo_depth, 100);
+      fifo_mode.watermark = MIN(fifo_depth, 127);
       fifo_mode.operation = LIS2DU12_STREAM;
       configASSERT0(lis2du12_fifo_mode_set(&imu_context, &fifo_mode));
 

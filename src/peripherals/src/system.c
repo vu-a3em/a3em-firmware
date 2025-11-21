@@ -202,12 +202,12 @@ void system_initialize_peripherals(void)
    leds_init();
    rtc_init();
    vhf_init();
-   storage_init();
    imu_init();
    henrik_init();
    magnet_sensor_init();
    battery_monitor_init();
    system_enable_interrupts(true);
+   storage_init();
    storage_setup_logs();
 }
 
@@ -314,4 +314,24 @@ void system_read_ID(uint8_t *id, uint32_t id_length)
 void system_delay(uint32_t delay_us)
 {
    am_hal_delay_us(delay_us);
+}
+
+void system_enable_watchdog(void)
+{
+   // Configure a watchdog timer which must be fed within 255s
+   am_hal_wdt_config_t watchdog_config = {
+      .eClockSource = AM_HAL_WDT_1HZ,
+      .bInterruptEnable = false,
+      .ui32InterruptValue = 0,
+      .bResetEnable = true,
+      .ui32ResetValue = 255,
+      .bAlertOnDSPReset = false
+   };
+   configASSERT0(am_hal_wdt_config(AM_HAL_WDT_MCU, &watchdog_config));
+   configASSERT0(am_hal_wdt_start(AM_HAL_WDT_MCU, false));
+}
+
+void system_feed_watchdog(void)
+{
+   am_hal_wdt_restart(AM_HAL_WDT_MCU);
 }

@@ -184,69 +184,68 @@ SRC += arm_q15_to_float.c
 SRC += arm_mult_f32.c
 SRC += arm_cos_f32.c
 
-SRC += flatbuffer_utils.cc
-SRC += memory_helpers.cc
-SRC += micro_allocation_info.cc
-SRC += micro_allocator.cc
-SRC += micro_context.cc
-SRC += micro_interpreter_context.cc
-SRC += micro_interpreter_graph.cc
-SRC += micro_interpreter.cc
-SRC += micro_op_resolver.cc
-SRC += micro_resource_variable.cc
-SRC += micro_utils.cc
-SRC += system_setup.cc
-SRC += non_persistent_arena_buffer_allocator.cc
-SRC += persistent_arena_buffer_allocator.cc
-SRC += single_arena_buffer_allocator.cc
-SRC += greedy_memory_planner.cc
-SRC += linear_memory_planner.cc
-SRC += non_persistent_buffer_planner_shim.cc
-SRC += flatbuffer_conversions_bridge.cc
-SRC += micro_error_reporter.cc
-SRC += kernel_util.cc
-SRC += kernel_util2.cc
-SRC += tensor_utils.cc
-SRC += common.cc
-SRC += common2.cc
-SRC += portable_tensor_utils.cc
-SRC += portable_tensor_utils2.cc
-SRC += tensor_ctypes.cc
-SRC += runtime_shape.cc
-SRC += quantization_util.cc
-SRC += flatbuffer_conversions.cc
-SRC += schema_utils.cc
-SRC += conv.cc
-SRC += conv_common.cc
-SRC += depthwise_conv.cc
-SRC += depthwise_conv_common.cc
-SRC += dequantize.cc
-SRC += dequantize_common.cc
-SRC += fully_connected.cc
-SRC += fully_connected_common.cc
-SRC += leaky_relu.cc
-SRC += leaky_relu_common.cc
-SRC += pad.cc
-SRC += pad_common.cc
-SRC += pooling.cc
-SRC += pooling_common.cc
-SRC += prelu.cc
-SRC += prelu_common.cc
-SRC += quantize.cc
-SRC += quantize_common.cc
-SRC += reduce.cc
-SRC += reduce_common.cc
-SRC += reshape.cc
-SRC += reshape_common.cc
-SRC += transpose.cc
-SRC += transpose_common.cc
-
-SRC += ai.c
-SRC += nn.cc
-SRC += clustering.c
-SRC += fft.c
-SRC += mfcc.c
-SRC += silence.c
+ifdef AI
+	SRC += flatbuffer_utils.cc
+	SRC += memory_helpers.cc
+	SRC += micro_allocation_info.cc
+	SRC += micro_allocator.cc
+	SRC += micro_context.cc
+	SRC += micro_interpreter_context.cc
+	SRC += micro_interpreter_graph.cc
+	SRC += micro_interpreter.cc
+	SRC += micro_op_resolver.cc
+	SRC += micro_resource_variable.cc
+	SRC += micro_utils.cc
+	SRC += system_setup.cc
+	SRC += non_persistent_arena_buffer_allocator.cc
+	SRC += persistent_arena_buffer_allocator.cc
+	SRC += single_arena_buffer_allocator.cc
+	SRC += greedy_memory_planner.cc
+	SRC += linear_memory_planner.cc
+	SRC += non_persistent_buffer_planner_shim.cc
+	SRC += flatbuffer_conversions_bridge.cc
+	SRC += micro_error_reporter.cc
+	SRC += kernel_util.cc
+	SRC += kernel_util2.cc
+	SRC += tensor_utils.cc
+	SRC += common.cc
+	SRC += common2.cc
+	SRC += portable_tensor_utils.cc
+	SRC += portable_tensor_utils2.cc
+	SRC += tensor_ctypes.cc
+	SRC += runtime_shape.cc
+	SRC += quantization_util.cc
+	SRC += flatbuffer_conversions.cc
+	SRC += schema_utils.cc
+	SRC += conv.cc
+	SRC += conv_common.cc
+	SRC += depthwise_conv.cc
+	SRC += depthwise_conv_common.cc
+	SRC += dequantize.cc
+	SRC += dequantize_common.cc
+	SRC += fully_connected.cc
+	SRC += fully_connected_common.cc
+	SRC += leaky_relu.cc
+	SRC += leaky_relu_common.cc
+	SRC += pad.cc
+	SRC += pad_common.cc
+	SRC += pooling.cc
+	SRC += pooling_common.cc
+	SRC += prelu.cc
+	SRC += prelu_common.cc
+	SRC += quantize.cc
+	SRC += quantize_common.cc
+	SRC += reduce.cc
+	SRC += reduce_common.cc
+	SRC += reshape.cc
+	SRC += reshape_common.cc
+	SRC += transpose.cc
+	SRC += transpose_common.cc
+	
+	SRC += ai.c
+	SRC += nn.cc
+	SRC += clustering.c
+endif
 
 SRC += audio.c
 SRC += battery.c
@@ -263,6 +262,10 @@ SRC += runtime_config.c
 SRC += storage.c
 SRC += system.c
 SRC += vhf.c
+
+SRC += fft.c
+SRC += mfcc.c
+SRC += silence.c
 
 # Uncomment these lines to debug AmbiqSDK files
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
@@ -283,10 +286,12 @@ ifneq ($(BUILT_BY), eclipse)
 endif
 
 ai: TARGET = TestAI
+ai: DEFINES += -DAI
 ai: SRC += test_ai.c
 ai: $(CONFIG) $(CONFIG)/test_ai.o $(CONFIG)/$$(TARGET).bin program
 
 ai_live: TARGET = TestAiLive
+ai_live: DEFINES += -DAI
 ai_live: SRC += test_ai_live.c
 ai_live: $(CONFIG) $(CONFIG)/test_ai_live.o $(CONFIG)/$$(TARGET).bin program
 

@@ -136,19 +136,23 @@ battery_result_t battery_monitor_get_details(void)
    NVIC_SetPriority(ADC_IRQn, BATT_ADC_INTERRUPT_PRIORITY);
    NVIC_EnableIRQ(ADC_IRQn);
 
-   // Enable the ADC
-   if ((am_hal_adc_enable(adc_handle) != AM_HAL_STATUS_SUCCESS) || am_hal_adc_sw_trigger(adc_handle))
+   // Read multiple times to ensure that ADC measurement has settled
+   for (uint32_t i = 0; i < 3; ++i)
    {
-      am_hal_adc_interrupt_disable(adc_handle, AM_HAL_ADC_INT_CNVCMP);
-      am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true);
-      NVIC_DisableIRQ(ADC_IRQn);
-      return result;
-   }
+      // Enable the ADC
+      if ((am_hal_adc_enable(adc_handle) != AM_HAL_STATUS_SUCCESS) || am_hal_adc_sw_trigger(adc_handle))
+      {
+         am_hal_adc_interrupt_disable(adc_handle, AM_HAL_ADC_INT_CNVCMP);
+         am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true);
+         NVIC_DisableIRQ(ADC_IRQn);
+         return result;
+      }
 
-   // Wait until the conversion has completed
-   uint32_t retries_remaining = 25;
-   while (!conversion_complete && retries_remaining--)
-      am_hal_delay_us(10000);
+      // Wait until the conversion has completed
+      uint32_t retries_remaining = 25;
+      while (!conversion_complete && retries_remaining--)
+         am_hal_delay_us(10000);
+   }
 
    // Disable the ADC
    am_hal_adc_interrupt_disable(adc_handle, AM_HAL_ADC_INT_CNVCMP);
