@@ -241,6 +241,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          // Determine if time to create a new WAV file
+         system_feed_watchdog();
          if (!audio_clip_in_progress)
          {
             // Check for total silence if silence filtering is enabled
@@ -264,7 +265,6 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
          // Write the audio clip to storage if currently in-progress
          if (audio_clip_in_progress)
          {
-            system_feed_watchdog();  // TODO: FINISH WATCHDOG EVERYWHERE - ALSO NEED TO HANDLE IF SILENCE FILTER IS USED SINCE THIS MAY BE DELAYED
             led_indicate_clip_progress();
             storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate * AUDIO_BUFFER_NUM_SECONDS);
             if (++num_audio_reads >= num_audio_reads_per_clip)
