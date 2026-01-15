@@ -78,6 +78,12 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define AUDIO_BUFFER_NUM_SECONDS                        2
 #define AUDIO_DEFAULT_CLIP_LENGTH_SECONDS               10
 
+#define OPUS_REQUIRED_SAMPLE_RATE_HZ                    48000
+#define OPUS_MAX_ENCODING_BITRATE                       128000
+#define OPUS_DEFAULT_ENCODING_BITRATE                   32000
+#define OPUS_HISTORY_MS                                 960
+#define OPUS_MS_PER_FRAME                               20
+
 
 // Battery Monitoring Definitions -------------------------------------------------------------------------------------
 

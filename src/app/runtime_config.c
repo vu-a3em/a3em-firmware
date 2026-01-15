@@ -13,7 +13,7 @@
 typedef struct {
    imu_recording_mode_t imu_recording_mode;
    audio_recording_mode_t audio_recording_mode;
-   bool extend_clip_if_continuous_audio;
+   bool extend_clip_if_continuous_audio, use_opus_encoding;
    float audio_trigger_threshold, imu_trigger_threshold, silence_threshold;
    uint32_t max_audio_clips, audio_trigger_interval, audio_sampling_rate;
    uint32_t audio_clip_length, imu_sampling_rate, num_audio_trigger_times;
@@ -21,6 +21,7 @@ typedef struct {
    start_end_time_t phase_time, audio_trigger_times[MAX_AUDIO_TRIGGER_TIMES];
    frequency_range_t frequencies_of_interest;
    uint8_t imu_degrees_of_freedom;
+   int32_t opus_encoding_bitrate;
 } deployment_phase_t;
 
 
@@ -184,6 +185,10 @@ static void parse_line(char *line, int32_t line_length)
       deployment_phases[num_deployment_phases].frequencies_of_interest.min_frequency = strtoul(value, NULL, 10);
    else if (memcmp(key, "MAX_FREQUENCY", sizeof("MAX_FREQUENCY")-1) == 0)
       deployment_phases[num_deployment_phases].frequencies_of_interest.max_frequency = strtoul(value, NULL, 10);
+   else if (memcmp(key, "USE_OPUS", sizeof("USE_OPUS")-1) == 0)
+      deployment_phases[num_deployment_phases].use_opus_encoding = true;
+   else if (memcmp(key, "OPUS_BITRATE", sizeof("OPUS_BITRATE")-1) == 0)
+      deployment_phases[num_deployment_phases].opus_encoding_bitrate = strtol(value, NULL, 10);
 }
 
 
@@ -215,6 +220,8 @@ bool fetch_runtime_configuration(void)
       memset(&deployment_phases[i].phase_time, 0, sizeof(deployment_phases[i].phase_time));
       memset(deployment_phases[i].audio_trigger_times, 0, sizeof(deployment_phases[i].audio_trigger_times));
       deployment_phases[i].extend_clip_if_continuous_audio = false;
+      deployment_phases[i].use_opus_encoding = false;
+      deployment_phases[i].opus_encoding_bitrate = OPUS_DEFAULT_ENCODING_BITRATE;
       deployment_phases[i].imu_degrees_of_freedom = 3;
       deployment_phases[i].silence_threshold = 0.0;
       deployment_phases[i].imu_recording_mode = AUDIO;
@@ -241,6 +248,11 @@ bool fetch_runtime_configuration(void)
 
    // Retrieve the most recent activation number based on the storage directories present
    current_activation_number = storage_get_current_activation_number(device_label);
+
+   // Validate sampling rate settings if Opus encoding is enabled
+   for (int32_t i = 0; i <= num_deployment_phases; ++i)
+      if (deployment_phases[i].use_opus_encoding)
+         deployment_phases[i].audio_sampling_rate = OPUS_REQUIRED_SAMPLE_RATE_HZ;
 
    // Validate maximum frequency settings
    for (int32_t i = 0; i <= num_deployment_phases; ++i)
@@ -448,6 +460,16 @@ uint32_t config_get_audio_clip_length_seconds(int32_t phase_index)
 bool config_extend_clip_for_continuous_audio(int32_t phase_index)
 {
    return deployment_phases[phase_index].extend_clip_if_continuous_audio;
+}
+
+bool config_use_opus_encoding(int32_t phase_index)
+{
+   return deployment_phases[phase_index].use_opus_encoding;
+}
+
+int32_t config_get_opus_bitrate(int32_t phase_index)
+{
+   return deployment_phases[phase_index].opus_encoding_bitrate;
 }
 
 uint32_t config_get_audio_sampling_rate_hz(int32_t phase_index)

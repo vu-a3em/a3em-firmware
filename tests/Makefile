@@ -88,6 +88,7 @@ INCLUDES += -I../src/external/flatbuffers/include
 INCLUDES += -I../src/external/gemmlowp
 INCLUDES += -I../src/external/segger
 INCLUDES += -I../src/external/ruy
+INCLUDES += -I../src/external/opus
 INCLUDES += -I../src/external/tflite-micro
 INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/
 INCLUDES += -I../src/external/tflite-micro/tensorflow/lite/c
@@ -143,6 +144,7 @@ VPATH += ../src/ai
 VPATH += ../src/app
 VPATH += ../src/boards
 VPATH += ../src/boards/rev$(REVISION)
+VPATH += ../src/external/opus
 VPATH += ../src/external/fatfs
 VPATH += ../src/external/segger
 VPATH += ../src/external/tflite-micro/tensorflow/lite/micro/tflite_bridge
@@ -171,6 +173,8 @@ SRC += am_util_stdio.c
 SRC += am_util_string.c
 SRC += ff.c
 SRC += ffunicode.c
+SRC += opusenc.c
+SRC += opus_encoder.c
 SRC += startup_gcc.c
 SRC += SEGGER_RTT.c
 
@@ -364,6 +368,10 @@ mfcc: $(CONFIG) $(CONFIG)/test_mfcc.o $(CONFIG)/$$(TARGET).bin program
 nn: TARGET = TestNN
 nn: SRC += test_nn.c
 nn: $(CONFIG) $(CONFIG)/test_nn.o $(CONFIG)/$$(TARGET).bin program
+
+opus: TARGET = TestOpus
+opus: SRC += test_opus.c
+opus: $(CONFIG) $(CONFIG)/test_opus.o $(CONFIG)/$$(TARGET).bin program
 
 power_off: TARGET = TestPowerOff
 power_off: SRC += test_power_off.c

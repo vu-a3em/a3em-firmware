@@ -53,6 +53,8 @@ uint32_t config_get_audio_trigger_schedule(int32_t phase_index, start_end_time_t
 bool config_get_audio_trigger_interval(int32_t phase_index, uint32_t *interval, time_scale_t *unit_time);
 uint32_t config_get_audio_clip_length_seconds(int32_t phase_index);
 bool config_extend_clip_for_continuous_audio(int32_t phase_index);
+bool config_use_opus_encoding(int32_t phase_index);
+int32_t config_get_opus_bitrate(int32_t phase_index);
 uint32_t config_get_audio_sampling_rate_hz(int32_t phase_index);
 imu_recording_mode_t config_get_imu_recording_mode(int32_t phase_index);
 float config_get_imu_trigger_threshold_level(int32_t phase_index);
