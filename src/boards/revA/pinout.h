@@ -54,8 +54,6 @@
 #define PIN_SWO_FUNCTION                            AM_HAL_PIN_28_SWO
 
 // Magnet Sensor
-#define MAG_SAMPLING_TIMER_NUMBER                   1
-#define MAG_DETECT_TIMER_NUMBER                     2
 #define PIN_MAG_SENSOR_INP                          66
 // TODO: Use these for the next revision
 //#define PIN_MAG_SENSOR_INP_RISING                   66
@@ -83,9 +81,12 @@
 #define PIN_SD_CARD_DAT3                            87
 
 // Timers
-#define TIMER_NUMBER_AUDIO_PROCESSING               0
+#define TIMER_NUMBER_AUDIO_PROCESSING               00
 #define TIMER_AUDIO_PROCESSING_CLOCK                AM_HAL_TIMER_CLOCK_XT_DIV128
 #define TIMER_AUDIO_PROCESSING_TICK_RATE            (32768 / 128)
+#define TIMER_NUMBER_MAG_DETECT                     02
+#define TIMER_NUMBER_MAG_SAMPLING                   04
+#define TIMER_NUMBER_STATUS_LED                     05
 
 // VHF
 #define PIN_VHF_ENABLE                              34
@@ -98,5 +99,8 @@
    73, 74, 75, 76, 77, 78, 80, 81, 82, 89, 90, 91, 92, 93, 94, 95, 96, \
    97, 98, 99, 100, 101, 102, 103, 104 \
 }
+
+#define am_timer_isr1(n)                 am_timer_isr(n)
+#define am_timer_isr(n)                  am_timer ## n ## _isr
 
 #endif  // #ifndef __PINOUT_HEADER_H__

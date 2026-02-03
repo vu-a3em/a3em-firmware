@@ -27,6 +27,8 @@ static bool sensor_enabled;
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
+#define mag_detect_timer_isr             am_timer_isr1(TIMER_NUMBER_MAG_DETECT)
+
 static void magnet_sensor_isr(void*)
 {
    // Toggle the interrupt direction (due to silicon errata ERR008) to capture the opposite edge interrupt
@@ -52,12 +54,12 @@ static void magnet_sensor_isr(void*)
       transition_tick_count = transition_ticks;
 }
 
-void am_timer02_isr(void)
+void mag_detect_timer_isr(void)
 {
    // Verify that the magnetic field is still as expected
    const bool required_field_presence = (validation_phase % 2) == 0;
    const bool field_present = am_hal_gpio_input_read(PIN_MAG_SENSOR_INP);
-   am_hal_timer_interrupt_clear(AM_HAL_TIMER_MASK(MAG_DETECT_TIMER_NUMBER, AM_HAL_TIMER_COMPARE_BOTH));
+   am_hal_timer_interrupt_clear(AM_HAL_TIMER_MASK(TIMER_NUMBER_MAG_DETECT, AM_HAL_TIMER_COMPARE_BOTH));
 
    // Handle verification based on the current phase
    if (transition_tick_count >= 0)
@@ -72,12 +74,12 @@ void am_timer02_isr(void)
             validation_callback = NULL;
          }
          else
-            am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+            am_hal_timer_clear(TIMER_NUMBER_MAG_DETECT);
       }
       else
       {
          led_toggle_validation_phase_change();
-         am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+         am_hal_timer_clear(TIMER_NUMBER_MAG_DETECT);
       }
    }
    else if (field_present != required_field_presence)
@@ -98,11 +100,11 @@ void am_timer02_isr(void)
          led_off(LED_ALL);
          transition_tick_count = 0;
          led_toggle_validation_phase_change();
-         am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+         am_hal_timer_clear(TIMER_NUMBER_MAG_DETECT);
       }
    }
    else
-      am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+      am_hal_timer_clear(TIMER_NUMBER_MAG_DETECT);
 }
 
 static void enable_sensor(bool enable)
@@ -111,12 +113,12 @@ static void enable_sensor(bool enable)
    if (enable && !sensor_enabled)
    {
       // Give sensor time to make the first measurement
-      am_hal_timer_clear(MAG_SAMPLING_TIMER_NUMBER);
+      am_hal_timer_clear(TIMER_NUMBER_MAG_SAMPLING);
       system_delay(1200);
    }
    else if (!enable && sensor_enabled)
    {
-      am_hal_timer_disable(MAG_SAMPLING_TIMER_NUMBER);
+      am_hal_timer_disable(TIMER_NUMBER_MAG_SAMPLING);
       am_hal_gpio_output_set(PIN_MAG_SENSOR_DIS);
    }
    sensor_enabled = enable;
@@ -150,10 +152,10 @@ void magnet_sensor_init(void)
    am_hal_timer_config_t field_validation_timer_config;
    am_hal_timer_default_config_set(&field_validation_timer_config);
    field_validation_timer_config.ui32Compare0 = (uint32_t)(VALIDATION_TIMER_TICK_RATE_MS * MAGNET_FIELD_TIMER_TICK_RATE_HZ / 1000);
-   am_hal_timer_config(MAG_DETECT_TIMER_NUMBER, &field_validation_timer_config);
-   am_hal_timer_interrupt_enable(AM_HAL_TIMER_MASK(MAG_DETECT_TIMER_NUMBER, AM_HAL_TIMER_COMPARE0));
-   NVIC_SetPriority(TIMER0_IRQn + MAG_DETECT_TIMER_NUMBER, MAGNET_VALIDATION_TIMER_INTERRUPT_PRIORITY );
-   NVIC_EnableIRQ(TIMER0_IRQn + MAG_DETECT_TIMER_NUMBER);
+   am_hal_timer_config(TIMER_NUMBER_MAG_DETECT, &field_validation_timer_config);
+   am_hal_timer_interrupt_enable(AM_HAL_TIMER_MASK(TIMER_NUMBER_MAG_DETECT, AM_HAL_TIMER_COMPARE0));
+   NVIC_SetPriority(TIMER0_IRQn + TIMER_NUMBER_MAG_DETECT, MAGNET_VALIDATION_TIMER_INTERRUPT_PRIORITY );
+   NVIC_EnableIRQ(TIMER0_IRQn + TIMER_NUMBER_MAG_DETECT);
 
    // Initialize the magnetic field sampling timer
    am_hal_timer_config_t field_sampling_timer_config;
@@ -161,17 +163,17 @@ void magnet_sensor_init(void)
    field_sampling_timer_config.eFunction = AM_HAL_TIMER_FN_PWM;
    field_sampling_timer_config.ui32Compare0 = (uint32_t)(SENSOR_SLEEP_TIME_MS * MAGNET_FIELD_TIMER_TICK_RATE_HZ / 1000);
    field_sampling_timer_config.ui32Compare1 = (uint32_t)(SENSOR_SAMPLING_TIME_US * MAGNET_FIELD_TIMER_TICK_RATE_HZ / 1000000);
-   am_hal_timer_config(MAG_SAMPLING_TIMER_NUMBER, &field_sampling_timer_config);
-   am_hal_timer_output_config(PIN_MAG_SENSOR_DIS, 2 * MAG_SAMPLING_TIMER_NUMBER);
+   am_hal_timer_config(TIMER_NUMBER_MAG_SAMPLING, &field_sampling_timer_config);
+   am_hal_timer_output_config(PIN_MAG_SENSOR_DIS, 2 * TIMER_NUMBER_MAG_SAMPLING);
 }
 
 void magnet_sensor_deinit(void)
 {
    // Stop all running timers
-   am_hal_timer_disable(MAG_DETECT_TIMER_NUMBER);
-   am_hal_timer_disable(MAG_SAMPLING_TIMER_NUMBER);
-   NVIC_DisableIRQ(TIMER0_IRQn + MAG_DETECT_TIMER_NUMBER);
-   am_hal_timer_interrupt_disable(AM_HAL_TIMER_MASK(MAG_DETECT_TIMER_NUMBER, AM_HAL_TIMER_COMPARE0));
+   am_hal_timer_disable(TIMER_NUMBER_MAG_DETECT);
+   am_hal_timer_disable(TIMER_NUMBER_MAG_SAMPLING);
+   NVIC_DisableIRQ(TIMER0_IRQn + TIMER_NUMBER_MAG_DETECT);
+   am_hal_timer_interrupt_disable(AM_HAL_TIMER_MASK(TIMER_NUMBER_MAG_DETECT, AM_HAL_TIMER_COMPARE0));
 
    // Disable magnet sensing interrupts
    NVIC_DisableIRQ(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_MAG_SENSOR_INP));
@@ -198,11 +200,11 @@ void magnet_sensor_enable_for_wakeup(void)
    field_sampling_timer_config.eInputClock = AM_HAL_TIMER_CLOCK_LFRC;
    field_sampling_timer_config.ui32Compare0 = (uint32_t)(SENSOR_DEEP_SLEEP_TIME_MS * 900 / 1000);
    field_sampling_timer_config.ui32Compare1 = 1;
-   am_hal_timer_config(MAG_SAMPLING_TIMER_NUMBER, &field_sampling_timer_config);
-   am_hal_timer_output_config(PIN_MAG_SENSOR_DIS, 2 * MAG_SAMPLING_TIMER_NUMBER);
+   am_hal_timer_config(TIMER_NUMBER_MAG_SAMPLING, &field_sampling_timer_config);
+   am_hal_timer_output_config(PIN_MAG_SENSOR_DIS, 2 * TIMER_NUMBER_MAG_SAMPLING);
 
    // Start the low-frequency sampling timer
-   am_hal_timer_clear(MAG_SAMPLING_TIMER_NUMBER);
+   am_hal_timer_clear(TIMER_NUMBER_MAG_SAMPLING);
 }
 
 bool magnet_sensor_field_present(void)
@@ -254,6 +256,6 @@ void magnet_sensor_verify_field(uint32_t milliseconds, magnetic_field_validation
       validation_phase = validation_tick_count = 0;
       validation_ticks_requested = milliseconds / VALIDATION_TIMER_TICK_RATE_MS;
       transition_ticks = VALIDATION_TRANSITION_TIME_BUFFER_MS / VALIDATION_TIMER_TICK_RATE_MS;
-      am_hal_timer_clear(MAG_DETECT_TIMER_NUMBER);
+      am_hal_timer_clear(TIMER_NUMBER_MAG_DETECT);
    }
 }

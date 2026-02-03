@@ -121,6 +121,8 @@ static void flush_remaining_imu_data(void)
 
 // Interrupt Service Routines ------------------------------------------------------------------------------------------
 
+#define audio_processing_timer_isr       am_timer_isr1(TIMER_NUMBER_AUDIO_PROCESSING)
+
 void am_rtc_isr(void)
 {
    // Clear the RTC interrupt status and validate all device settings
@@ -165,7 +167,7 @@ void imu_motion_change_callback(bool new_in_motion)
    }
 }
 
-void am_timer00_isr(void)
+void audio_processing_timer_isr(void)
 {
    // Clear the timer interrupt and reset the clips stored counter
    am_hal_timer_interrupt_clear(AM_HAL_TIMER_MASK(TIMER_NUMBER_AUDIO_PROCESSING, AM_HAL_TIMER_COMPARE_BOTH));
