@@ -3,7 +3,7 @@
 
 #include "static_config.h"
 
-#define OPUS_FRAME_MAX_BYTES                 256
+#define OPUS_FRAME_MAX_BYTES                 254
 
 #ifndef MIN
 #define MIN(a,b) ((a)<(b) ? (a):(b))

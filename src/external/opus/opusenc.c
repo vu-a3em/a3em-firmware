@@ -52,7 +52,7 @@ void opusenc_encode(const int16_t* restrict audio_in, uint32_t audio_num_samples
       // If encoding buffer is full, encode the audio data frame
       if (!encode_buffer_index)
       {
-         opus_frame->num_encoded_bytes = (uint16_t)opus_encode(&encoder, encode_buffer, opus_frame->encoded_data, sizeof(opus_frame->encoded_data));
+         opus_frame->num_encoded_bytes = (uint8_t)opus_encode(&encoder, encode_buffer, opus_frame->encoded_data, sizeof(opus_frame->encoded_data));
          *result_end = opus_frame = opus_frame->next;
       }
    }
