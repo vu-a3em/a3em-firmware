@@ -24,14 +24,14 @@ static void magnet_sensor_activated(bool field_detected)
    led_indicate_magnet_presence(field_detected);
    magnetic_field_verified = !field_detected;
    if (field_detected)
-      magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated, true);
+      magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated);
 }
 
 static void handle_magnetic_field(bool store_activated_result, bool store_deactivated_result)
 {
    // Validate a magnetic activation or deactivation
    magnetic_field_verified = false;
-   magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated, false);
+   magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated);
    magnet_sensor_register_callback(magnet_sensor_activated);
    while (!magnetic_field_verified)
       system_enter_deep_sleep_mode();

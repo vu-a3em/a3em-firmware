@@ -19,14 +19,14 @@
 #define am_pdm_isr(n)       am_pdm ## n ## _isr
 
 __attribute__((section(".shared"), aligned(16)))
-uint32_t sample_buffer[2*AUDIO_BUFFER_MAX_SAMPLES_PER_SECOND*AUDIO_BUFFER_NUM_SECONDS];
+uint32_t sample_buffer[2*AUDIO_BUFFER_MAX_SAMPLES];
 
 static void *audio_handle;
 static float pga_gain_db;
 static bool is_digital_mic;
 static volatile uint32_t skip_samples;
 static audio_trigger_t trigger_criterion;
-static uint32_t num_audio_channels, sampling_rate_hz, dc_offset;
+static uint32_t num_audio_channels, sampling_rate_hz, dc_offset, num_samples_per_dma;
 static volatile bool dma_complete = false, dma_error = false, adc_awake;
 static am_hal_audadc_dma_config_t audadc_dma_config =
 {
@@ -69,7 +69,7 @@ void audio_adc_start(void)
       // Wake up the PDM peripheral
       if (!adc_awake)
          am_hal_pdm_power_control(audio_handle, AM_HAL_PDM_POWER_ON, true);
-      skip_samples = (sampling_rate_hz <= (2 * AUDIO_BUFFER_MAX_SAMPLES_PER_SECOND)) ? 1 : (sampling_rate_hz / (2 * AUDIO_BUFFER_MAX_SAMPLES_PER_SECOND));
+      skip_samples = (sampling_rate_hz <= AUDIO_BUFFER_MAX_SAMPLES) ? 1 : (sampling_rate_hz / AUDIO_BUFFER_MAX_SAMPLES);
       configASSERT0(am_hal_pdm_configure(audio_handle, &pdm_config));
       configASSERT0(am_hal_pdm_fifo_threshold_setup(audio_handle, 24));
       configASSERT0(am_hal_pdm_interrupt_enable(audio_handle, (AM_HAL_PDM_INT_DERR | AM_HAL_PDM_INT_DCMP | AM_HAL_PDM_INT_UNDFL | AM_HAL_PDM_INT_OVF)));
@@ -155,7 +155,7 @@ void audio_pdm_isr(void)
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
-void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db)
+void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t clip_length_seconds, float gain_db)
 {
    // Turn on the external microphone
    am_hal_gpio_pincfg_t mic_en_config = AM_HAL_GPIO_PINCFG_OUTPUT;
@@ -172,8 +172,17 @@ void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, float ga
    configASSERT0(am_hal_pdm_initialize(PDM_MODULE, &audio_handle));
    configASSERT0(am_hal_pdm_power_control(audio_handle, AM_HAL_PDM_POWER_ON, false));
 
+   // Determine the longest possible DMA period
+   const uint32_t max_seconds_per_dma = AUDIO_BUFFER_MAX_SAMPLES / sample_rate_hz;
+   if (max_seconds_per_dma > clip_length_seconds)
+      num_samples_per_dma = clip_length_seconds * sample_rate_hz;
+   else if ((clip_length_seconds % max_seconds_per_dma) != 0)
+      num_samples_per_dma = (max_seconds_per_dma - ((max_seconds_per_dma - (clip_length_seconds % max_seconds_per_dma)) / 2)) * sample_rate_hz;
+   else
+      num_samples_per_dma = max_seconds_per_dma * sample_rate_hz;
+
    // Set up the DMA configuration structure
-   pdm_transfer_config.ui32TotalCount = sample_rate_hz * AUDIO_BUFFER_NUM_SECONDS * sizeof(uint32_t);
+   pdm_transfer_config.ui32TotalCount = num_samples_per_dma * sizeof(uint32_t);
    pdm_transfer_config.ui32TargetAddr = (uint32_t)sample_buffer;
    pdm_transfer_config.ui32TargetAddrReverse = pdm_transfer_config.ui32TargetAddr + pdm_transfer_config.ui32TotalCount;
 
@@ -256,7 +265,7 @@ void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, float ga
    NVIC_EnableIRQ(PDM0_IRQn + PDM_MODULE);
 }
 
-void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gain_db, float mic_bias_voltage, audio_trigger_t trigger, float trigger_threshold_percent, volatile bool *device_activated)
+void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t clip_length_seconds, float gain_db, float mic_bias_voltage, audio_trigger_t trigger, float trigger_threshold_percent, volatile bool *device_activated)
 {
    // Turn on the external microphone
    const am_hal_gpio_pincfg_t mic_en_config = AM_HAL_GPIO_PINCFG_OUTPUT;
@@ -298,11 +307,20 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, float gai
    configASSERT0(am_hal_audadc_initialize(0, &audio_handle));
    configASSERT0(am_hal_audadc_power_control(audio_handle, AM_HAL_SYSCTRL_WAKE, false));
 
+   // Determine the longest possible DMA period
+   const uint32_t max_seconds_per_dma = AUDIO_BUFFER_MAX_SAMPLES / sample_rate_hz;
+   if (max_seconds_per_dma > clip_length_seconds)
+      num_samples_per_dma = clip_length_seconds * sample_rate_hz;
+   else if ((clip_length_seconds % max_seconds_per_dma) != 0)
+      num_samples_per_dma = (max_seconds_per_dma - ((max_seconds_per_dma - (clip_length_seconds % max_seconds_per_dma)) / 2)) * sample_rate_hz;
+   else
+      num_samples_per_dma = max_seconds_per_dma * sample_rate_hz;
+
    // Set up the trigger timer and DMA configuration structures
    sampling_rate_hz = sample_rate_hz;
    const float sample_rate_khz = (float)sample_rate_hz / 1000.0;
    audadc_irtt_config.ui32IrttCountMax = (uint32_t)lroundf((6000.0f / sample_rate_khz) - 1.0f);   // Sample rate = eClock/eClkDiv/(ui32IrttCountMax+1)
-   audadc_dma_config.ui32SampleCount = sample_rate_hz * AUDIO_BUFFER_NUM_SECONDS;
+   audadc_dma_config.ui32SampleCount = num_samples_per_dma;
    audadc_dma_config.ui32TargetAddress = (uint32_t)sample_buffer;
    audadc_dma_config.ui32TargetAddressReverse = audadc_dma_config.ui32TargetAddress + (sizeof(uint32_t) * audadc_dma_config.ui32SampleCount);
 
@@ -490,14 +508,14 @@ bool audio_read_data(int16_t *buffer)
       if (is_digital_mic)
       {
          const int32_t *data = (int32_t*)am_hal_pdm_dma_get_buffer(audio_handle);
-         for (uint32_t i = 0; i < (sampling_rate_hz * AUDIO_BUFFER_NUM_SECONDS); ++i)
+         for (uint32_t i = 0; i < num_samples_per_dma; ++i)
             buffer[i] = (int16_t)(data[i] >> 8);
       }
       else
       {
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          const uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
-         for (uint32_t i = 0; i < (sampling_rate_hz * AUDIO_BUFFER_NUM_SECONDS); ++i)
+         for (uint32_t i = 0; i < num_samples_per_dma; ++i)
             buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
       }
       dma_complete = false;
@@ -516,7 +534,7 @@ int16_t* audio_read_data_direct(void)
       {
          int32_t *data = (int32_t*)am_hal_pdm_dma_get_buffer(audio_handle);
          buffer = (int16_t*)data;
-         for (uint32_t i = 0; i < (sampling_rate_hz * AUDIO_BUFFER_NUM_SECONDS); ++i)
+         for (uint32_t i = 0; i < num_samples_per_dma; ++i)
             buffer[i] = (int16_t)(data[i] >> 8);
       }
       else
@@ -524,11 +542,16 @@ int16_t* audio_read_data_direct(void)
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
          buffer = (int16_t*)data;
-         for (uint32_t i = 0; i < (sampling_rate_hz * AUDIO_BUFFER_NUM_SECONDS); ++i)
+         for (uint32_t i = 0; i < num_samples_per_dma; ++i)
             buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
       }
       dma_complete = false;
       return buffer;
    }
    return NULL;
+}
+
+uint32_t audio_num_seconds_per_dma(void)
+{
+   return num_samples_per_dma / sampling_rate_hz;
 }

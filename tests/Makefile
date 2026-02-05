@@ -310,7 +310,6 @@ audio: SRC += test_audio.c
 audio: $(CONFIG) $(CONFIG)/test_audio.o $(CONFIG)/$$(TARGET).bin program
 
 audio_continuous: TARGET = TestAudioContinuous
-audio_continuous: DEFINES += -DENABLE_AUDIO_DL=1
 audio_continuous: SRC += test_audio_continuous.c
 audio_continuous: $(CONFIG) $(CONFIG)/test_audio_continuous.o $(CONFIG)/$$(TARGET).bin program
 

@@ -6,7 +6,7 @@
 
 // Opus Encoder Type Definitions ---------------------------------------------------------------------------------------
 
-#define OPUS_HISTORY_MS                      ((AUDIO_BUFFER_NUM_SECONDS + 1) * 1000)
+#define OPUS_HISTORY_MS                      ((AUDIO_BUFFER_MAX_NUM_SECONDS + 1) * 1000)
 #define OPUS_FRAME_SIZE                      ((OPUS_REQUIRED_SAMPLE_RATE_HZ / 1000) * OPUS_MS_PER_FRAME)
 #define OPUS_NUM_HISTORICAL_FRAMES           (OPUS_HISTORY_MS / OPUS_MS_PER_FRAME)
 

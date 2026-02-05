@@ -14,16 +14,18 @@ int main(void)
 {
    // Set up the system hardware
    setup_hardware();
-   storage_init();
    if (AUDIO_MIC_TYPE == MIC_ANALOG)
-      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, &device_activated);
+      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, DESIRED_CLIP_LENGTH_SECONDS, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, &device_activated);
    else
-      audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, AUDIO_GAIN_DB);
+      audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, DESIRED_CLIP_LENGTH_SECONDS, AUDIO_GAIN_DB);
    system_enable_interrupts(true);
+   storage_init();
 
    // Open a new WAV file and immediately begin reading continuous audio
    uint32_t num_audio_reads = 0;
-   if (storage_mkdir("wav_test") && storage_open_wav_file(1, "wav_test", AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 1729274454))
+   const uint32_t num_audio_reads_per_clip = DESIRED_CLIP_LENGTH_SECONDS / audio_num_seconds_per_dma();
+   const uint32_t audio_samples_per_dma = audio_num_seconds_per_dma() * AUDIO_DEFAULT_SAMPLING_RATE_HZ;
+   if (storage_mkdir("wav_test") && storage_open_audio_file(1, "wav_test", AUDIO_NUM_CHANNELS, AUDIO_DEFAULT_SAMPLING_RATE_HZ, 1729274454, false))
       print("Opening \"wav_test.wav\" for writing\n");
    else
       print("ERROR: Unable to open WAV file for writing\n");
@@ -42,9 +44,9 @@ int main(void)
       // Store any newly available audio data
       if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
-         bool success = storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_DEFAULT_SAMPLING_RATE_HZ);
+         bool success = storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, 0);
          print("%s: %u\n", success ? "Wrote audio data" : "ERROR writing audio data", num_audio_reads+1);
-         if (++num_audio_reads >= DESIRED_CLIP_LENGTH_SECONDS)
+         if (++num_audio_reads >= num_audio_reads_per_clip)
          {
             // Stop reading audio and close the WAV file
             audio_stop_reading();

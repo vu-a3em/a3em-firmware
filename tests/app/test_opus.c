@@ -11,7 +11,6 @@
 #define AUDIO_GAIN_DB                           25.0
 #define AUDIO_CLIP_LENGTH_SECONDS               AUDIO_DEFAULT_CLIP_LENGTH_SECONDS
 #define AUDIO_MIC_TYPE                          MIC_DIGITAL
-#define AUDIO_NUM_READS_PER_CLIP                (AUDIO_CLIP_LENGTH_SECONDS / AUDIO_BUFFER_NUM_SECONDS)
 
 #define OPUS_BITRATE                            OPUS_DEFAULT_ENCODING_BITRATE
 
@@ -26,9 +25,9 @@ int main(void)
    rtc_init();
    rtc_set_time_to_compile_time();
    if (AUDIO_MIC_TYPE == MIC_ANALOG)
-      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f, &device_activated);
+      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_CLIP_LENGTH_SECONDS, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f, &device_activated);
    else
-      audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_GAIN_DB);
+      audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_CLIP_LENGTH_SECONDS, AUDIO_GAIN_DB);
    system_enable_interrupts(true);
 #ifdef TEST_WITH_STORAGE
    storage_init();
@@ -41,6 +40,8 @@ int main(void)
    am_hal_timer_config(TIMER_NUMBER, &timer_config);
 
    // Initialize the Opus encoder
+   const uint32_t num_audio_reads_per_clip = AUDIO_CLIP_LENGTH_SECONDS / audio_num_seconds_per_dma();
+   const uint32_t audio_samples_per_dma = audio_num_seconds_per_dma() * AUDIO_SAMPLING_RATE;
    opusenc_init(OPUS_BITRATE);
 
    // Loop forever handling incoming audio clips
@@ -74,10 +75,10 @@ int main(void)
          printonly("New audio data available: %u\n", num_audio_reads+1);
          am_hal_timer_clear(TIMER_NUMBER);
 #ifdef TEST_WITH_STORAGE
-         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_SAMPLING_RATE * AUDIO_BUFFER_NUM_SECONDS, (num_audio_reads + 1) >= AUDIO_NUM_READS_PER_CLIP))
+         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip))
             printonly("ERROR: Unable to write to Ogg Opus file!\n");
 #else
-         opusenc_encode(audio_buffer, AUDIO_SAMPLING_RATE * AUDIO_BUFFER_NUM_SECONDS, &result_begin, &result_end);
+         opusenc_encode(audio_buffer, audio_samples_per_dma, &result_begin, &result_end);
 #endif
 
          // Print out the execution time of the encoding process
@@ -86,7 +87,7 @@ int main(void)
          printonly("Execution time: %u ms\n", (uint32_t)(((float)timer_val / (AM_HAL_CLKGEN_FREQ_MAX_HZ / 16)) * 1000.0f));
 
          // Finalize the audio clip if done reading
-         if (AUDIO_NUM_READS_PER_CLIP && (++num_audio_reads >= AUDIO_NUM_READS_PER_CLIP))
+         if (++num_audio_reads >= num_audio_reads_per_clip)
          {
             printonly("Full audio clip processed...stopping reading\n");
             audio_clip_in_progress = false;

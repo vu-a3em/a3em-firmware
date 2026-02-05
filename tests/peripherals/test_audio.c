@@ -20,15 +20,16 @@ int main(void)
    // Set up the system hardware
    setup_hardware();
    if (AUDIO_MIC_TYPE == MIC_ANALOG)
-      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, AUDIO_READ_TRIGGER, AUDIO_TRIGGER_THRESHOLD_PERCENT, &device_activated);
+      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_CLIP_LENGTH_SECONDS, AUDIO_GAIN_DB, AUDIO_MIC_BIAS_VOLTAGE, AUDIO_READ_TRIGGER, AUDIO_TRIGGER_THRESHOLD_PERCENT, &device_activated);
    else
-      audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_GAIN_DB);
+      audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, AUDIO_CLIP_LENGTH_SECONDS, AUDIO_GAIN_DB);
    system_enable_interrupts(true);
 
    // Loop forever handling incoming audio clips
-   static int16_t audio_buffer[AUDIO_SAMPLING_RATE];
+   const uint32_t num_audio_reads_per_clip = AUDIO_CLIP_LENGTH_SECONDS / audio_num_seconds_per_dma();
    bool audio_clip_in_progress = false;
    uint32_t num_audio_reads = 0;
+   int16_t *audio_buffer;
    while (true)
    {
       // Determine if time to start listening for a new audio clip
@@ -46,11 +47,11 @@ int main(void)
          system_enter_deep_sleep_mode();
 
       // Handle any newly available audio data
-      if (audio_data_available() && audio_read_data(audio_buffer))
+      if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          printonly("New audio data available: %u\n", num_audio_reads+1);
          transmit_audio(audio_buffer, sizeof(audio_buffer));
-         if (AUDIO_CLIP_LENGTH_SECONDS && (++num_audio_reads >= AUDIO_CLIP_LENGTH_SECONDS))
+         if (num_audio_reads_per_clip && (++num_audio_reads >= num_audio_reads_per_clip))
          {
             printonly("Full audio clip processed...stopping reading\n");
             audio_clip_in_progress = false;

@@ -12,7 +12,7 @@ static void magnet_sensor_activated(bool field_detected)
    if (field_detected)
    {
       print("Magnetic field detected...validating for %u ms\n", MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS);
-      magnet_sensor_verify_field(MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS, magnet_sensor_validated, true);
+      magnet_sensor_verify_field(MAGNET_FIELD_DEFAULT_VALIDATION_LENGTH_MS, magnet_sensor_validated);
    }
    else
       print("Magnetic field lost...\n");
