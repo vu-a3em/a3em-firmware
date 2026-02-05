@@ -499,7 +499,7 @@ bool storage_open_ogg_opus_file(uint32_t activation_number, const char *device_l
 {
    // Close an already-opened audio file
    if (audio_file_open)
-      storage_close_audio();
+      storage_close_ogg_opus_audio();
 
    // Determine if time to create a new audio storage directory
    const time_t timestamp = (time_t)current_time;
@@ -537,7 +537,7 @@ bool storage_open_ogg_opus_file(uint32_t activation_number, const char *device_l
    {
       ogg_reset_writer(&ogg_writer, &ogg_packet);
       if (!storage_write_audio(ogg_packet.data, ogg_packet.data_len))
-         storage_close_audio();
+         storage_close_ogg_opus_audio();
    }
    return audio_file_open;
 }

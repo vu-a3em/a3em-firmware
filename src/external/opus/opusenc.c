@@ -57,10 +57,3 @@ void opusenc_encode(const int16_t* restrict audio_in, const opus_frame_t** restr
       }
    }
 }
-
-const opus_frame_t* opusenc_get_history(void)
-{
-   // Return the history frame pointer which currently points to the oldest frame
-   //   Caller should iterate through history via opus_frame->next until reaching the original pointer
-   return opus_frame;
-}
