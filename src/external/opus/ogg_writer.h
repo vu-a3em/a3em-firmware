@@ -10,7 +10,7 @@ typedef struct {
    uint16_t page_buffer_len;
    uint8_t flags, segment_count;
    uint8_t segment_table[255];
-   uint8_t page_buffer[OGG_MAX_PACKET_SIZE];
+   uint8_t page_buffer[OGG_MAX_PAGE_SIZE];
 } ogg_writer_t;
 
 typedef struct {

@@ -33,6 +33,7 @@
 #define MAX_CFG_FILE_LINE_LENGTH                    80
 #define MIN_LOG_DATA_INTERVAL_SECONDS               300
 #define NUM_HOURS_PER_AUDIO_DIRECTORY               4
+#define AUDIO_BUFFER_MAX_SIZE                       65536
 #define NUM_SECONDS_PER_AUDIO_DIRECTORY             (NUM_HOURS_PER_AUDIO_DIRECTORY * 60 * 60)
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
@@ -86,7 +87,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define OPUS_DEFAULT_ENCODING_BITRATE                   32000
 #define OPUS_MS_PER_FRAME                               20
 
-#define OGG_MAX_PACKET_SIZE                             4096
+#define OGG_MAX_PAGE_SIZE                               4096
 #define OGG_ENCODER_NAME                                "A3EM"
 #define OGG_USE_CRC                                     1
 

@@ -37,10 +37,10 @@ static am_device_card_config_t sd_card_config;
 static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open;
 static volatile bool async_write_complete, async_read_complete, card_present;
 static char time_string[24], audio_directory[MAX_DEVICE_LABEL_LEN + 32];
+static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx;
+static uint8_t work_buf[FF_MAX_SS], opus_audio_buffer[AUDIO_BUFFER_MAX_SIZE];
 static FIL current_file, log_file, imu_file, audio_file;
-static uint32_t audio_directory_timestamp, data_size;
 static volatile DSTATUS sd_disk_status;
-static uint8_t work_buf[FF_MAX_SS];
 static ogg_writer_t ogg_writer;
 static ogg_data_packet_t ogg_packet;
 
@@ -356,8 +356,16 @@ static bool storage_write_ogg_opus_audio(const void *data, uint32_t num_samples,
          ogg_add_packet(&ogg_writer, &ogg_packet, frame->encoded_data, frame->num_encoded_bytes, is_last);
          if (ogg_packet.data_len)
          {
-            f_write(&audio_file, ogg_packet.data, ogg_packet.data_len, &data_written);
-            data_size += ogg_packet.data_len;
+            const uint32_t bytes_to_copy = MIN(sizeof(opus_audio_buffer) - opus_audio_buffer_idx, ogg_packet.data_len);
+            const uint32_t bytes_remaining = ogg_packet.data_len - bytes_to_copy;
+            memcpy(opus_audio_buffer + opus_audio_buffer_idx, ogg_packet.data, bytes_to_copy);
+            opus_audio_buffer_idx += bytes_to_copy;
+            if (bytes_remaining && (f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) && (data_written == sizeof(opus_audio_buffer)))
+            {
+               memcpy(opus_audio_buffer, ogg_packet.data + bytes_to_copy, bytes_remaining);
+               opus_audio_buffer_idx = bytes_remaining;
+               data_size += sizeof(opus_audio_buffer);
+            }
          }
       }
       return true;
@@ -387,8 +395,18 @@ static void storage_close_ogg_opus_audio(void)
    {
       UINT data_written = 0;
       ogg_flush_page(&ogg_writer, &ogg_packet, 1);
-      if (ogg_packet.data_len)
-         f_write(&audio_file, ogg_packet.data, ogg_packet.data_len, &data_written);
+      const uint32_t bytes_to_copy = MIN(sizeof(opus_audio_buffer) - opus_audio_buffer_idx, ogg_packet.data_len);
+      const uint32_t bytes_remaining = ogg_packet.data_len - bytes_to_copy;
+      memcpy(opus_audio_buffer + opus_audio_buffer_idx, ogg_packet.data, bytes_to_copy);
+      opus_audio_buffer_idx += bytes_to_copy;
+      if (bytes_remaining && (f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) && (data_written == sizeof(opus_audio_buffer)))
+      {
+         memcpy(opus_audio_buffer, ogg_packet.data + bytes_to_copy, bytes_remaining);
+         opus_audio_buffer_idx = bytes_remaining;
+         data_size += sizeof(opus_audio_buffer);
+      }
+      data_size += opus_audio_buffer_idx;
+      f_write(&audio_file, opus_audio_buffer, opus_audio_buffer_idx, &data_written);
       f_close(&audio_file);
       audio_file_open = false;
    }
@@ -465,6 +483,7 @@ static bool storage_open_ogg_opus_file(uint32_t activation_number, const char *d
    // Close an already-opened audio file
    if (audio_file_open)
       storage_close_ogg_opus_audio();
+   opus_audio_buffer_idx = 0;
 
    // Determine if time to create a new audio storage directory
    const time_t timestamp = (time_t)current_time;
