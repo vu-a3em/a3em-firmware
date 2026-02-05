@@ -4,6 +4,7 @@
 #include <time.h>
 #include "diskio.h"
 #include "logging.h"
+#include "ogg_writer.h"
 #include "storage.h"
 #include "system.h"
 
@@ -40,6 +41,8 @@ static FIL current_file, log_file, imu_file, audio_file;
 static uint32_t audio_directory_timestamp, data_size;
 static volatile DSTATUS sd_disk_status;
 static uint8_t work_buf[FF_MAX_SS];
+static ogg_writer_t ogg_writer;
+static ogg_data_packet_t ogg_packet;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -492,6 +495,53 @@ bool storage_open_wav_file(uint32_t activation_number, const char *device_label,
    return audio_file_open;
 }
 
+bool storage_open_ogg_opus_file(uint32_t activation_number, const char *device_label, uint32_t current_time)
+{
+   // Close an already-opened audio file
+   if (audio_file_open)
+      storage_close_audio();
+
+   // Determine if time to create a new audio storage directory
+   const time_t timestamp = (time_t)current_time;
+   struct tm *curr_time = gmtime(&timestamp);
+   strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
+   if ((current_time - audio_directory_timestamp) >= NUM_SECONDS_PER_AUDIO_DIRECTORY)
+   {
+      // Generate a new directory name from the current date and time
+      static FILINFO file_info;
+      curr_time->tm_min = curr_time->tm_sec = 0;
+      curr_time->tm_hour = (curr_time->tm_hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY;
+      size_t label_len = strlen(device_label);
+      memset(audio_directory, 0, sizeof(audio_directory));
+      strncpy(audio_directory, device_label, label_len + 1);
+      snprintf(audio_directory + label_len, sizeof(audio_directory) - label_len, "/Activation_%04lu", activation_number);
+      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F", curr_time);
+      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F/%H", curr_time);
+      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+      audio_directory_timestamp = (uint32_t)mktime(curr_time);
+   }
+
+   // Open the requested file
+   data_size = 0;
+   static char file_name[FF_MAX_LFN] = { 0 };
+   snprintf(file_name, sizeof(file_name), "%s/%s.opus", audio_directory, time_string);
+   audio_file_open = (f_open(&audio_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+
+   // Reset the Ogg writer and write the Ogg header
+   if (audio_file_open)
+   {
+      ogg_reset_writer(&ogg_writer, &ogg_packet);
+      if (!storage_write_audio(ogg_packet.data, ogg_packet.data_len))
+         storage_close_audio();
+   }
+   return audio_file_open;
+}
+
 bool storage_open_imu_file(uint32_t activation_number, const char *device_label, uint32_t current_time, uint32_t sample_rate_hz)
 {
    // Close an already-opened IMU file
@@ -569,6 +619,27 @@ bool storage_write_audio(const void *data, uint32_t data_len)
    return false;
 }
 
+bool storage_write_ogg_opus_audio(const void *data, uint32_t data_len, uint8_t is_last_packet)
+{
+   // Encode and write the requested data to the currently open audio file
+   UINT data_written = 0;
+   if (audio_file_open)
+   {
+      ogg_add_packet(&ogg_writer, &ogg_packet, data, data_len, is_last_packet);
+      if (ogg_packet.data_len)
+      {
+         if ((f_write(&audio_file, ogg_packet.data, ogg_packet.data_len, &data_written) == FR_OK) && (data_written == ogg_packet.data_len))
+         {
+            data_size += ogg_packet.data_len;
+            return true;
+         }
+      }
+      else
+         return true;
+   }
+   return false;
+}
+
 void storage_write_log(const char *fmt, ...)
 {
    // Write the requested data to the log file
@@ -636,6 +707,20 @@ void storage_close_audio(void)
       storage_write_audio(&field, 4);
       f_lseek(&audio_file, 40);
       storage_write_audio(&data_size, 4);
+      f_close(&audio_file);
+      audio_file_open = false;
+   }
+}
+
+void storage_close_ogg_opus_audio(void)
+{
+   // Finalize and close the currently open audio file
+   if (audio_file_open)
+   {
+      UINT data_written = 0;
+      ogg_flush_page(&ogg_writer, &ogg_packet);
+      if (ogg_packet.data_len)
+         f_write(&audio_file, ogg_packet.data, ogg_packet.data_len, &data_written);
       f_close(&audio_file);
       audio_file_open = false;
    }

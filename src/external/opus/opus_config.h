@@ -3,12 +3,22 @@
 
 #include "static_config.h"
 
+#define OPUS_FRAME_MAX_BYTES                 256
+
+#ifndef MIN
+#define MIN(a,b) ((a)<(b) ? (a):(b))
+#endif
+
+#ifndef MAX
+#define MAX(a,b) ((a)>(b) ? (a):(b))
+#endif
+
 struct __attribute__ ((__packed__, aligned (4))) opus_frame_t;
 
 typedef struct __attribute__ ((__packed__, aligned (4))) opus_frame_t
 {
-   uint16_t num_encoded_bytes;
-   uint8_t encoded_data[2 * ((OPUS_MAX_ENCODING_BITRATE/8) / (1000/OPUS_MS_PER_FRAME))];
+   uint8_t num_encoded_bytes;
+   uint8_t encoded_data[OPUS_FRAME_MAX_BYTES];
    struct opus_frame_t *next;
 } opus_frame_t;
 

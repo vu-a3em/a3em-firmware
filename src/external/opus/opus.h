@@ -13,9 +13,9 @@ typedef struct {
    unsigned char toc;
    float delayedIntra, preemph_mem, spec_avg, in_mem[COMBFILTER_MAXPERIOD + MAX_OVERLAP];
    float oldBandE[MAX_BANDS], oldLogE[MAX_BANDS], oldLogE2[MAX_BANDS], energyError[MAX_BANDS];
-} opus_encoder;
+} opus_encoder_t;
 
-void opus_encoder_create(opus_encoder *encoder, int32_t bitrate_bps, int32_t frame_size);
-int32_t opus_encode(opus_encoder *encoder, const float *pcm, unsigned char *data, uint32_t out_data_bytes);
+void opus_encoder_create(opus_encoder_t *encoder, int32_t bitrate_bps, int32_t frame_size);
+int32_t opus_encode(opus_encoder_t *encoder, const float *restrict pcm, unsigned char *data, uint32_t out_data_bytes);
 
 #endif  // OPUS_H

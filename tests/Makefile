@@ -175,6 +175,7 @@ SRC += ff.c
 SRC += ffunicode.c
 SRC += opusenc.c
 SRC += opus_encoder.c
+SRC += ogg_writer.c
 SRC += startup_gcc.c
 SRC += SEGGER_RTT.c
 

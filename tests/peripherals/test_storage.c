@@ -9,8 +9,8 @@ int main(void)
 {
    // Set up the system hardware and initialize the SD card peripheral
    setup_hardware();
-   storage_init();
    system_enable_interrupts(true);
+   storage_init();
    storage_setup_logs();
 
    // Attempt to open and write a file on the SD card

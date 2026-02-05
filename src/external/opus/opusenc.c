@@ -16,7 +16,7 @@
 __attribute__ ((aligned (4)))
 static float encode_buffer[OPUS_FRAME_SIZE];
 
-static opus_encoder encoder;
+static opus_encoder_t encoder;
 static opus_frame_t opus_frames[OPUS_NUM_HISTORICAL_FRAMES], *opus_frame;
 
 

@@ -1793,7 +1793,7 @@ static inline float dynalloc_analysis(const float *bandLogE, const opus_int16 *l
    return maxDepth;
 }
 
-static inline void run_prefilter(opus_encoder *encoder, float *in, float *prefilter_mem)
+static inline void run_prefilter(opus_encoder_t *encoder, float *in, float *prefilter_mem)
 {
    memcpy(in, encoder->in_mem, MAX_OVERLAP * sizeof(in[0]));
    memcpy(encoder->in_mem, in + 960, MAX_OVERLAP * sizeof(encoder->in_mem[0]));
@@ -1815,7 +1815,7 @@ static inline int compute_vbr(opus_int32 base_target, opus_int32 bitrate, float 
    return MIN(2 * base_target, target);
 }
 
-static inline int celt_encode_with_ec(opus_encoder *restrict encoder, const float *pcm, int nbCompressedBytes, ec_ctx *enc)
+static inline int celt_encode_with_ec(opus_encoder_t *restrict encoder, const float *restrict pcm, int nbCompressedBytes, ec_ctx *enc)
 {
    const opus_int32 equiv_rate = MIN((opus_int32)nbCompressedBytes * 400, encoder->bitrate);
    opus_int32 total_bits = nbCompressedBytes * 8;
@@ -1884,10 +1884,10 @@ static inline int celt_encode_with_ec(opus_encoder *restrict encoder, const floa
 
 // Opus Encoder Functions -----------------------------------------------------
 
-void opus_encoder_create(opus_encoder *encoder, int32_t bitrate_bps, int32_t frame_size)
+void opus_encoder_create(opus_encoder_t *encoder, int32_t bitrate_bps, int32_t frame_size)
 {
    // Clear the Opus encoder struct
-   memset(encoder, 0, sizeof(opus_encoder));
+   memset(encoder, 0, sizeof(opus_encoder_t));
 
    // Create and initialize the CELT encoder
    encoder->bitrate = bitrate_bps;
@@ -1909,7 +1909,7 @@ void opus_encoder_create(opus_encoder *encoder, int32_t bitrate_bps, int32_t fra
    encoder->toc |= period << 3;
 }
 
-int32_t opus_encode(opus_encoder *encoder, const float *pcm, unsigned char *data, uint32_t out_data_bytes)
+int32_t opus_encode(opus_encoder_t *encoder, const float *restrict pcm, unsigned char *data, uint32_t out_data_bytes)
 {
    ec_ctx enc;
    data[0] = encoder->toc;
