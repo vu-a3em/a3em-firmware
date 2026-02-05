@@ -44,7 +44,6 @@ int main(void)
    opusenc_init(OPUS_BITRATE);
 
    // Loop forever handling incoming audio clips
-   static const opus_frame_t *result_begin, *result_end;
    bool audio_clip_in_progress = false;
    uint32_t num_audio_reads = 0;
    int16_t *audio_buffer;
@@ -57,7 +56,7 @@ int main(void)
          audio_begin_reading();
          audio_clip_in_progress = true;
 #ifdef TEST_WITH_STORAGE
-         if (!storage_open_ogg_opus_file(1, "TestOpus", rtc_get_timestamp()))
+         if (!storage_open_audio_file(1, "TestOpus", AUDIO_NUM_CHANNELS, AUDIO_SAMPLING_RATE, rtc_get_timestamp(), true))
             printonly("ERROR: Unable to create a new Ogg Opus file on the SD card!\n");
 #endif
       }
@@ -74,16 +73,11 @@ int main(void)
          // Encode the audio data
          printonly("New audio data available: %u\n", num_audio_reads+1);
          am_hal_timer_clear(TIMER_NUMBER);
-         opusenc_encode(audio_buffer, &result_begin, &result_end);
-
-         // Encapsulate each resulting Opus frame into an Ogg page and store
 #ifdef TEST_WITH_STORAGE
-         for (const opus_frame_t *frame = result_begin; frame != result_end; frame = frame->next)
-         {
-            const uint8_t is_last = ((num_audio_reads + 1) >= AUDIO_NUM_READS_PER_CLIP) && (frame->next == result_end);
-            if (!storage_write_ogg_opus_audio(frame->encoded_data, frame->num_encoded_bytes, is_last))
-               printonly("ERROR: Unable to write to Ogg Opus file!\n");
-         }
+         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * AUDIO_SAMPLING_RATE * AUDIO_BUFFER_NUM_SECONDS, (num_audio_reads + 1) >= AUDIO_NUM_READS_PER_CLIP))
+            printonly("ERROR: Unable to write to Ogg Opus file!\n");
+#else
+         opusenc_encode(audio_buffer, AUDIO_SAMPLING_RATE * AUDIO_BUFFER_NUM_SECONDS, &result_begin, &result_end);
 #endif
 
          // Print out the execution time of the encoding process
@@ -96,7 +90,7 @@ int main(void)
          {
             printonly("Full audio clip processed...stopping reading\n");
             audio_clip_in_progress = false;
-            storage_close_ogg_opus_audio();
+            storage_close_audio();
             audio_stop_reading();
             num_audio_reads = 0;
          }

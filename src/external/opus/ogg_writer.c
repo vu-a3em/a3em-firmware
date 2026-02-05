@@ -72,7 +72,7 @@ void ogg_reset_writer(ogg_writer_t *ogg_writer, ogg_data_packet_t *output)
 
    // Set up the Opus ID header
    ogg_data_packet_t temp_output;
-   const uint16_t preskip = 312;
+   const uint16_t preskip = 0;
    const uint32_t audio_sample_rate = OGG_AUDIO_SAMPLE_RATE_HZ;
    uint8_t opus_head[19] = { 'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1 };
    memcpy(opus_head + 10, &preskip, sizeof(preskip));
@@ -81,10 +81,10 @@ void ogg_reset_writer(ogg_writer_t *ogg_writer, ogg_data_packet_t *output)
    // Write the Opus ID header followed by the Comment header
    ogg_add_packet(ogg_writer, output, opus_head, sizeof(opus_head), 0);
    ogg_writer->granule_pos = 0;
-   ogg_flush_page(ogg_writer, output);
+   ogg_flush_page(ogg_writer, output, 0);
    ogg_add_packet(ogg_writer, &temp_output, opus_tags, sizeof(opus_tags), 0);
    ogg_writer->granule_pos = 0;
-   ogg_flush_page(ogg_writer, &temp_output);
+   ogg_flush_page(ogg_writer, &temp_output, 0);
    memcpy(output->data + output->data_len, temp_output.data, temp_output.data_len);
    output->data_len += temp_output.data_len;
 }
@@ -94,7 +94,7 @@ void ogg_add_packet(ogg_writer_t *ogg_writer, ogg_data_packet_t *output, const u
    // Check if flushing is required before adding this packet
    output->data_len = 0;
    if ((ogg_writer->segment_count >= 255) || ((ogg_writer->page_buffer_len + packet_len) > sizeof(ogg_writer->page_buffer)))
-      ogg_flush_page(ogg_writer, output);
+      ogg_flush_page(ogg_writer, output, 0);
 
    // Add the new packet to the buffer as a single segment
    ogg_writer->segment_table[ogg_writer->segment_count++] = packet_len;
@@ -107,11 +107,15 @@ void ogg_add_packet(ogg_writer_t *ogg_writer, ogg_data_packet_t *output, const u
       ogg_writer->flags |= 0x04;
 }
 
-void ogg_flush_page(ogg_writer_t *ogg_writer, ogg_data_packet_t *output)
+void ogg_flush_page(ogg_writer_t *ogg_writer, ogg_data_packet_t *output, uint8_t is_last_page)
 {
    // Ensure there is data to flush
    if (ogg_writer->segment_count)
    {
+      // Handle the last packet
+      if (is_last_page)
+         ogg_writer->flags |= 0x04;
+
       // Create the Ogg page header with an arbitrary serial number
       uint8_t header[27] = { 'O', 'g', 'g', 'S', 0, ogg_writer->flags };
       const uint32_t serial_no = 13872;

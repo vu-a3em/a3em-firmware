@@ -23,6 +23,6 @@ typedef struct __attribute__ ((__packed__, aligned (4))) opus_frame_t
 } opus_frame_t;
 
 void opusenc_init(int32_t bitrate);
-void opusenc_encode(const int16_t* restrict audio_in, const opus_frame_t** restrict result_begin, const opus_frame_t** restrict result_end);
+void opusenc_encode(const int16_t* restrict audio_in, uint32_t audio_num_samples, const opus_frame_t** restrict result_begin, const opus_frame_t** restrict result_end);
 
 #endif  // #ifndef __OPUSENC_HEADER_H__

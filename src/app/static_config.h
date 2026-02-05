@@ -84,7 +84,6 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define OPUS_REQUIRED_SAMPLE_RATE_HZ                    48000
 #define OPUS_MAX_ENCODING_BITRATE                       128000
 #define OPUS_DEFAULT_ENCODING_BITRATE                   32000
-#define OPUS_HISTORY_MS                                 3000
 #define OPUS_MS_PER_FRAME                               20
 
 #define OGG_MAX_PACKET_SIZE                             4096

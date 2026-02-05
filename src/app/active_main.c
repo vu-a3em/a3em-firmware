@@ -6,6 +6,7 @@
 #include "led.h"
 #include "logging.h"
 #include "mram.h"
+#include "opus_config.h"
 #include "rtc.h"
 #include "silence.h"
 #include "storage.h"
@@ -203,7 +204,7 @@ static void henrik_data_available(henrik_msg_t message_type, const void *new_dat
 
 // Audio Processing Loops ----------------------------------------------------------------------------------------------
 
-static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_reads_per_clip)
+static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, bool ogg_encode)
 {
    // Initialize all necessary local variables
    bool audio_clip_in_progress = false;
@@ -242,7 +243,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
          system_reset();
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
-         // Determine if time to create a new WAV file
+         // Determine if time to create a new audio file
          system_feed_watchdog();
          if (!audio_clip_in_progress)
          {
@@ -250,7 +251,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
             if (!use_silence_filter || !silence_filter_is_silence(audio_buffer, sampling_rate * AUDIO_BUFFER_NUM_SECONDS))
             {
                // Generate a new audio file using the current date and time
-               if (storage_open_wav_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+               if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time, ogg_encode))
                {
                   // Signal start of a new audio clip
                   if (record_imu_with_audio)
@@ -268,10 +269,10 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
          if (audio_clip_in_progress)
          {
             led_indicate_clip_progress();
-            storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate * AUDIO_BUFFER_NUM_SECONDS);
+            storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate * AUDIO_BUFFER_NUM_SECONDS, (num_audio_reads + 1) >= num_audio_reads_per_clip);
             if (++num_audio_reads >= num_audio_reads_per_clip)
             {
-               // Finalize the current WAV file
+               // Finalize the current audio file
                storage_close_audio();
                led_indicate_clip_end();
                audio_clip_in_progress = false;
@@ -292,7 +293,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
    storage_close_audio();
 }
 
-static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule)
+static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule, bool ogg_encode)
 {
    // Initialize all necessary local variables
    bool audio_clip_in_progress = false, reading_audio = false;
@@ -358,7 +359,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          audio_timer_triggered = false;
 
          // Generate a new audio file using the current date and time
-         if (storage_open_wav_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+         if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time, ogg_encode))
          {
             // Signal start of a new audio clip
             audio_clip_in_progress = true;
@@ -387,10 +388,10 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          led_indicate_clip_progress();
-         storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate * AUDIO_BUFFER_NUM_SECONDS);
+         storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate * AUDIO_BUFFER_NUM_SECONDS, (num_audio_reads + 1) >= num_audio_reads_per_clip);
          if (++num_audio_reads >= num_audio_reads_per_clip)
          {
-            // Finalize the current WAV file and stop reading if interval-based or if the current schedule has ended
+            // Finalize the current audio file and stop reading if interval-based or if the current schedule has ended
             storage_close_audio();
             if (interval_based || (num_schedules && seconds_til_next_scheduled_recording))
             {
@@ -415,7 +416,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
    storage_close_audio();
 }
 
-static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, uint32_t max_clips, uint32_t per_num_seconds)
+static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, uint32_t max_clips, uint32_t per_num_seconds, bool ogg_encode)
 {
    // Initialize all necessary local variables
    bool audio_clip_in_progress = false, awaiting_trigger = false;
@@ -466,7 +467,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          if (!audio_clip_in_progress)
          {
             // Generate a new audio file using the current date and time
-            if (storage_open_wav_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+            if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time, ogg_encode))
             {
                // Signal start of a new audio clip
                audio_clip_in_progress = true;
@@ -482,9 +483,9 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
             }
          }
 
-         // Store the audio data to the WAV file
+         // Store the audio data to the audio file
          led_indicate_clip_progress();
-         storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate * AUDIO_BUFFER_NUM_SECONDS);
+         storage_write_audio(audio_buffer, sizeof(int16_t) * sampling_rate * AUDIO_BUFFER_NUM_SECONDS, (num_audio_reads + 1) >= num_audio_reads_per_clip);
          if (++num_audio_reads >= num_audio_reads_per_clip)
          {
             awaiting_trigger = audio_clip_in_progress = false;
@@ -540,6 +541,11 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       const frequency_range_t frequencies = config_get_frequencies_of_interest(phase_index);
       silence_filter_initialize(audio_sampling_rate, frequencies.min_frequency, frequencies.max_frequency, threshold);
    }
+
+   // Set up Ogg Opus encoding if enabled
+   const int32_t encoding_bitrate = config_use_opus_encoding(phase_index) ? config_get_opus_bitrate(phase_index) : 0;
+   if (encoding_bitrate > 0)
+      opusenc_init(encoding_bitrate);
 
    // Initialize the audio processing timer
    am_hal_timer_default_config_set(&audio_processing_timer_config);
@@ -604,7 +610,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                break;
          }
          audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, COMPARATOR_THRESHOLD, config_get_audio_trigger_threshold(phase_index), device_activated);
-         process_audio_triggered(allow_extended_audio_clips, audio_sampling_rate_hz, num_audio_reads_per_clip, max_num_clips, max_clips_interval_seconds);
+         process_audio_triggered(allow_extended_audio_clips, audio_sampling_rate_hz, num_audio_reads_per_clip, max_num_clips, max_clips_interval_seconds, encoding_bitrate > 0);
          break;
       }
       case SCHEDULED:
@@ -615,7 +621,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
             audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
          else
             audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db());
-         process_audio_scheduled(audio_sampling_rate_hz, num_audio_reads_per_clip, false, 0, num_schedules, schedule);
+         process_audio_scheduled(audio_sampling_rate_hz, num_audio_reads_per_clip, false, 0, num_schedules, schedule, encoding_bitrate > 0);
          break;
       }
       case INTERVAL:
@@ -643,7 +649,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
             audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
          else
             audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db());
-         process_audio_scheduled(audio_sampling_rate_hz, num_audio_reads_per_clip, true, (int32_t)audio_recording_interval, 0, NULL);
+         process_audio_scheduled(audio_sampling_rate_hz, num_audio_reads_per_clip, true, (int32_t)audio_recording_interval, 0, NULL, encoding_bitrate > 0);
          break;
       }
       case CONTINUOUS:  // Intentional fall-through
@@ -652,7 +658,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
             audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
          else
             audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, config_get_mic_amplification_db());
-         process_audio_continuous(audio_sampling_rate_hz, num_audio_reads_per_clip);
+         process_audio_continuous(audio_sampling_rate_hz, num_audio_reads_per_clip, encoding_bitrate > 0);
          break;
    }
 

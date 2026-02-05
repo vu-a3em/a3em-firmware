@@ -20,6 +20,6 @@ typedef struct {
 
 void ogg_reset_writer(ogg_writer_t *ogg_writer, ogg_data_packet_t *output);
 void ogg_add_packet(ogg_writer_t *ogg_writer, ogg_data_packet_t *output, const uint8_t* restrict packet_data, uint8_t packet_len, uint8_t is_last_packet);
-void ogg_flush_page(ogg_writer_t *ogg_writer, ogg_data_packet_t *output);
+void ogg_flush_page(ogg_writer_t *ogg_writer, ogg_data_packet_t *output, uint8_t is_last_page);
 
 #endif  // OGG_WRITER_H
