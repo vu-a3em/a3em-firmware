@@ -186,7 +186,7 @@ static void parse_line(char *line, int32_t line_length)
    else if (memcmp(key, "MAX_FREQUENCY", sizeof("MAX_FREQUENCY")-1) == 0)
       deployment_phases[num_deployment_phases].frequencies_of_interest.max_frequency = strtoul(value, NULL, 10);
    else if (memcmp(key, "USE_OPUS", sizeof("USE_OPUS")-1) == 0)
-      deployment_phases[num_deployment_phases].use_opus_encoding = true;
+      deployment_phases[num_deployment_phases].use_opus_encoding = (memcmp(value, "True", sizeof("True")-1) == 0);
    else if (memcmp(key, "OPUS_BITRATE", sizeof("OPUS_BITRATE")-1) == 0)
       deployment_phases[num_deployment_phases].opus_encoding_bitrate = strtol(value, NULL, 10);
 }
