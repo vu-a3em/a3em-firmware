@@ -71,19 +71,7 @@ static void imu_isr(void *args)
       static lis2du12_fifo_status_t fifo_status;
       lis2du12_fifo_status_get(&imu_context, &fifo_status);
       if (fifo_status.fifo_fth)
-      {
-         static uint8_t fifo_level;
-         static lis2du12_fifo_data_t data;
-         lis2du12_fifo_level_get(&imu_context, &fifo_mode, &fifo_level);
-         if (skip_first_result)
-            lis2du12_fifo_data_get(&imu_context, &imu_mode, &fifo_mode, &data);
-         for (uint8_t i = skip_first_result; i < fifo_level; ++i)
-         {
-            lis2du12_fifo_data_get(&imu_context, &imu_mode, &fifo_mode, &data);
-            data_ready_callback(data.xl[0].mg[0], data.xl[0].mg[1], data.xl[0].mg[2]);
-         }
-         skip_first_result = 0;
-      }
+         imu_drain_fifo();
    }
 }
 
@@ -786,7 +774,7 @@ void imu_deinit(void)
       lis2du12_int_mode_t int_mode = { .enable = PROPERTY_DISABLE, .active_low = PROPERTY_DISABLE, .drdy_latched = 1, .base_sig = LIS2DU12_INT_LEVEL };
       lis2du12_interrupt_mode_set(&imu_context, &int_mode);
       if (data_ready_callback)
-         imu_enable_raw_data_output(false, 0, 0, 0, 0, NULL);
+         imu_enable_raw_data_output(false, 0, 0, 0, NULL);
       if (motion_change_callback)
          imu_enable_motion_change_detection(false, NULL);
    }
@@ -806,7 +794,7 @@ void imu_deinit(void)
    }
 }
 
-void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, uint32_t data_rate_hz, lis2du12_bw_t bandwidth, uint8_t fifo_depth, imu_data_ready_callback_t callback)
+void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, uint32_t data_rate_hz, lis2du12_bw_t bandwidth, imu_data_ready_callback_t callback)
 {
    // Enable or disable the output of raw data
    if (enable)
@@ -837,7 +825,7 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
       // Configure the data FIFO settings
       skip_first_result = 1;
       fifo_mode.store = LIS2DU12_8_BIT;
-      fifo_mode.watermark = MIN(fifo_depth, 127);
+      fifo_mode.watermark = 127;
       fifo_mode.operation = LIS2DU12_STREAM;
       configASSERT0(lis2du12_fifo_mode_set(&imu_context, &fifo_mode));
 
@@ -938,4 +926,29 @@ void imu_read_accel_data(float *accel_x_mg, float *accel_y_mg, float *accel_z_mg
    *accel_x_mg = data.xl.mg[0];
    *accel_y_mg = data.xl.mg[1];
    *accel_z_mg = data.xl.mg[2];
+}
+
+void imu_drain_fifo(void)
+{
+   // Set up static local FIFO status variables
+   static uint8_t fifo_level;
+   static lis2du12_fifo_data_t data;
+   static lis2du12_fifo_status_t fifo_status;
+
+   // Read all items currently in the IMU FIFO
+   if (data_ready_callback)
+   {
+      __disable_irq();
+      lis2du12_fifo_status_get(&imu_context, &fifo_status);
+      lis2du12_fifo_level_get(&imu_context, &fifo_mode, &fifo_level);
+      if (skip_first_result)
+         lis2du12_fifo_data_get(&imu_context, &imu_mode, &fifo_mode, &data);
+      for (uint8_t i = skip_first_result; i < fifo_level; ++i)
+      {
+         lis2du12_fifo_data_get(&imu_context, &imu_mode, &fifo_mode, &data);
+         data_ready_callback(data.xl[0].mg[0], data.xl[0].mg[1], data.xl[0].mg[2]);
+      }
+      skip_first_result = 0;
+      __enable_irq();
+   }
 }

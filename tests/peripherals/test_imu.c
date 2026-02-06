@@ -9,7 +9,9 @@ void motion_change_callback(bool in_motion)
 
 void data_ready_callback(float accel_x_mg, float accel_y_mg, float accel_z_mg)
 {
-   print("Received data: x = %.2f, y = %.2f, z = %.2f\n", accel_x_mg, accel_y_mg, accel_z_mg);
+   static uint32_t count = 0;
+   print("[%lu]: Received data: x = %.2f, y = %.2f, z = %.2f\n", count, accel_x_mg, accel_y_mg, accel_z_mg);
+   ++count;
 }
 
 void test_motion_change_detection(void)
@@ -23,7 +25,7 @@ void test_motion_change_detection(void)
 void test_interrupt_based_read(void)
 {
    // Enable data reading then go to sleep forever
-   imu_enable_raw_data_output(true, LIS2DU12_2g, 6, LIS2DU12_ODR_div_2, 6, data_ready_callback);
+   imu_enable_raw_data_output(true, LIS2DU12_2g, 100, LIS2DU12_ODR_div_2, data_ready_callback);
    while (true)
       system_enter_deep_sleep_mode();
 }
@@ -38,6 +40,17 @@ void test_polling_read(void)
    }
 }
 
+void test_fifo_drain(void)
+{
+   // Enable data reading then drain the FIFO every second
+   imu_enable_raw_data_output(true, LIS2DU12_2g, 50, LIS2DU12_ODR_div_2, data_ready_callback);
+   while (true)
+   {
+      system_delay(1000000);
+      imu_drain_fifo();
+   }
+}
+
 int main(void)
 {
    // Set up system hardware
@@ -45,10 +58,11 @@ int main(void)
    imu_init();
    system_enable_interrupts(true);
 
-   // Choose one of the two tests to carry out
+   // Choose one of the following tests to carry out
    //test_motion_change_detection();
-   test_interrupt_based_read();
+   //test_interrupt_based_read();
    //test_polling_read();
+   test_fifo_drain();
 
    // Should never reach this point
    return 0;

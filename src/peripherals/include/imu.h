@@ -671,8 +671,9 @@ int32_t lis2du12_orientation_mode_get(const stmdev_ctx_t *ctx, lis2du12_orient_m
 
 void imu_init(void);
 void imu_deinit(void);
-void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, uint32_t data_rate_hz, lis2du12_bw_t bandwidth, uint8_t fifo_depth, imu_data_ready_callback_t callback);
+void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, uint32_t data_rate_hz, lis2du12_bw_t bandwidth, imu_data_ready_callback_t callback);
 void imu_enable_motion_change_detection(bool enable, motion_change_callback_t callback);
 void imu_read_accel_data(float *accel_x_mg, float *accel_y_mg, float *accel_z_mg);
+void imu_drain_fifo(void);
 
 #endif  // #ifndef __IMU_HEADER_H__
