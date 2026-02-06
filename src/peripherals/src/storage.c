@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <time.h>
 #include "diskio.h"
+#include "imu.h"
 #include "logging.h"
 #include "ogg_writer.h"
 #include "storage.h"
@@ -34,12 +35,15 @@ static FATFS file_system;
 static am_hal_card_t sd_card;
 static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
-static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open;
-static volatile bool async_write_complete, async_read_complete, card_present;
+static FIL current_file, log_file, imu_file, audio_file;
 static char time_string[24], audio_directory[MAX_DEVICE_LABEL_LEN + 32];
+static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open;
 static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx;
 static uint8_t work_buf[FF_MAX_SS], opus_audio_buffer[AUDIO_BUFFER_MAX_SIZE];
-static FIL current_file, log_file, imu_file, audio_file;
+static float imu_data_buffer[2*IMU_BUFFER_MAX_SAMPLES][3], (*imu_storage_buffer)[3];
+static volatile bool async_write_complete, async_read_complete, card_present;
+static volatile uint8_t *imu_data_awaiting_storage;
+static volatile uint32_t imu_storage_index;
 static volatile DSTATUS sd_disk_status;
 static ogg_writer_t ogg_writer;
 static ogg_data_packet_t ogg_packet;
@@ -325,8 +329,30 @@ void am_sdio_isr(void)
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
+static void storage_flush_imu_data(void)
+{
+   // Flush any unwritten IMU data in the storage buffer to the SD card
+   __disable_irq();
+   if (imu_storage_index)
+   {
+      UINT data_written = 0;
+      const uint8_t* imu_data = (uint8_t*)imu_storage_buffer;
+      const uint32_t imu_data_len = sizeof(float) * 3 * imu_storage_index;
+      imu_storage_buffer = (imu_storage_buffer == imu_data_buffer) ? &imu_data_buffer[IMU_BUFFER_MAX_SAMPLES] : &imu_data_buffer[0];
+      imu_storage_index = 0;
+      __enable_irq();
+      if (imu_file_open)
+         f_write(&imu_file, imu_data, imu_data_len, &data_written);
+   }
+   else
+      __enable_irq();
+}
+
 static bool storage_write_wav_audio(const void *data, uint32_t data_len)
 {
+   // Write any outstanding IMU data at the same time as the audio data
+   storage_handle_imu_data();
+
    // Write the requested data to the currently open audio file
    UINT data_written = 0;
    if (audio_file_open && (f_write(&audio_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len))
@@ -356,15 +382,25 @@ static bool storage_write_ogg_opus_audio(const void *data, uint32_t num_samples,
          ogg_add_packet(&ogg_writer, &ogg_packet, frame->encoded_data, frame->num_encoded_bytes, is_last);
          if (ogg_packet.data_len)
          {
+            // Copy the Ogg packet to the storage buffer
             const uint32_t bytes_to_copy = MIN(sizeof(opus_audio_buffer) - opus_audio_buffer_idx, ogg_packet.data_len);
             const uint32_t bytes_remaining = ogg_packet.data_len - bytes_to_copy;
             memcpy(opus_audio_buffer + opus_audio_buffer_idx, ogg_packet.data, bytes_to_copy);
             opus_audio_buffer_idx += bytes_to_copy;
-            if (bytes_remaining && (f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) && (data_written == sizeof(opus_audio_buffer)))
+
+            // Write storage buffer to SD card if full
+            if (bytes_remaining)
             {
-               memcpy(opus_audio_buffer, ogg_packet.data + bytes_to_copy, bytes_remaining);
-               opus_audio_buffer_idx = bytes_remaining;
-               data_size += sizeof(opus_audio_buffer);
+               // Write any outstanding IMU data at the same time as the audio data
+               storage_handle_imu_data();
+
+               // Write the audio data
+               if ((f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) && (data_written == sizeof(opus_audio_buffer)))
+               {
+                  memcpy(opus_audio_buffer, ogg_packet.data + bytes_to_copy, bytes_remaining);
+                  opus_audio_buffer_idx = bytes_remaining;
+                  data_size += sizeof(opus_audio_buffer);
+               }
             }
          }
       }
@@ -536,6 +572,7 @@ void storage_init(void)
    memset(audio_directory, 0, sizeof(audio_directory));
    async_write_complete = async_read_complete = card_present = false;
    log_open = file_open = imu_file_open = audio_file_open = false;
+   imu_data_awaiting_storage = NULL;
    audio_directory_timestamp = 0;
    sd_disk_status = STA_NOINIT;
 
@@ -648,6 +685,11 @@ bool storage_open_imu_file(uint32_t activation_number, const char *device_label,
    if (imu_file_open)
       storage_close_imu();
 
+   // Reset the IMU storage buffering details
+   imu_storage_index = 0;
+   imu_storage_buffer = imu_data_buffer;
+   imu_data_awaiting_storage = NULL;
+
    // Determine if time to create a new audio storage directory
    const time_t timestamp = (time_t)current_time;
    struct tm *curr_time = gmtime(&timestamp);
@@ -709,6 +751,9 @@ bool storage_write(const void *data, uint32_t data_len)
 
 bool storage_write_audio(const void *data, uint32_t data_len, bool is_last_packet)
 {
+   // Always sync the IMU data with an attempted audio write
+   imu_drain_fifo();
+
    // Call the appropriate audio writing function
    return using_ogg ?
          storage_write_ogg_opus_audio(data, data_len / sizeof(int16_t), is_last_packet) :
@@ -734,11 +779,32 @@ void storage_flush_log(void)
       f_sync(&log_file);
 }
 
-bool storage_write_imu_data(const void *data, uint32_t data_len)
+void storage_write_imu_data(float accel_x_mg, float accel_y_mg, float accel_z_mg)
 {
-   // Store to the IMU data file
-   UINT data_written = 0;
-   return imu_file_open && (f_write(&imu_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len);
+   // Store IMU data into storage buffer
+   imu_storage_buffer[imu_storage_index][0] = accel_x_mg;
+   imu_storage_buffer[imu_storage_index][1] = accel_y_mg;
+   imu_storage_buffer[imu_storage_index][2] = accel_z_mg;
+
+   // Set storage flag for the main thread if buffer is full
+   if (++imu_storage_index == IMU_BUFFER_MAX_SAMPLES)
+   {
+      imu_storage_index = 0;
+      imu_data_awaiting_storage = (uint8_t*)imu_storage_buffer;
+      imu_storage_buffer = (imu_storage_buffer == imu_data_buffer) ? &imu_data_buffer[IMU_BUFFER_MAX_SAMPLES] : &imu_data_buffer[0];
+   }
+}
+
+void storage_handle_imu_data(void)
+{
+   // Check if the IMU data buffer is full and needs to be written to storage
+   if (imu_data_awaiting_storage)
+   {
+      UINT data_written = 0;
+      if (imu_file_open)
+         f_write(&imu_file, (uint8_t*)imu_data_awaiting_storage, sizeof(float) * 3 * IMU_BUFFER_MAX_SAMPLES, &data_written);
+      imu_data_awaiting_storage = NULL;
+   }
 }
 
 uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len)
@@ -783,9 +849,15 @@ void storage_close_audio(void)
 
 void storage_close_imu(void)
 {
-   // Close the currently open IMU file
+   // Check if an IMU file is currently open
    if (imu_file_open)
    {
+      // Drain and write any outstanding IMU data
+      imu_drain_fifo();
+      storage_handle_imu_data();
+      storage_flush_imu_data();
+
+      // Close the currently open IMU file
       f_close(&imu_file);
       imu_file_open = false;
    }
