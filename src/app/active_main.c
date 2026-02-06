@@ -679,3 +679,50 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    storage_close_audio();
    print("INFO: Leaving main deployment activity for Phase #%d\n", phase_index+1);
 }
+
+void pre_active_main(volatile bool *device_activated)
+{
+   // Ensure that a storage directory with the device name exists and is active on the SD card
+   print("INFO: Starting pre-deployment recording activity\n");
+   print("INFO: Validating existence of SD card storage directory...");
+   config_get_device_label(device_label, sizeof(device_label));
+   activation_number = config_get_activation_number();
+   if (device_label[0] == '\0')
+      memcpy(device_label, "Default", sizeof("Default"));
+   const bool success = storage_mkdir(device_label);
+   print("%s\n", success ? "SUCCESS" : "FAILURE");
+
+   // Initialize the correct audio input channel
+   if (config_get_mic_type() == MIC_ANALOG)
+      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
+   else
+      audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS, config_get_mic_amplification_db());
+   const uint32_t num_audio_reads_per_clip = AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS / audio_num_seconds_per_dma();
+   audio_samples_per_dma = audio_num_seconds_per_dma() * AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ;
+   int16_t *audio_buffer;
+   audio_begin_reading();
+
+   // Handling incoming audio clips until the phase has ended or the device has been deactivated
+   led_indicate_clip_begin();
+   storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, rtc_get_timestamp(), false);
+   for (uint32_t num_audio_reads = 0; *device_activated && (num_audio_reads < num_audio_reads_per_clip); )
+   {
+      // Handle any newly available audio data
+      if (audio_error_encountered())
+         system_reset();
+      else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
+      {
+         // Write the audio clip to storage
+         led_indicate_clip_progress();
+         storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, ++num_audio_reads >= num_audio_reads_per_clip);
+      }
+      else
+         system_enter_deep_sleep_mode();
+   }
+   led_indicate_clip_end();
+   storage_close_audio();
+
+   // Close any open storage files and return
+   storage_close();
+   print("INFO: Leaving pre-deployment recording activity\n");
+}

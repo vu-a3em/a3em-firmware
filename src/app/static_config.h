@@ -79,6 +79,9 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define AUDIO_BUFFER_MAX_NUM_SECONDS                    (AUDIO_BUFFER_MAX_SAMPLES / 8000)
 #define AUDIO_DEFAULT_CLIP_LENGTH_SECONDS               10
 
+#define AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS        60
+#define AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ             16000
+
 
 // Audio Encoding Definitions ------------------------------------------------------------------------------------------
 

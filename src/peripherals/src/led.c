@@ -183,7 +183,7 @@ void led_indicate_magnet_presence(bool field_present)
 void led_indicate_activation(bool activated)
 {
    led_off(LED_ALL);
-   for (int i = 0; i < 30; ++i)
+   for (int i = 0; i < 25; ++i)
    {
       led_on(activated ? LED_GREEN : LED_RED);
       system_delay(100000);

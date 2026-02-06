@@ -12,6 +12,7 @@
 static volatile bool magnetic_field_verified, device_activated;
 
 extern void active_main(volatile bool*, int32_t);
+extern void pre_active_main(volatile bool*);
 
 static void magnet_sensor_validated(bool validated)
 {
@@ -153,6 +154,10 @@ int main(void)
       // Verify that the current time is within the deployment start and end times
       if (current_timestamp < config_get_deployment_start_time())
       {
+         // Run continuous recording for 1 minute to allow user to make voice notes
+         pre_active_main(&device_activated);
+         current_timestamp = rtc_get_timestamp();
+
          // Go to sleep until deployment start time
          while (device_activated && (current_timestamp < config_get_deployment_start_time()))
          {
@@ -203,6 +208,14 @@ int main(void)
          }
          else if (vhf_enable_timestamp && (vhf_enable_timestamp > current_timestamp))
          {
+            // If waiting for first phase, run pre-deployment recording activity
+            if (!next_phase)
+            {
+               pre_active_main(&device_activated);
+               current_timestamp = rtc_get_timestamp();
+            }
+
+            // Sleep until the next phase starts
             print("INFO: Sleeping until next deployment phase or VHF radio should be enabled\n");
             while (device_activated && (current_timestamp < vhf_enable_timestamp) && (current_timestamp < next_phase_start_time))
             {
@@ -214,6 +227,14 @@ int main(void)
          }
          else
          {
+            // If waiting for first phase, run pre-deployment recording activity
+            if (!next_phase)
+            {
+               pre_active_main(&device_activated);
+               current_timestamp = rtc_get_timestamp();
+            }
+
+            // Sleep until the next phase starts
             print("INFO: Sleeping until next deployment phase\n");
             while (device_activated && (current_timestamp < next_phase_start_time))
             {
