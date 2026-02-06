@@ -173,13 +173,16 @@ void audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t
    configASSERT0(am_hal_pdm_power_control(audio_handle, AM_HAL_PDM_POWER_ON, false));
 
    // Determine the longest possible DMA period
-   const uint32_t max_seconds_per_dma = AUDIO_BUFFER_MAX_SAMPLES / sample_rate_hz;
+   uint32_t max_seconds_per_dma = AUDIO_BUFFER_MAX_SAMPLES / sample_rate_hz;
    if (max_seconds_per_dma > clip_length_seconds)
       num_samples_per_dma = clip_length_seconds * sample_rate_hz;
-   else if ((clip_length_seconds % max_seconds_per_dma) != 0)
-      num_samples_per_dma = (max_seconds_per_dma - ((max_seconds_per_dma - (clip_length_seconds % max_seconds_per_dma)) / 2)) * sample_rate_hz;
-   else
+   else if ((clip_length_seconds % max_seconds_per_dma) == 0)
       num_samples_per_dma = max_seconds_per_dma * sample_rate_hz;
+   else
+   {
+      do { --max_seconds_per_dma; } while (clip_length_seconds % max_seconds_per_dma);
+      num_samples_per_dma = max_seconds_per_dma * sample_rate_hz;
+   }
 
    // Set up the DMA configuration structure
    pdm_transfer_config.ui32TotalCount = num_samples_per_dma * sizeof(uint32_t);
@@ -308,13 +311,16 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
    configASSERT0(am_hal_audadc_power_control(audio_handle, AM_HAL_SYSCTRL_WAKE, false));
 
    // Determine the longest possible DMA period
-   const uint32_t max_seconds_per_dma = AUDIO_BUFFER_MAX_SAMPLES / sample_rate_hz;
+   uint32_t max_seconds_per_dma = AUDIO_BUFFER_MAX_SAMPLES / sample_rate_hz;
    if (max_seconds_per_dma > clip_length_seconds)
       num_samples_per_dma = clip_length_seconds * sample_rate_hz;
-   else if ((clip_length_seconds % max_seconds_per_dma) != 0)
-      num_samples_per_dma = (max_seconds_per_dma - ((max_seconds_per_dma - (clip_length_seconds % max_seconds_per_dma)) / 2)) * sample_rate_hz;
-   else
+   else if ((clip_length_seconds % max_seconds_per_dma) == 0)
       num_samples_per_dma = max_seconds_per_dma * sample_rate_hz;
+   else
+   {
+      do { --max_seconds_per_dma; } while (clip_length_seconds % max_seconds_per_dma);
+      num_samples_per_dma = max_seconds_per_dma * sample_rate_hz;
+   }
 
    // Set up the trigger timer and DMA configuration structures
    sampling_rate_hz = sample_rate_hz;
