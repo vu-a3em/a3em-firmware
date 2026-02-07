@@ -572,6 +572,7 @@ void storage_init(void)
    memset(audio_directory, 0, sizeof(audio_directory));
    async_write_complete = async_read_complete = card_present = false;
    log_open = file_open = imu_file_open = audio_file_open = false;
+   imu_storage_buffer = imu_data_buffer;
    imu_data_awaiting_storage = NULL;
    audio_directory_timestamp = 0;
    sd_disk_status = STA_NOINIT;
@@ -687,7 +688,6 @@ bool storage_open_imu_file(uint32_t activation_number, const char *device_label,
 
    // Reset the IMU storage buffering details
    imu_storage_index = 0;
-   imu_storage_buffer = imu_data_buffer;
    imu_data_awaiting_storage = NULL;
 
    // Determine if time to create a new audio storage directory
