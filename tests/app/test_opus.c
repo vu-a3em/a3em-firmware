@@ -9,7 +9,7 @@
 
 #define AUDIO_SAMPLING_RATE                     OPUS_REQUIRED_SAMPLE_RATE_HZ
 #define AUDIO_GAIN_DB                           25.0
-#define AUDIO_CLIP_LENGTH_SECONDS               AUDIO_DEFAULT_CLIP_LENGTH_SECONDS
+#define AUDIO_CLIP_LENGTH_SECONDS               70
 #define AUDIO_MIC_TYPE                          MIC_DIGITAL
 
 #define OPUS_BITRATE                            OPUS_DEFAULT_ENCODING_BITRATE
@@ -78,6 +78,7 @@ int main(void)
          if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip))
             printonly("ERROR: Unable to write to Ogg Opus file!\n");
 #else
+         static const opus_frame_t *result_begin, *result_end;
          opusenc_encode(audio_buffer, audio_samples_per_dma, &result_begin, &result_end);
 #endif
 

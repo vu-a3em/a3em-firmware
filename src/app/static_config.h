@@ -103,7 +103,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 // IMU Sampling Definitions --------------------------------------------------------------------------------------------
 
 #define IMU_DEFAULT_SAMPLING_RATE_HZ                    25
-#define IMU_BUFFER_MAX_SAMPLES                          (AUDIO_BUFFER_MAX_SAMPLES / 80)
+#define IMU_BUFFER_MAX_SAMPLES                          ((AUDIO_BUFFER_MAX_SAMPLES / 80) + 100)
 
 
 // Magnetic Sensing Definitions ----------------------------------------------------------------------------------------
