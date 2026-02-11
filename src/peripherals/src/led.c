@@ -133,6 +133,7 @@ void led_indicate_clip_begin(void)
          led_off(LED_GREEN);
          system_delay(20000);
       }
+      led_on(LED_GREEN);
    }
 }
 
