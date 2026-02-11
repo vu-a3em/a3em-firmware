@@ -585,7 +585,7 @@ void storage_init(void)
       .bus_voltage = AM_HAL_HOST_BUS_VOLTAGE_3_3,
       .uhs_mode = AM_HAL_HOST_UHS_SDR50,
       .card_type = AM_HAL_CARD_TYPE_SDHC,
-      .card_power_ctrl_policy = AM_HAL_CARD_PWR_CTRL_NONE, // TODO: TEST OFF
+      .card_power_ctrl_policy = AM_HAL_CARD_PWR_CTRL_SDHC_OFF,
       .callback = sd_card_event_callback,
       .sector_count = 0,
    };
@@ -626,7 +626,10 @@ void storage_deinit(void)
 
    // De-initialize and power down the SD card host
    if (sd_card_host)
+   {
+      am_hal_card_pwrctrl_wakeup(&sd_card);
       sd_card_host->ops->deinit(sd_card_host->pHandle);
+   }
    am_hal_gpio_output_clear(PIN_SD_CARD_ENABLE);
    sd_card_host = NULL;
 
