@@ -14,6 +14,12 @@
 #define MICBIAS_VOLTAGE_MIN        0.9f
 #define MICBIAS_VOLTAGE_MAX        1.5f
 
+#if AUDIO_BUFFER_MAX_SAMPLES >= 65536
+#define ANALOG_AUDIO_BUFFER_MAX_SAMPLES 65535
+#else
+#define ANALOG_AUDIO_BUFFER_MAX_SAMPLES AUDIO_BUFFER_MAX_SAMPLES
+#endif
+
 #define audio_pdm_isr       am_pdm_isr1(PDM_MODULE)
 #define am_pdm_isr1(n)      am_pdm_isr(n)
 #define am_pdm_isr(n)       am_pdm ## n ## _isr
@@ -311,7 +317,7 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
    configASSERT0(am_hal_audadc_power_control(audio_handle, AM_HAL_SYSCTRL_WAKE, false));
 
    // Determine the longest possible DMA period
-   uint32_t max_seconds_per_dma = AUDIO_BUFFER_MAX_SAMPLES / sample_rate_hz;
+   uint32_t max_seconds_per_dma = ANALOG_AUDIO_BUFFER_MAX_SAMPLES / sample_rate_hz;
    if (max_seconds_per_dma > clip_length_seconds)
       num_samples_per_dma = clip_length_seconds * sample_rate_hz;
    else if ((clip_length_seconds % max_seconds_per_dma) == 0)
