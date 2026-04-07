@@ -100,7 +100,7 @@
    97, 98, 99, 100, 101, 102, 103, 104 \
 }
 
-#define am_timer_isr1(n)                 am_timer_isr(n)
-#define am_timer_isr(n)                  am_timer ## n ## _isr
+#define am_timer_isr1(n)                            am_timer_isr(n)
+#define am_timer_isr(n)                             am_timer ## n ## _isr
 
 #endif  // #ifndef __PINOUT_HEADER_H__

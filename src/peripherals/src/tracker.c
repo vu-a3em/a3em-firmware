@@ -1,15 +1,15 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
-#include "henrik.h"
+#include "tracker.h"
 
 
 // Static Global Variables and Definitions -----------------------------------------------------------------------------
 
 #define TX_BUFFER_MAX_BYTES     1023
 
-static henrik_status_data_t status_data;
-static volatile henrik_gps_data_t gps_data;
-static henrik_data_callback_t data_callback;
+static tracker_status_data_t status_data;
+static volatile tracker_gps_data_t gps_data;
+static tracker_data_callback_t data_callback;
 static uint8_t tx_buffer[TX_BUFFER_MAX_BYTES];
 static void *i2c_handle = NULL;
 
@@ -40,10 +40,10 @@ void am_ioslave_ios_isr(void)
       // Handle incoming data based on its type
       const uint8_t *packet = (uint8_t*)am_hal_ios_pui8LRAM;
       const uint8_t data_length = packet[0], message_type = packet[1];
-      if ((message_type == MSG_GPS) && (data_length == sizeof(henrik_gps_data_t)))
-         gps_data = *(const henrik_gps_data_t*)(packet + 1);
+      if ((message_type == MSG_GPS) && (data_length == sizeof(tracker_gps_data_t)))
+         gps_data = *(const tracker_gps_data_t*)(packet + 1);
       else if ((message_type == MSG_STATUS_REQUEST) && (data_length == 1))
-         henrik_send_status_update();
+         tracker_send_status_update();
 
       // Invoke a registered data listener for any received data
       if (data_callback)
@@ -54,7 +54,7 @@ void am_ioslave_ios_isr(void)
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
-void henrik_init(void)
+void tracker_init(void)
 {
    // Initialize peripheral variables
    data_callback = NULL;
@@ -100,7 +100,7 @@ void henrik_init(void)
    NVIC_EnableIRQ(IOSLAVE_IRQn);
 }
 
-void henrik_deinit(void)
+void tracker_deinit(void)
 {
    // Only de-initialize if handle exists
    if (i2c_handle)
@@ -114,13 +114,13 @@ void henrik_deinit(void)
    }
 }
 
-void henrik_register_data_callback(henrik_data_callback_t callback)
+void tracker_register_data_callback(tracker_data_callback_t callback)
 {
    // Register an interrupt handler for incoming communications
    data_callback = callback;
 }
 
-uint32_t henrik_get_current_time(void)
+uint32_t tracker_get_current_time(void)
 {
    // Check if a valid GPS timestamp has been received
    if (gps_data.utc_timestamp)
@@ -140,13 +140,13 @@ uint32_t henrik_get_current_time(void)
    }
 }
 
-void henrik_update_status_data(uint32_t timestamp)
+void tracker_update_status_data(uint32_t timestamp)
 {
    // Simply update the current status data structure
    status_data.utc_timestamp = timestamp;
 }
 
-void henrik_send_alert(const henrik_alert_data_t *alert)
+void tracker_send_alert(const tracker_alert_data_t *alert)
 {
    // Write alert data to the FIFO for host retrieval
    uint32_t num_written = 0;
@@ -154,7 +154,7 @@ void henrik_send_alert(const henrik_alert_data_t *alert)
    alert_host();
 }
 
-void henrik_send_status_update(void)
+void tracker_send_status_update(void)
 {
    // Write status data to the FIFO for host retrieval
    uint32_t num_written = 0;

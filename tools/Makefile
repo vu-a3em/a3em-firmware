@@ -102,7 +102,6 @@ SRC += audio.c
 SRC += battery.c
 SRC += comparator.c
 SRC += digipot.c
-SRC += henrik.c
 SRC += imu.c
 SRC += led.c
 SRC += logging.c
@@ -112,6 +111,7 @@ SRC += rtc.c
 SRC += runtime_config.c
 SRC += storage.c
 SRC += system.c
+SRC += tracker.c
 SRC += vhf.c
 
 .PHONY: all dc_offset

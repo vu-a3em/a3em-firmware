@@ -2,7 +2,6 @@
 
 #include "audio.h"
 #include "battery.h"
-#include "henrik.h"
 #include "imu.h"
 #include "led.h"
 #include "logging.h"
@@ -11,6 +10,7 @@
 #include "rtc.h"
 #include "storage.h"
 #include "system.h"
+#include "tracker.h"
 #include "vhf.h"
 
 
@@ -203,7 +203,7 @@ void system_initialize_peripherals(void)
    rtc_init();
    vhf_init();
    imu_init();
-   henrik_init();
+   tracker_init();
    magnet_sensor_init();
    battery_monitor_init();
    system_enable_interrupts(true);
@@ -218,7 +218,7 @@ void system_deinitialize_peripherals(void)
    storage_deinit();
    audio_deinit();
    am_hal_interrupt_master_disable();
-   henrik_deinit();
+   tracker_deinit();
    imu_deinit();
    magnet_sensor_deinit();
    battery_monitor_deinit();

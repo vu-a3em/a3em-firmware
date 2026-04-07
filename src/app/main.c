@@ -1,5 +1,4 @@
 #include "battery.h"
-#include "henrik.h"
 #include "led.h"
 #include "logging.h"
 #include "magnet.h"
@@ -7,6 +6,7 @@
 #include "rtc.h"
 #include "storage.h"
 #include "system.h"
+#include "tracker.h"
 #include "vhf.h"
 
 static volatile bool magnetic_field_verified, device_activated;
@@ -110,7 +110,7 @@ int main(void)
          {
             // Wait until a valid GPS time has been received
             print("INFO: Obtaining current time from GPS...\n");
-            uint32_t utc_time = henrik_get_current_time();
+            uint32_t utc_time = tracker_get_current_time();
             if (utc_time)
             {
                print("INFO: GPS time obtained: %u\n", utc_time);

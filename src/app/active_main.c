@@ -1,7 +1,6 @@
 #include "audio.h"
 #include "battery.h"
 #include "comparator.h"
-#include "henrik.h"
 #include "imu.h"
 #include "led.h"
 #include "logging.h"
@@ -11,6 +10,7 @@
 #include "silence.h"
 #include "storage.h"
 #include "system.h"
+#include "tracker.h"
 #include "vhf.h"
 
 
@@ -137,7 +137,7 @@ void audio_processing_timer_isr(void)
    num_clips_stored = 0;
 }
 
-static void henrik_data_available(henrik_msg_t message_type, const void *new_data)
+static void tracker_data_available(tracker_msg_t message_type, const void *new_data)
 {
    // Handle the incoming message based on type
    switch (message_type)
@@ -145,7 +145,7 @@ static void henrik_data_available(henrik_msg_t message_type, const void *new_dat
       case MSG_GPS:
       {
          // Sync RTC to GPS time whenever an update is received
-         const henrik_gps_data_t *gps_data = (const henrik_gps_data_t*)new_data;
+         const tracker_gps_data_t *gps_data = (const tracker_gps_data_t*)new_data;
          mram_set_last_known_timestamp(gps_data->utc_timestamp);
          rtc_set_time_from_timestamp(gps_data->utc_timestamp);
          last_height = gps_data->height;
@@ -155,7 +155,7 @@ static void henrik_data_available(henrik_msg_t message_type, const void *new_dat
       }
       case MSG_CONFIG:
          // TODO: Handle configuration change requests
-         //const henrik_config_data_t *config_data = (const henrik_config_data_t*)new_data;
+         //const tracker_config_data_t *config_data = (const tracker_config_data_t*)new_data;
          break;
       default:
          break;
@@ -500,9 +500,9 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    NVIC_SetPriority(TIMER0_IRQn + TIMER_NUMBER_AUDIO_PROCESSING, AUDIO_TIMER_INTERRUPT_PRIORITY);
    NVIC_EnableIRQ(TIMER0_IRQn + TIMER_NUMBER_AUDIO_PROCESSING);
 
-   // Listen for incoming data messages from the Henrik board
+   // Listen for incoming data messages from the GPS Tracker board
    if (config_gps_available())
-      henrik_register_data_callback(henrik_data_available);
+      tracker_register_data_callback(tracker_data_available);
 
    // Enable IMU detection and recording functionality
    in_motion = new_imu_stream = record_imu_with_audio = false;

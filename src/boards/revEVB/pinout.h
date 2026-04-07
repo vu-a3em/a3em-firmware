@@ -54,10 +54,10 @@
 #define PIN_SWO_FUNCTION                            AM_HAL_PIN_28_SWO
 
 // Magnet Sensor
-#define MAG_DETECT_TIMER_NUMBER                     2
 #define PIN_MAG_SENSOR_INP                          66
 #define PIN_MAG_SENSOR_INP2                         49
 #define PIN_MAG_SENSOR_DIS                          65
+#define PIN_MAG_SENSOR_DIS_FUNCTION                 AM_HAL_PIN_65_CT65
 
 // Reference Voltage
 #define DIGIPOT_I2C_NUMBER                          3
@@ -78,14 +78,20 @@
 #define PIN_SD_CARD_DAT3                            87
 
 // Timers
-#define TIMER_NUMBER_AUDIO_PROCESSING               0
+#define TIMER_NUMBER_AUDIO_PROCESSING               00
 #define TIMER_AUDIO_PROCESSING_CLOCK                AM_HAL_TIMER_CLOCK_XT_DIV128
 #define TIMER_AUDIO_PROCESSING_TICK_RATE            (32768 / 128)
+#define TIMER_NUMBER_MAG_DETECT                     02
+#define TIMER_NUMBER_MAG_SAMPLING                   04
+#define TIMER_NUMBER_STATUS_LED                     05
 
 // VHF
 #define PIN_VHF_ENABLE                              34
 
 // Unused pins
 #define UNUSED_PINS                                 {}
+
+#define am_timer_isr1(n)                            am_timer_isr(n)
+#define am_timer_isr(n)                             am_timer ## n ## _isr
 
 #endif  // #ifndef __PINOUT_HEADER_H__
