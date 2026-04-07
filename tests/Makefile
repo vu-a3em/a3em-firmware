@@ -186,6 +186,10 @@ SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/FullyConnectedFu
 SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/NNSupportFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/TransposeFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 SRC += arm_q15_to_float.c
+SRC += arm_hanning_f32.c
+SRC += arm_cmplx_mag_f32.c
+SRC += arm_cmplx_mag_squared_f32.c
+SRC += arm_copy_q15.c
 SRC += arm_mult_f32.c
 SRC += arm_cos_f32.c
 
@@ -256,7 +260,6 @@ SRC += audio.c
 SRC += battery.c
 SRC += comparator.c
 SRC += digipot.c
-SRC += henrik.c
 SRC += imu.c
 SRC += led.c
 SRC += logging.c
@@ -266,6 +269,7 @@ SRC += rtc.c
 SRC += runtime_config.c
 SRC += storage.c
 SRC += system.c
+SRC += tracker.c
 SRC += vhf.c
 
 SRC += fft.c
@@ -276,12 +280,12 @@ SRC += silence.c
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/mcu/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-.PHONY: all program clean ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full henrik imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf
+.PHONY: all program clean ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc silence storage system tracker vhf
 .PRECIOUS: $(CONFIG)/%.axf
 .SECONDEXPANSION:
 
 all:
-	$(error Make targets include: ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full henrik imu led logging magnet mfcc nn power_off rtc_set rtc storage system vhf)
+	$(error Make targets include: ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc silence storage system tracker vhf)
 
 program:
 ifneq ($(BUILT_BY), eclipse)
@@ -341,10 +345,6 @@ full: TARGET = TestFull
 full: SRC += active_main.c main.c
 full: $(CONFIG) $(CONFIG)/active_main.o $(CONFIG)/main.o $(CONFIG)/$$(TARGET).bin program
 
-henrik: TARGET = TestHenrik
-henrik: SRC += test_henrik.c
-henrik: $(CONFIG) $(CONFIG)/test_henrik.o $(CONFIG)/$$(TARGET).bin program
-
 imu: TARGET = TestIMU
 imu: SRC += test_imu.c
 imu: $(CONFIG) $(CONFIG)/test_imu.o $(CONFIG)/$$(TARGET).bin program
@@ -386,6 +386,10 @@ rtc: TARGET = TestRTC
 rtc: SRC += test_rtc.c
 rtc: $(CONFIG) $(CONFIG)/test_rtc.o $(CONFIG)/$$(TARGET).bin program
 
+silence: TARGET = TestSilence
+silence: SRC += test_silence_filter.c
+silence: $(CONFIG) $(CONFIG)/test_silence_filter.o $(CONFIG)/$$(TARGET).bin program
+
 storage: TARGET = TestStorage
 storage: SRC += test_storage.c
 storage: $(CONFIG) $(CONFIG)/test_storage.o $(CONFIG)/$$(TARGET).bin program
@@ -393,6 +397,10 @@ storage: $(CONFIG) $(CONFIG)/test_storage.o $(CONFIG)/$$(TARGET).bin program
 system: TARGET = TestSystem
 system: SRC += test_system.c
 system: $(CONFIG) $(CONFIG)/test_system.o $(CONFIG)/$$(TARGET).bin program
+
+tracker: TARGET = TestTracker
+tracker: SRC += test_tracker.c
+tracker: $(CONFIG) $(CONFIG)/test_tracker.o $(CONFIG)/$$(TARGET).bin program
 
 vhf: TARGET = TestVHF
 vhf: SRC += test_vhf.c
