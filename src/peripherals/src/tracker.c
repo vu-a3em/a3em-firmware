@@ -5,7 +5,8 @@
 
 // Static Global Variables and Definitions -----------------------------------------------------------------------------
 
-#define TX_BUFFER_MAX_BYTES     1023
+#define TX_BUFFER_MAX_BYTES        1023
+#define DIRECT_WRITE_LRAM_BYTES    0x78
 
 static tracker_status_data_t status_data;
 static volatile tracker_gps_data_t gps_data;
@@ -19,9 +20,9 @@ static void *i2c_handle = NULL;
 void alert_host(void)
 {
    // Wake up the host to initiate communications
-   am_hal_gpio_output_set(PIN_EXT_HW_INTERRUPT);
-   am_hal_ios_control(i2c_handle, AM_HAL_IOS_REQ_FIFO_UPDATE_CTR, NULL);
    am_hal_gpio_output_clear(PIN_EXT_HW_INTERRUPT);
+   am_hal_ios_control(i2c_handle, AM_HAL_IOS_REQ_FIFO_UPDATE_CTR, NULL);
+   am_hal_gpio_output_set(PIN_EXT_HW_INTERRUPT);
 }
 
 void am_ioslave_ios_isr(void)
@@ -37,17 +38,22 @@ void am_ioslave_ios_isr(void)
       am_hal_ios_interrupt_service(i2c_handle, status);
    if (status & AM_HAL_IOS_INT_XCMPWR)
    {
-      // Handle incoming data based on its type
+      // Parse the incoming message type and length
       const uint8_t *packet = (uint8_t*)am_hal_ios_pui8LRAM;
-      const uint8_t data_length = packet[0], message_type = packet[1];
+      const uint32_t data_length = IOSLAVE->ADDPTR_b.ADDPTR + 1;
+      const uint8_t message_type = packet[0];
+      if ((data_length == 0) || (data_length > DIRECT_WRITE_LRAM_BYTES))
+         return;
+
+      // Handle incoming data based on its type
       if ((message_type == MSG_GPS) && (data_length == sizeof(tracker_gps_data_t)))
-         gps_data = *(const tracker_gps_data_t*)(packet + 1);
+         gps_data = *(const tracker_gps_data_t*)packet;
       else if ((message_type == MSG_STATUS_REQUEST) && (data_length == 1))
          tracker_send_status_update();
 
       // Invoke a registered data listener for any received data
       if (data_callback)
-         data_callback(message_type, packet + 1);
+         data_callback(message_type, packet);
    }
 }
 
@@ -67,7 +73,7 @@ void tracker_init(void)
    am_hal_ios_config_t i2c_config =
    {
       .ui32InterfaceSelect = AM_HAL_IOS_USE_I2C | AM_HAL_IOS_I2C_ADDRESS(EXT_HW_I2C_ADDRESS << 1),
-      .ui32ROBase = 0x78,
+      .ui32ROBase = DIRECT_WRITE_LRAM_BYTES,
       .ui32FIFOBase = 0x80,
       .ui32RAMBase = 0x100,
       .ui32FIFOThreshold = 0x40,
@@ -122,22 +128,28 @@ void tracker_register_data_callback(tracker_data_callback_t callback)
 
 uint32_t tracker_get_current_time(void)
 {
-   // Check if a valid GPS timestamp has been received
+   // Check for a newly received GPS timestamp
+   uint32_t timestamp = 0;
+   AM_CRITICAL_BEGIN
    if (gps_data.utc_timestamp)
    {
-      const uint32_t timestamp = gps_data.utc_timestamp;
+      timestamp = gps_data.utc_timestamp;
       gps_data.utc_timestamp = 0;
-      return timestamp;
    }
-   else
+   AM_CRITICAL_END
+
+   // Request a timestamp if one is not available
+   if (!timestamp)
    {
       // Request a new GPS timestamp (ensure in UTC and not GPS time)
       uint32_t num_written = 0;
       const uint8_t gps_request_msg = MSG_GPS_REQUEST;
       am_hal_ios_fifo_write(i2c_handle, (uint8_t*)&gps_request_msg, sizeof(gps_request_msg), &num_written);
       alert_host();
-      return 0;
    }
+
+   // Return the contents of the timestamp variable
+   return timestamp;
 }
 
 void tracker_update_status_data(uint32_t timestamp)
