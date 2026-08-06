@@ -21,6 +21,11 @@ bool storage_write(const void *data, uint32_t data_len);
 bool storage_write_audio(const void *data, uint32_t data_len, bool is_last_packet);
 void storage_write_log(const char *fmt, ...);
 void storage_flush_log(void);
+void storage_get_error_counts(uint32_t *read_errors, uint32_t *write_errors, uint32_t *timeouts);
+uint32_t storage_get_free_space_mb(void);
+bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime,
+                               const char *device_uid, uint32_t activation_number, uint32_t timestamp,
+                               uint32_t battery_mv, const char *last_deactivation_reason);
 void storage_write_imu_data(float accel_x_mg, float accel_y_mg, float accel_z_mg);
 void storage_handle_imu_data(void);
 uint32_t storage_read(uint8_t *read_buffer, uint32_t buffer_len);

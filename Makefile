@@ -25,8 +25,16 @@ FABI = hard
 FLASH_START = 0x00018000
 ID_FLASH_LOCATION = 0x001FFFF8
 
+# Firmware version. Bump FW_VERSION for every release; the git hash and dirty flag are
+# appended automatically so any device in the field can be traced back to a commit.
+# The management dashboard matches firmware capability profiles on the part before "+".
+FW_VERSION := 2026.08.1
+GIT_HASH := $(shell git -C $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST))))) rev-parse --short HEAD 2>/dev/null || echo nogit)
+GIT_DIRTY := $(shell git -C $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST))))) diff --quiet HEAD 2>/dev/null || echo -dirty)
+
 DEFINES  = -D_HW_REVISION=$(REVISION)
 DEFINES += -D_DATETIME="\"$(shell date -u)\""
+DEFINES += -D_FW_VERSION="\"$(FW_VERSION)+$(GIT_HASH)$(GIT_DIRTY)\""
 DEFINES += -DPART_$(PART)
 DEFINES += -D$(PART_DEF)
 DEFINES += -DAM_PACKAGE_BGA

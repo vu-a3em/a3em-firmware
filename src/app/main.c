@@ -1,3 +1,8 @@
+#include <stdio.h>
+
+#define _STRINGIFY_INNER(x)  #x
+#define _STRINGIFY(x)        _STRINGIFY_INNER(x)
+
 #include "battery.h"
 #include "led.h"
 #include "logging.h"
@@ -57,14 +62,32 @@ int main(void)
    static uint8_t device_id[DEVICE_ID_LEN];
    system_read_ID(device_id, sizeof(device_id));
    system_initialize_peripherals();
-   print("\nINFO: System hardware initialized, UID = ");
-   for (size_t i = DEVICE_ID_LEN - 1; i > 0; --i)
-      print("%02X:", device_id[i]);
-   print("%02X\n", device_id[0]);
+
+   // Format the device UID once, for both the log and the device info file
+   char device_uid[(3 * DEVICE_ID_LEN) + 1] = { 0 };
+   for (size_t i = 0; i < DEVICE_ID_LEN; ++i)
+      snprintf(device_uid + (3 * i), sizeof(device_uid) - (3 * i),
+               (i + 1 < DEVICE_ID_LEN) ? "%02X:" : "%02X", device_id[DEVICE_ID_LEN - 1 - i]);
+
+   print("\nINFO: System hardware initialized, UID = %s\n", device_uid);
+   print("INFO: Firmware version %s (hardware revision %s, built %s)\n",
+         _FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME);
+   print("INFO: Last deactivation reason: %s\n",
+         mram_deactivation_reason_name(mram_get_deactivation_reason()));
 
    // Retrieve the runtime configuration from storage
    bool success = fetch_runtime_configuration();
    print("INFO: Fetching runtime configuration...%s\n", success ? "SUCCESS" : "FAILURE");
+
+   // Record device identity and last-known state where the dashboard can read it
+   // without parsing a multi-megabyte log. Rewritten on every boot, so always current.
+   if (!storage_sd_card_error())
+   {
+      storage_write_device_info(_FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, device_uid,
+                                config_get_activation_number(), rtc_get_timestamp(),
+                                battery_monitor_get_details().millivolts,
+                                mram_deactivation_reason_name(mram_get_deactivation_reason()));
+   }
    const bool use_magnetic_activation = config_awake_on_magnet();
    if (storage_sd_card_error())
       led_indicate_sd_card_error();
@@ -79,6 +102,7 @@ int main(void)
    // Reboot after 15 seconds if missing SD card or configuration file
    if (storage_sd_card_error() || !success)
    {
+      mram_set_deactivation_reason(DEACTIVATION_STORAGE_ERROR);
       system_enter_power_off_mode(PIN_MAG_SENSOR_INP, rtc_get_timestamp() + 15, false);
       system_reset();
    }
@@ -90,6 +114,7 @@ int main(void)
       const uint32_t current_timestamp = rtc_get_timestamp();
       const uint32_t vhf_enable_timestamp = config_get_vhf_start_timestamp();
       print("WARNING: Battery low @ %u...shutting down for 1 hour\n", current_timestamp);
+      mram_set_deactivation_reason(DEACTIVATION_BATTERY_LOW);
       const bool vhf_enabled = config_is_device_activated() && vhf_enable_timestamp && (current_timestamp >= vhf_enable_timestamp);
       if (vhf_enabled)
          vhf_activate();
@@ -172,6 +197,7 @@ int main(void)
       {
          // Go to sleep forever or until time for the VHF radio to be activated
          print("INFO: Deployment is COMPLETED\n");
+         mram_set_deactivation_reason(DEACTIVATION_DEPLOYMENT_ENDED);
          system_enter_power_off_mode(use_magnetic_activation ? PIN_MAG_SENSOR_INP : 0, (current_timestamp >= vhf_enable_timestamp) ? 0 : vhf_enable_timestamp, use_magnetic_activation);
          if (use_magnetic_activation)
             handle_magnetic_field(false, true);
@@ -203,6 +229,7 @@ int main(void)
             if (use_magnetic_activation && !device_activated)
             {
                print("INFO: Device was magnetically deactivated!\n");
+               mram_set_deactivation_reason(DEACTIVATION_MAGNET);
                config_set_activation_status(false);
             }
          }

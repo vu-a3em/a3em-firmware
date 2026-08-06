@@ -40,6 +40,20 @@ static audio_mic_type_t microphone_type;
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
+uint32_t config_time_scale_seconds(time_scale_t scale)
+{
+   // Shared by the configuration echo and the audio scheduling logic, which each had
+   // their own copy of this mapping.
+   switch (scale)
+   {
+      case SECONDS:  return 1;
+      case MINUTES:  return 60;
+      case HOURS:    return 3600;
+      case DAYS:     return 86400;
+      default:       return 1;
+   }
+}
+
 static audio_recording_mode_t parse_audio_recording_mode(const char *value)
 {
    if (memcmp(value, "AMPLITUDE", sizeof("AMPLITUDE")) == 0)
@@ -94,11 +108,35 @@ static void parse_line(char *line, int32_t line_length)
       line[i] = 0;
    else if (memcmp(key, "[PHASE]", sizeof("[PHASE]")-1) == 0)
    {
+      // Bounds check before indexing. Without this a config containing more phases
+      // than the array holds writes past the end of it, corrupting whatever follows
+      // rather than failing cleanly.
+      if ((num_deployment_phases + 1) >= MAX_NUM_DEPLOYMENT_PHASES)
+      {
+         print("ERROR: Configuration contains more than %d deployment phases, ignoring the rest\n",
+               MAX_NUM_DEPLOYMENT_PHASES);
+         return;
+      }
       deployment_phases[++num_deployment_phases].phase_time.start_time = deployment_time.start_time;
       deployment_phases[num_deployment_phases].phase_time.end_time = deployment_time.end_time;
    }
    else
       return;
+
+   // Every key below indexes deployment_phases[], so a key appearing before the first
+   // [PHASE] marker would index -1. Ignore anything that arrives too early.
+   if ((num_deployment_phases < 0) && (memcmp(key, "PHASE_", sizeof("PHASE_")-1) == 0 ||
+                                       memcmp(key, "AUDIO_", sizeof("AUDIO_")-1) == 0 ||
+                                       memcmp(key, "IMU_", sizeof("IMU_")-1) == 0 ||
+                                       memcmp(key, "SILENCE_THRESHOLD", sizeof("SILENCE_THRESHOLD")-1) == 0 ||
+                                       memcmp(key, "MIN_FREQUENCY", sizeof("MIN_FREQUENCY")-1) == 0 ||
+                                       memcmp(key, "MAX_FREQUENCY", sizeof("MAX_FREQUENCY")-1) == 0 ||
+                                       memcmp(key, "USE_OPUS", sizeof("USE_OPUS")-1) == 0 ||
+                                       memcmp(key, "OPUS_BITRATE", sizeof("OPUS_BITRATE")-1) == 0))
+   {
+      print("ERROR: Configuration key appears before any [PHASE] section and was ignored\n");
+      return;
+   }
 
    // Parse the configuration item according to its key
    if (memcmp(key, "DEVICE_LABEL", sizeof("DEVICE_LABEL")-1) == 0)
@@ -155,13 +193,29 @@ static void parse_line(char *line, int32_t line_length)
       deployment_phases[num_deployment_phases].audio_trigger_interval = strtoul(value, NULL, 10);
    else if (memcmp(key, "AUDIO_TRIGGER_SCHEDULE", sizeof("AUDIO_TRIGGER_SCHEDULE")-1) == 0)
    {
+      // Bounds check before the post-increment, for the same reason as [PHASE] above.
+      uint32_t *num_times = &deployment_phases[num_deployment_phases].num_audio_trigger_times;
+      if (*num_times >= MAX_AUDIO_TRIGGER_TIMES)
+      {
+         print("ERROR: Phase has more than %d listening windows, ignoring the rest\n",
+               MAX_AUDIO_TRIGGER_TIMES);
+         return;
+      }
+
+      // Guard the separator scan as well: without a '-' this walks off the end of the
+      // buffer looking for one.
       char *end_time = value;
-      while (*end_time != '-')
+      while (*end_time && (*end_time != '-'))
          end_time += 1;
+      if (!*end_time)
+      {
+         print("ERROR: Malformed listening window \"%s\", expected START-END\n", value);
+         return;
+      }
       *end_time = 0;
       end_time += 1;
-      deployment_phases[num_deployment_phases].audio_trigger_times[deployment_phases[num_deployment_phases].num_audio_trigger_times].start_time = strtoul(value, NULL, 10);
-      deployment_phases[num_deployment_phases].audio_trigger_times[deployment_phases[num_deployment_phases].num_audio_trigger_times++].end_time = strtoul(end_time, NULL, 10);
+      deployment_phases[num_deployment_phases].audio_trigger_times[*num_times].start_time = strtoul(value, NULL, 10);
+      deployment_phases[num_deployment_phases].audio_trigger_times[(*num_times)++].end_time = strtoul(end_time, NULL, 10);
    }
    else if (memcmp(key, "AUDIO_SAMPLING_RATE_HZ", sizeof("AUDIO_SAMPLING_RATE_HZ")-1) == 0)
    {
@@ -189,6 +243,86 @@ static void parse_line(char *line, int32_t line_length)
       deployment_phases[num_deployment_phases].use_opus_encoding = (memcmp(value, "True", sizeof("True")-1) == 0);
    else if (memcmp(key, "OPUS_BITRATE", sizeof("OPUS_BITRATE")-1) == 0)
       deployment_phases[num_deployment_phases].opus_encoding_bitrate = strtol(value, NULL, 10);
+}
+
+
+static const char* audio_mode_name(audio_recording_mode_t mode)
+{
+   switch (mode)
+   {
+      case AMPLITUDE:  return "AMPLITUDE";
+      case SCHEDULED:  return "SCHEDULED";
+      case INTERVAL:   return "INTERVAL";
+      default:         return "CONTINUOUS";
+   }
+}
+
+static const char* imu_mode_name(imu_recording_mode_t mode)
+{
+   switch (mode)
+   {
+      case ACTIVITY:   return "ACTIVITY";
+      case AUDIO:      return "AUDIO";
+      default:         return "NONE";
+   }
+}
+
+static void log_effective_configuration(void)
+{
+   // Record the settings the device will ACTUALLY run, after every override and clamp
+   // has been applied.
+   //
+   // Several config values are silently rewritten during parsing: Opus forces the
+   // sampling rate to 48 kHz, the maximum frequency is clamped below Nyquist, and a
+   // phase without explicit times inherits the whole deployment window. Until now
+   // there was no way to tell from a returned card what the device believed it was
+   // doing, which makes an entire class of configuration bug invisible after the fact.
+   print("INFO: Effective configuration:\n");
+   print("   Device Label: %s\n", device_label);
+   print("   UTC Offset (s): %d\n", (int)utc_offset);
+   print("   Deployment: %u to %u\n", deployment_time.start_time, deployment_time.end_time);
+   print("   Microphone: %s @ %d.%02d dB\n", (microphone_type == MIC_ANALOG) ? "ANALOG" : "DIGITAL",
+         (int)microphone_amplification_db,
+         (int)((microphone_amplification_db - (int)microphone_amplification_db) * 100.0f));
+   print("   Magnet Activation: %s (validation %u ms, lockout %u s)\n",
+         awake_on_magnet ? "True" : "False", magnetic_field_validation_length_ms,
+         deactivation_forbidden_length_seconds);
+   print("   LEDs: %s (%u s)\n", leds_enabled ? "True" : "False", leds_active_seconds);
+   print("   Battery Cutoff (mV): %u\n", battery_level_low);
+   print("   VHF: %s (start %u)\n", vhf_enabled ? "ENABLED" : "NEVER", vhf_start_timestamp);
+   print("   Phases: %d\n", (int)num_deployment_phases);
+   for (int32_t i = 0; i < num_deployment_phases; ++i)
+   {
+      const deployment_phase_t *phase = &deployment_phases[i];
+      print("   [Phase %d] %u to %u\n", (int)(i + 1), phase->phase_time.start_time, phase->phase_time.end_time);
+      print("      Audio: %s, %u Hz, %u s clips%s\n", audio_mode_name(phase->audio_recording_mode),
+            phase->audio_sampling_rate, phase->audio_clip_length,
+            phase->extend_clip_if_continuous_audio ? ", extend on continuous" : "");
+      if (phase->use_opus_encoding)
+         print("      Encoding: OPUS @ %d bps\n", (int)phase->opus_encoding_bitrate);
+      else
+         print("      Encoding: WAV\n");
+      if (phase->audio_recording_mode == AMPLITUDE)
+         print("      Trigger: %d/1000 of full scale, max %u clips per %u s\n",
+               (int)(phase->audio_trigger_threshold * 1000.0f), phase->max_audio_clips,
+               config_time_scale_seconds(phase->max_clips_time_scale));
+      else if (phase->audio_recording_mode == INTERVAL)
+         print("      Interval: every %u s\n",
+               phase->audio_trigger_interval * config_time_scale_seconds(phase->audio_trigger_interval_time_scale));
+      else if (phase->audio_recording_mode == SCHEDULED)
+      {
+         print("      Listening windows: %u\n", phase->num_audio_trigger_times);
+         for (uint32_t w = 0; w < phase->num_audio_trigger_times; ++w)
+            print("         %u-%u\n", phase->audio_trigger_times[w].start_time,
+                  phase->audio_trigger_times[w].end_time);
+      }
+      print("      Frequencies: %u-%u Hz, silence threshold %d/1000\n",
+            phase->frequencies_of_interest.min_frequency, phase->frequencies_of_interest.max_frequency,
+            (int)(phase->silence_threshold * 1000.0f));
+      print("      IMU: %s, %u Hz, %u DoF, threshold %d/1000\n", imu_mode_name(phase->imu_recording_mode),
+            phase->imu_sampling_rate, phase->imu_degrees_of_freedom,
+            (int)(phase->imu_trigger_threshold * 1000.0f));
+   }
 }
 
 
@@ -272,6 +406,7 @@ bool fetch_runtime_configuration(void)
 
    // Return whether configuration parsing was successful
    ++num_deployment_phases;
+   log_effective_configuration();
    return success;
 }
 

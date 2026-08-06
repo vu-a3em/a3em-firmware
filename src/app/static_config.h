@@ -38,6 +38,19 @@
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define LOG_FILE_NAME                               "a3em.log"
+#define DEVICE_INFO_FILE_NAME                       "_a3em.dev"
+
+// Firmware version, supplied by the Makefile as "<version>+<githash>[-dirty]".
+// Fallback exists only so the tree still compiles outside the normal build.
+#ifndef _FW_VERSION
+#define _FW_VERSION                                 "unknown"
+#endif
+
+// Expected range of the analog microphone DC offset. A healthy path sits near mid-
+// scale; a disconnected or shorted microphone sits at a rail. Used to log a pass/fail
+// verdict so the microphone path can be verified after assembly.
+#define MIC_DC_OFFSET_NOMINAL                       32768
+#define MIC_DC_OFFSET_TOLERANCE                     4000
 
 #ifndef MIN
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))

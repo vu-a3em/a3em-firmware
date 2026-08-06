@@ -6,9 +6,28 @@
 #include "runtime_config.h"
 
 
+// Peripheral Type Definitions -----------------------------------------------------------------------------------------
+
+// Why the device last stopped recording. Persisted across the power cycle so that a
+// returned card answers "why did it stop", which is the first question asked of any
+// device that came back early. Values are stable: the dashboard stores them.
+typedef enum {
+   DEACTIVATION_UNKNOWN = 0,
+   DEACTIVATION_MAGNET,
+   DEACTIVATION_BATTERY_LOW,
+   DEACTIVATION_PHASE_ENDED,
+   DEACTIVATION_DEPLOYMENT_ENDED,
+   DEACTIVATION_RTC_STOPPED,
+   DEACTIVATION_STORAGE_ERROR
+} deactivation_reason_t;
+
+
 // Public API Functions ------------------------------------------------------------------------------------------------
 
 void mram_init(void);
+bool mram_set_deactivation_reason(deactivation_reason_t reason);
+deactivation_reason_t mram_get_deactivation_reason(void);
+const char* mram_deactivation_reason_name(deactivation_reason_t reason);
 void mram_deinit(void);
 bool mram_set_activated(bool activated, uint32_t deployment_time);
 bool mram_is_activated(void);

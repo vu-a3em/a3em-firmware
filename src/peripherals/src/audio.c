@@ -403,6 +403,21 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
    dc_offset <<= 4;
    print("INFO: Analog microphone DC offset calculated: %u\n", dc_offset);
 
+   // Report a verdict on the microphone signal path.
+   //
+   // A healthy analog path settles near mid-scale; a disconnected or shorted
+   // microphone sits at a rail. This is the only automatic check available that the
+   // microphone survived assembly, and broken microphone wiring has already cost at
+   // least one deployment. The measurement was always here -- only the verdict is new.
+   const int32_t dc_deviation = abs((int32_t)dc_offset - MIC_DC_OFFSET_NOMINAL);
+   if (dc_deviation <= MIC_DC_OFFSET_TOLERANCE)
+      print("INFO: Microphone check: dc_offset=%u expected=%d+/-%d result=PASS\n",
+            dc_offset, MIC_DC_OFFSET_NOMINAL, MIC_DC_OFFSET_TOLERANCE);
+   else
+      print("ERROR: Microphone check: dc_offset=%u expected=%d+/-%d result=FAIL "
+            "(check microphone wiring and connector)\n",
+            dc_offset, MIC_DC_OFFSET_NOMINAL, MIC_DC_OFFSET_TOLERANCE);
+
    // Optionally connect the audio input to a comparator
    if (trigger == COMPARATOR_THRESHOLD)
       comparator_init(false, 0, trigger_threshold_percent, true);

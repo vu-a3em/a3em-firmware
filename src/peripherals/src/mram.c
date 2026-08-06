@@ -23,6 +23,12 @@ typedef struct __attribute__((packed, aligned(16))) {
       uint32_t last_known_timestamp_addr[4];
       uint32_t last_known_timestamp;
    };
+   // Each union is a 16-byte MRAM programming granule. Four granules is 64 bytes,
+   // within the 120-byte PERSISTENT region reserved by the linker script.
+   union {
+      uint32_t deactivation_reason_addr[4];
+      uint32_t deactivation_reason;
+   };
 } persistent_data_t;
 
 static persistent_data_t persistent_data;
@@ -103,4 +109,40 @@ int32_t mram_get_audadc_dc_offset(void)
 {
    // Return the AUDADC DC offset value
    return persistent_data.audadc_dc_offset;
+}
+
+bool mram_set_deactivation_reason(deactivation_reason_t reason)
+{
+   // Store why the device stopped recording, so it survives the power cycle and can be
+   // reported on the card at the next boot
+   int result = -1;
+   persistent_data.deactivation_reason = (uint32_t)reason;
+   uint8_t *src = (uint8_t*)persistent_data.deactivation_reason_addr;
+   uint8_t *dst = (uint8_t*)_persistent_base_address + offsetof(persistent_data_t, deactivation_reason_addr);
+   AM_CRITICAL_BEGIN
+   result = am_hal_mram_main_program(AM_HAL_MRAM_PROGRAM_KEY, (uint32_t*)src, (uint32_t*)dst, sizeof(persistent_data.deactivation_reason_addr) / sizeof(uint32_t));
+   AM_CRITICAL_END
+   return (result == 0);
+}
+
+deactivation_reason_t mram_get_deactivation_reason(void)
+{
+   // Return the last stored deactivation reason, treating anything unrecognized as
+   // unknown so that an erased or never-written MRAM reads sensibly
+   const uint32_t reason = persistent_data.deactivation_reason;
+   return (reason <= DEACTIVATION_STORAGE_ERROR) ? (deactivation_reason_t)reason : DEACTIVATION_UNKNOWN;
+}
+
+const char* mram_deactivation_reason_name(deactivation_reason_t reason)
+{
+   switch (reason)
+   {
+      case DEACTIVATION_MAGNET:            return "MAGNET";
+      case DEACTIVATION_BATTERY_LOW:       return "BATTERY_LOW";
+      case DEACTIVATION_PHASE_ENDED:       return "PHASE_ENDED";
+      case DEACTIVATION_DEPLOYMENT_ENDED:  return "DEPLOYMENT_ENDED";
+      case DEACTIVATION_RTC_STOPPED:       return "RTC_STOPPED";
+      case DEACTIVATION_STORAGE_ERROR:     return "STORAGE_ERROR";
+      default:                             return "UNKNOWN";
+   }
 }

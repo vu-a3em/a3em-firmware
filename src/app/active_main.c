@@ -25,6 +25,13 @@ static bool record_imu_with_audio, use_silence_filter;
 static char device_label[MAX_DEVICE_LABEL_LEN];
 static uint8_t imu_degrees_of_freedom;
 
+// Running totals for the end-of-phase summary. Answering "did this deployment work?"
+// currently means scanning thousands of periodic detail blocks; these turn it into a
+// single line per phase.
+static uint32_t phase_clips_written, phase_start_timestamp;
+static uint32_t phase_battery_mv_min, phase_battery_mv_max;
+static float phase_temperature_min, phase_temperature_max;
+
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
@@ -44,12 +51,27 @@ static void validate_device_settings(uint32_t current_timestamp)
    // Check if the battery voltage is too low to continue
    const battery_result_t battery_details = battery_monitor_get_details();
    phase_ended = (battery_details.millivolts <= config_get_battery_mV_low());
+   if (phase_ended)
+      mram_set_deactivation_reason(DEACTIVATION_BATTERY_LOW);
+
+   // Accumulate the phase summary statistics
+   if (!phase_battery_mv_min || (battery_details.millivolts < phase_battery_mv_min))
+      phase_battery_mv_min = battery_details.millivolts;
+   if (battery_details.millivolts > phase_battery_mv_max)
+      phase_battery_mv_max = battery_details.millivolts;
+   if (battery_details.celcius < phase_temperature_min)
+      phase_temperature_min = battery_details.celcius;
+   if (battery_details.celcius > phase_temperature_max)
+      phase_temperature_max = battery_details.celcius;
 
    // Check if the current phase has ended or if it is time to activate the VHF radio
    static uint32_t previous_timestamp = 0;
    uint32_t wakeup_timestamp = MIN(current_timestamp + MIN_LOG_DATA_INTERVAL_SECONDS, phase_end_timestamp);
    if (current_timestamp >= phase_end_timestamp)
+   {
       phase_ended = true;
+      mram_set_deactivation_reason(DEACTIVATION_PHASE_ENDED);
+   }
    else if (vhf_enable_timestamp)
    {
       if (current_timestamp >= vhf_enable_timestamp)
@@ -78,10 +100,18 @@ static void validate_device_settings(uint32_t current_timestamp)
    {
       print("ERROR: RTC appears to have stopped ticking...resetting device\n");
       phase_ended = true;
+      mram_set_deactivation_reason(DEACTIVATION_RTC_STOPPED);
    }
    previous_timestamp = current_timestamp;
 
-   // Log relevant current device information
+   // Log relevant current device information.
+   //
+   // Free space and the SD error counters are included because corrupt files and
+   // partial data loss are the most common field failure, and neither had any on-card
+   // evidence. Errors are counted at the disk layer, which cannot log for itself
+   // without re-entering the filesystem.
+   uint32_t read_errors = 0, write_errors = 0, timeout_errors = 0;
+   storage_get_error_counts(&read_errors, &write_errors, &timeout_errors);
    mram_set_last_known_timestamp(current_timestamp);
    print("INFO: Current Device Details:\n"
          "   UTC Timestamp: %u\n"
@@ -89,9 +119,12 @@ static void validate_device_settings(uint32_t current_timestamp)
          "   Temperature (C): %0.2f\n"
          "   Location: [%0.6f, %0.6f, %0.2f]\n"
          "   LEDs Active: %s\n"
-         "   VHF Active: %s\n",
+         "   VHF Active: %s\n"
+         "   SD Free (MB): %u\n"
+         "   SD Errors (read/write/timeout): %u/%u/%u\n",
          current_timestamp, battery_details.millivolts, battery_details.celcius,
-         last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False");
+         last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False",
+         storage_get_free_space_mb(), read_errors, write_errors, timeout_errors);
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time
@@ -388,8 +421,13 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
       if (validation_time)
          validate_device_settings(current_time);
 
-      // Determine if time to start listening for a new audio clip
-      if (!awaiting_trigger && !audio_clip_in_progress && (num_clips_stored < max_clips))
+      // Determine if time to start listening for a new audio clip.
+      //
+      // A max_clips of zero means UNLIMITED. It previously meant "never arm the
+      // trigger", because num_clips_stored starts at zero and 0 < 0 is false -- so a
+      // threshold-based deployment configured with the default cap recorded nothing at
+      // all for its entire duration.
+      if (!awaiting_trigger && !audio_clip_in_progress && (!max_clips || (num_clips_stored < max_clips)))
       {
          audio_begin_reading();
          awaiting_trigger = true;
@@ -437,6 +475,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
             audio_stop_reading();
             num_audio_reads = 0;
             ++num_clips_stored;
+            ++phase_clips_written;
             storage_close_audio();
 
             // Stop reading IMU data if enabled
@@ -460,6 +499,12 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
 {
    // Ensure that a storage directory with the device name exists and is active on the SD card
    print("INFO: Starting main deployment activity for Phase #%d\n", phase_index+1);
+
+   // Reset the phase summary accumulators
+   phase_start_timestamp = rtc_get_timestamp();
+   phase_clips_written = phase_battery_mv_min = phase_battery_mv_max = 0;
+   phase_temperature_min = 1000.0f;
+   phase_temperature_max = -1000.0f;
    print("INFO: Validating existence of SD card storage directory...");
    config_get_device_label(device_label, sizeof(device_label));
    activation_number = config_get_activation_number();
@@ -511,8 +556,10 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    switch (config_get_imu_recording_mode(phase_index))
    {
       case ACTIVITY:
-         // TODO: Use this: float motion_trigger_threshold = config_get_imu_trigger_threshold_level(phase_index);
-         imu_enable_motion_change_detection(true, imu_motion_change_callback);
+         // Motion sensitivity, as a fraction of the accelerometer full scale. This was
+         // previously a fixed default and the configured value was ignored entirely.
+         imu_enable_motion_change_detection(true, config_get_imu_trigger_threshold_level(phase_index),
+                                            imu_motion_change_callback);
          break;
       case AUDIO:
          record_imu_with_audio = true;
@@ -612,6 +659,28 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    storage_close();
    storage_close_imu();
    storage_close_audio();
+   // Summarize what the phase actually did.
+   //
+   // Every figure here was already tracked or trivially derivable, but answering "did
+   // this deployment work?" previously meant scanning thousands of periodic detail
+   // blocks. One line per phase replaces that.
+   uint32_t read_errors = 0, write_errors = 0, timeout_errors = 0;
+   storage_get_error_counts(&read_errors, &write_errors, &timeout_errors);
+   const uint32_t phase_duration = rtc_get_timestamp() - phase_start_timestamp;
+   print("INFO: Phase #%d summary:\n"
+         "   Clips Written: %u\n"
+         "   Duration (s): %u\n"
+         "   Battery (mV): %u to %u\n"
+         "   Temperature (C): %0.2f to %0.2f\n"
+         "   SD Free (MB): %u\n"
+         "   SD Errors (read/write/timeout): %u/%u/%u\n"
+         "   Stop Reason: %s\n",
+         phase_index+1, phase_clips_written, phase_duration,
+         phase_battery_mv_min, phase_battery_mv_max,
+         (phase_temperature_min > 999.0f) ? 0.0f : phase_temperature_min,
+         (phase_temperature_max < -999.0f) ? 0.0f : phase_temperature_max,
+         storage_get_free_space_mb(), read_errors, write_errors, timeout_errors,
+         mram_deactivation_reason_name(mram_get_deactivation_reason()));
    print("INFO: Leaving main deployment activity for Phase #%d\n", phase_index+1);
 }
 
