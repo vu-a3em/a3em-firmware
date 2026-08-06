@@ -88,6 +88,21 @@ static time_scale_t parse_time_scale(const char *value)
       return MINUTES;
 }
 
+static bool is_phase_scoped_key(const char *key)
+{
+   // Keys that live inside a [PHASE] section and therefore index deployment_phases[].
+   // Kept out of parse_line() so the prefix comparisons here are not mistaken for
+   // configuration keys by tooling that scans the parser.
+   static const char *const phase_prefixes[] = {
+      "PHASE_", "AUDIO_", "IMU_", "SILENCE_THRESHOLD",
+      "MIN_FREQUENCY", "MAX_FREQUENCY", "USE_OPUS", "OPUS_BITRATE"
+   };
+   for (size_t i = 0; i < (sizeof(phase_prefixes) / sizeof(phase_prefixes[0])); ++i)
+      if (memcmp(key, phase_prefixes[i], strlen(phase_prefixes[i])) == 0)
+         return true;
+   return false;
+}
+
 static void parse_line(char *line, int32_t line_length)
 {
    // Return if not a valid line
@@ -123,16 +138,9 @@ static void parse_line(char *line, int32_t line_length)
    else
       return;
 
-   // Every key below indexes deployment_phases[], so a key appearing before the first
-   // [PHASE] marker would index -1. Ignore anything that arrives too early.
-   if ((num_deployment_phases < 0) && (memcmp(key, "PHASE_", sizeof("PHASE_")-1) == 0 ||
-                                       memcmp(key, "AUDIO_", sizeof("AUDIO_")-1) == 0 ||
-                                       memcmp(key, "IMU_", sizeof("IMU_")-1) == 0 ||
-                                       memcmp(key, "SILENCE_THRESHOLD", sizeof("SILENCE_THRESHOLD")-1) == 0 ||
-                                       memcmp(key, "MIN_FREQUENCY", sizeof("MIN_FREQUENCY")-1) == 0 ||
-                                       memcmp(key, "MAX_FREQUENCY", sizeof("MAX_FREQUENCY")-1) == 0 ||
-                                       memcmp(key, "USE_OPUS", sizeof("USE_OPUS")-1) == 0 ||
-                                       memcmp(key, "OPUS_BITRATE", sizeof("OPUS_BITRATE")-1) == 0))
+   // Every phase-scoped key indexes deployment_phases[], so one appearing before the
+   // first [PHASE] marker would index -1.
+   if ((num_deployment_phases < 0) && is_phase_scoped_key(key))
    {
       print("ERROR: Configuration key appears before any [PHASE] section and was ignored\n");
       return;
