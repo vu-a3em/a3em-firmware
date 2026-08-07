@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "audio_filter.h"
 #include "battery.h"
 #include "comparator.h"
 #include "imu.h"
@@ -579,6 +580,16 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    // Set up the silence detection filter if enabled
    use_silence_filter = config_get_silence_filter_threshold(phase_index) > 0.0f;
    const uint32_t audio_sampling_rate_hz = config_get_audio_sampling_rate_hz(phase_index);
+
+   // Set up band-limiting of the recorded audio, which is separate from silence
+   // detection: this alters what is stored, that only decides whether to store it.
+   const audio_filter_type_t filter_type = config_get_audio_filter_type(phase_index);
+   const frequency_range_t filter_range = config_get_audio_filter_range(phase_index);
+   audio_filter_initialize(filter_type, audio_sampling_rate_hz,
+                           filter_range.min_frequency, filter_range.max_frequency);
+   if (audio_filter_enabled())
+      log_event("AUDIO_FILTER", "type=%d,low_hz=%u,high_hz=%u",
+                (int)filter_type, filter_range.min_frequency, filter_range.max_frequency);
    if (use_silence_filter)
    {
       const float threshold = config_get_silence_filter_threshold(phase_index);

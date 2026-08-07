@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include "audio.h"
+#include "audio_filter.h"
 #include "comparator.h"
 #include "led.h"
 #include "logging.h"
@@ -640,7 +641,10 @@ bool audio_read_data(int16_t *buffer)
          for (uint32_t i = 0; i < num_samples_per_dma; ++i)
             buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
       }
+      // Health first, then filtering. A high-pass would turn a dead microphone's
+      // constant output into silence, hiding exactly the fault the check exists for.
       audio_health_accumulate(buffer, num_samples_per_dma);
+      audio_filter_apply(buffer, num_samples_per_dma);
       dma_complete = false;
       return true;
    }
@@ -669,6 +673,7 @@ int16_t* audio_read_data_direct(void)
             buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
       }
       audio_health_accumulate(buffer, num_samples_per_dma);
+      audio_filter_apply(buffer, num_samples_per_dma);
       dma_complete = false;
       return buffer;
    }

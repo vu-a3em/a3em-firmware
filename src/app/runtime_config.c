@@ -19,7 +19,8 @@ typedef struct {
    uint32_t audio_clip_length, imu_sampling_rate, num_audio_trigger_times;
    time_scale_t max_clips_time_scale, audio_trigger_interval_time_scale;
    start_end_time_t phase_time, audio_trigger_times[MAX_AUDIO_TRIGGER_TIMES];
-   frequency_range_t frequencies_of_interest;
+   frequency_range_t frequencies_of_interest, audio_filter_range;
+   audio_filter_type_t audio_filter_type;
    uint8_t imu_degrees_of_freedom;
    int32_t opus_encoding_bitrate;
 } deployment_phase_t;
@@ -76,6 +77,29 @@ static imu_recording_mode_t parse_imu_recording_mode(const char *value)
       return NONE;
 }
 
+static audio_filter_type_t parse_audio_filter_type(const char *value)
+{
+   if (memcmp(value, "LOW", sizeof("LOW")) == 0)
+      return FILTER_LOW_PASS;
+   else if (memcmp(value, "BAND", sizeof("BAND")) == 0)
+      return FILTER_BAND_PASS;
+   else if (memcmp(value, "HIGH", sizeof("HIGH")) == 0)
+      return FILTER_HIGH_PASS;
+   else
+      return FILTER_NONE;
+}
+
+static const char* audio_filter_type_name(audio_filter_type_t type)
+{
+   switch (type)
+   {
+      case FILTER_LOW_PASS:   return "LOW";
+      case FILTER_BAND_PASS:  return "BAND";
+      case FILTER_HIGH_PASS:  return "HIGH";
+      default:                return "NONE";
+   }
+}
+
 static time_scale_t parse_time_scale(const char *value)
 {
    if (memcmp(value, "SECONDS", sizeof("SECONDS")) == 0)
@@ -94,7 +118,7 @@ static bool is_phase_scoped_key(const char *key)
    // Kept out of parse_line() so the prefix comparisons here are not mistaken for
    // configuration keys by tooling that scans the parser.
    static const char *const phase_prefixes[] = {
-      "PHASE_", "AUDIO_", "IMU_", "SILENCE_THRESHOLD",
+      "PHASE_", "AUDIO_", "IMU_", "SILENCE_THRESHOLD", "FILTER_",
       "MIN_FREQUENCY", "MAX_FREQUENCY", "USE_OPUS", "OPUS_BITRATE"
    };
    for (size_t i = 0; i < (sizeof(phase_prefixes) / sizeof(phase_prefixes[0])); ++i)
@@ -243,6 +267,12 @@ static void parse_line(char *line, int32_t line_length)
       deployment_phases[num_deployment_phases].imu_sampling_rate = strtoul(value, NULL, 10);
    else if (memcmp(key, "SILENCE_THRESHOLD", sizeof("SILENCE_THRESHOLD")-1) == 0)
       deployment_phases[num_deployment_phases].silence_threshold = strtof(value, NULL);
+   else if (memcmp(key, "FILTER_TYPE", sizeof("FILTER_TYPE")-1) == 0)
+      deployment_phases[num_deployment_phases].audio_filter_type = parse_audio_filter_type(value);
+   else if (memcmp(key, "FILTER_LOW_FREQUENCY", sizeof("FILTER_LOW_FREQUENCY")-1) == 0)
+      deployment_phases[num_deployment_phases].audio_filter_range.min_frequency = strtoul(value, NULL, 10);
+   else if (memcmp(key, "FILTER_HIGH_FREQUENCY", sizeof("FILTER_HIGH_FREQUENCY")-1) == 0)
+      deployment_phases[num_deployment_phases].audio_filter_range.max_frequency = strtoul(value, NULL, 10);
    else if (memcmp(key, "MIN_FREQUENCY", sizeof("MIN_FREQUENCY")-1) == 0)
       deployment_phases[num_deployment_phases].frequencies_of_interest.min_frequency = strtoul(value, NULL, 10);
    else if (memcmp(key, "MAX_FREQUENCY", sizeof("MAX_FREQUENCY")-1) == 0)
@@ -324,6 +354,8 @@ static void log_effective_configuration(void)
             print("         %u-%u\n", phase->audio_trigger_times[w].start_time,
                   phase->audio_trigger_times[w].end_time);
       }
+      print("      Filter: %s %u-%u Hz\n", audio_filter_type_name(phase->audio_filter_type),
+            phase->audio_filter_range.min_frequency, phase->audio_filter_range.max_frequency);
       print("      Frequencies: %u-%u Hz, silence threshold %d/1000\n",
             phase->frequencies_of_interest.min_frequency, phase->frequencies_of_interest.max_frequency,
             (int)(phase->silence_threshold * 1000.0f));
@@ -374,6 +406,9 @@ bool fetch_runtime_configuration(void)
       deployment_phases[i].num_audio_trigger_times = 0;
       deployment_phases[i].frequencies_of_interest.min_frequency = 0;
       deployment_phases[i].frequencies_of_interest.max_frequency = 0;
+      deployment_phases[i].audio_filter_type = FILTER_NONE;
+      deployment_phases[i].audio_filter_range.min_frequency = 0;
+      deployment_phases[i].audio_filter_range.max_frequency = 0;
    }
 
    // Ensure that an SD card is present and accessible
@@ -401,6 +436,18 @@ bool fetch_runtime_configuration(void)
       if (!deployment_phases[i].frequencies_of_interest.max_frequency ||
           (deployment_phases[i].frequencies_of_interest.max_frequency > ((deployment_phases[i].audio_sampling_rate / 2) - 200)))
          deployment_phases[i].frequencies_of_interest.max_frequency = (deployment_phases[i].audio_sampling_rate / 2) - 200;
+
+   // Keep filter corners inside the representable band, for the same reason the
+   // frequencies of interest are clamped: a corner at or above Nyquist is meaningless.
+   for (int32_t i = 0; i <= num_deployment_phases; ++i)
+   {
+      const uint32_t ceiling = (deployment_phases[i].audio_sampling_rate / 2) - 200;
+      if (!deployment_phases[i].audio_filter_range.max_frequency ||
+          (deployment_phases[i].audio_filter_range.max_frequency > ceiling))
+         deployment_phases[i].audio_filter_range.max_frequency = ceiling;
+      if (deployment_phases[i].audio_filter_range.min_frequency >= ceiling)
+         deployment_phases[i].audio_filter_range.min_frequency = 0;
+   }
 
    // Check whether the device is currently activated for the current deployment
    device_activated = mram_is_activated();
@@ -649,4 +696,14 @@ float config_get_silence_filter_threshold(int32_t phase_index)
 frequency_range_t config_get_frequencies_of_interest(int32_t phase_index)
 {
    return deployment_phases[phase_index].frequencies_of_interest;
+}
+
+audio_filter_type_t config_get_audio_filter_type(int32_t phase_index)
+{
+   return deployment_phases[phase_index].audio_filter_type;
+}
+
+frequency_range_t config_get_audio_filter_range(int32_t phase_index)
+{
+   return deployment_phases[phase_index].audio_filter_range;
 }
