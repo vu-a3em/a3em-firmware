@@ -46,6 +46,40 @@ static uint32_t seconds_until_next_scheduled_recording(uint32_t num_schedules, s
    return num_schedules ? (86400 - current_seconds_of_day + schedule[0].start_time) : 0;
 }
 
+static void report_microphone_health(void)
+{
+   // Report the state of the microphone signal path for the window just recorded.
+   //
+   // Emitted once per audio directory, which gives a temporal view across the whole
+   // deployment rather than a single verdict at startup -- so a microphone that dies
+   // in week three is visible, and roughly datable, from the log alone. Covers analog
+   // and digital identically, since the statistics come from the shared read path.
+   if (!audio_health_available())
+      return;
+
+   const audio_health_t health = audio_health_get();
+   const char *verdict = "PASS";
+   if (health.constant_output)
+      verdict = "FAIL_CONSTANT";
+   else if (health.silent)
+      verdict = "WARN_SILENT";
+
+   if (health.constant_output)
+      print("ERROR: Microphone health: output is a constant value (%d) over %u samples, "
+            "signal path is dead\n", (int)health.min_sample, health.num_samples);
+   else
+      print("INFO: Microphone health: rms=%u peak=%u range=[%d,%d] mean=%d samples=%u result=%s\n",
+            health.rms, health.peak, (int)health.min_sample, (int)health.max_sample,
+            (int)health.mean, health.num_samples, verdict);
+
+   log_event("MIC_HEALTH", "result=%s,rms=%u,peak=%u,min=%d,max=%d,mean=%d,samples=%u,dc_offset=%d",
+             verdict, health.rms, health.peak, (int)health.min_sample, (int)health.max_sample,
+             (int)health.mean, health.num_samples, (int)audio_get_dc_offset());
+
+   // Start a fresh window so each report describes only its own directory
+   audio_health_reset();
+}
+
 static void validate_device_settings(uint32_t current_timestamp)
 {
    // Check if the battery voltage is too low to continue
@@ -125,6 +159,16 @@ static void validate_device_settings(uint32_t current_timestamp)
          current_timestamp, battery_details.millivolts, battery_details.celcius,
          last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False",
          storage_get_free_space_mb(), read_errors, write_errors, timeout_errors);
+   log_event("TELEM", "batt_mv=%u,temp_c=%0.2f,lat=%0.6f,lon=%0.6f,alt=%0.2f,"
+                      "leds=%u,vhf=%u,sd_free_mb=%u,sd_err=%u/%u/%u",
+             battery_details.millivolts, battery_details.celcius, last_lat, last_lon, last_height,
+             leds_are_enabled() ? 1u : 0u, vhf_activated() ? 1u : 0u,
+             storage_get_free_space_mb(), read_errors, write_errors, timeout_errors);
+
+   // A new audio directory means a new recording window; summarize the microphone
+   // health of the window that just closed.
+   if (storage_audio_directory_rolled_over())
+      report_microphone_health();
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time
@@ -499,6 +543,8 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
 {
    // Ensure that a storage directory with the device name exists and is active on the SD card
    print("INFO: Starting main deployment activity for Phase #%d\n", phase_index+1);
+   log_event("PHASE_START", "phase=%d", phase_index+1);
+   audio_health_reset();
 
    // Reset the phase summary accumulators
    phase_start_timestamp = rtc_get_timestamp();
@@ -681,6 +727,17 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
          (phase_temperature_max < -999.0f) ? 0.0f : phase_temperature_max,
          storage_get_free_space_mb(), read_errors, write_errors, timeout_errors,
          mram_deactivation_reason_name(mram_get_deactivation_reason()));
+   log_event("PHASE_END", "phase=%d,clips=%u,duration_s=%u,batt_min_mv=%u,batt_max_mv=%u,"
+                          "temp_min_c=%0.2f,temp_max_c=%0.2f,sd_free_mb=%u,sd_err=%u/%u/%u,reason=%s",
+             phase_index+1, phase_clips_written, phase_duration,
+             phase_battery_mv_min, phase_battery_mv_max,
+             (phase_temperature_min > 999.0f) ? 0.0f : phase_temperature_min,
+             (phase_temperature_max < -999.0f) ? 0.0f : phase_temperature_max,
+             storage_get_free_space_mb(), read_errors, write_errors, timeout_errors,
+             mram_deactivation_reason_name(mram_get_deactivation_reason()));
+
+   // Final health report for the last, partial recording window
+   report_microphone_health();
    print("INFO: Leaving main deployment activity for Phase #%d\n", phase_index+1);
 }
 

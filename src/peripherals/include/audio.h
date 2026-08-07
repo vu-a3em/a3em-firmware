@@ -24,4 +24,30 @@ bool audio_read_data(int16_t *buffer);
 int16_t* audio_read_data_direct(void);
 uint32_t audio_num_seconds_per_dma(void);
 
+
+// Microphone Health Monitoring ----------------------------------------------------------------------------------------
+
+// Statistics accumulated over every sample that passes through the read path, for both
+// analog and digital microphones.
+//
+// Broken microphone wiring has already cost at least one deployment, and there was
+// previously no way to know from a returned card whether the microphone worked. The
+// analog DC-offset check at startup catches a path that is dead before recording
+// begins; these statistics additionally catch one that dies partway through, and catch
+// a microphone that is electrically present but producing nothing.
+typedef struct {
+   int16_t min_sample, max_sample;
+   int32_t mean;                 // DC bias remaining after offset removal
+   uint32_t rms;                 // signal level
+   uint32_t peak;                // largest absolute excursion
+   uint32_t num_samples;
+   bool constant_output;         // every sample identical: a stuck or dead signal path
+   bool silent;                  // no excursion beyond the noise floor
+} audio_health_t;
+
+void audio_health_reset(void);
+bool audio_health_available(void);
+audio_health_t audio_health_get(void);
+int32_t audio_get_dc_offset(void);
+
 #endif  // #ifndef __AUDIO_HEADER_H__

@@ -47,6 +47,7 @@ static volatile uint8_t *imu_data_awaiting_storage;
 static volatile uint32_t imu_storage_index;
 static volatile DSTATUS sd_disk_status;
 static volatile uint32_t sd_read_errors, sd_write_errors, sd_timeout_errors;
+static bool audio_directory_rolled_over;
 static ogg_writer_t ogg_writer;
 static ogg_data_packet_t ogg_packet;
 
@@ -467,21 +468,66 @@ static void storage_rotate_log(void)
    // Move logging into the current audio directory. A single deployment-long log means
    // one bad cluster destroys the entire history; one log per 4-hour directory limits
    // the loss to that window. The dashboard stitches them back into one view.
-   char log_path[sizeof(audio_directory) + sizeof(LOG_FILE_NAME) + 2];
+   //
+   // If the expected name cannot be opened -- most likely because the existing file is
+   // damaged -- try numbered alternatives ALONGSIDE it rather than falling back to the
+   // root log. Entries belong with the audio they describe, and diverting them to the
+   // root would both clutter that file and separate them from their own time window.
+   char log_path[sizeof(audio_directory) + sizeof(LOG_FILE_NAME) + 8];
+   const bool had_previous_log = log_open;
    if (log_open)
    {
       f_sync(&log_file);
       f_close(&log_file);
       log_open = false;
    }
-   snprintf(log_path, sizeof(log_path), "%s/%s", audio_directory, LOG_FILE_NAME);
-   log_open = (f_open(&log_file, log_path, FA_OPEN_APPEND | FA_WRITE) == FR_OK);
-   if (!log_open)
+
+   for (uint32_t attempt = 0; attempt < MAX_LOG_FILE_ALTERNATIVES; ++attempt)
    {
-      // Never lose logging outright: fall back to the log at the card root.
-      log_open = (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) == FR_OK);
-      if (log_open)
-         print("ERROR: Unable to open log in %s, continuing in the root log\n", audio_directory);
+      if (attempt == 0)
+         snprintf(log_path, sizeof(log_path), "%s/%s", audio_directory, LOG_FILE_NAME);
+      else
+         snprintf(log_path, sizeof(log_path), "%s/a3em.%u.log", audio_directory, (unsigned)attempt);
+      if (f_open(&log_file, log_path, FA_OPEN_APPEND | FA_WRITE) == FR_OK)
+      {
+         log_open = true;
+         if (attempt)
+            print("WARNING: Log file %s/%s could not be opened, using %s instead\n",
+                  audio_directory, LOG_FILE_NAME, log_path);
+         return;
+      }
+   }
+
+   // Every name in the directory failed, so the directory itself is almost certainly
+   // unwritable -- in which case audio writes here will fail too and the SD error
+   // counters will record it. Reopening the previous log keeps a record of that fact
+   // somewhere real, which is better than logging vanishing silently.
+   if (had_previous_log && (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) == FR_OK))
+   {
+      log_open = true;
+      print("ERROR: No log file could be opened in %s after %d attempts\n",
+            audio_directory, MAX_LOG_FILE_ALTERNATIVES);
+   }
+}
+
+void storage_write_event(const char *code, const char *fmt, ...)
+{
+   // Emit a machine-readable event line alongside the human-readable log.
+   //
+   //    EVT|<SEVERITY>|<CODE>|key=value,key=value
+   //
+   // The dashboard has to parse this log, and matching on English phrasing means a
+   // reworded message silently breaks it. Codes and keys here are stable; the prose
+   // above them is free to change. The timestamp comes from the standard line prefix
+   // rather than being repeated in the payload.
+   if (log_open)
+   {
+      storage_write_log("EVT|%s|", code);
+      va_list args;
+      va_start(args, fmt);
+      f_vprintf(&log_file, fmt, args);
+      va_end(args);
+      storage_write_log("\n");
    }
 }
 
@@ -516,6 +562,7 @@ static void storage_update_audio_directory(uint32_t activation_number, const cha
 
    // Start a fresh log inside the directory just created
    storage_rotate_log();
+   audio_directory_rolled_over = true;
 }
 
 static bool storage_open_wav_file(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time)
@@ -809,6 +856,16 @@ void storage_flush_log(void)
    // Flush the log file to ensure that contents are not lost upon power loss
    if (log_open)
       f_sync(&log_file);
+}
+
+bool storage_audio_directory_rolled_over(void)
+{
+   // Read-and-clear. Lets the caller emit a microphone health report once per audio
+   // directory, giving a temporal view of the signal path across the deployment
+   // rather than a single verdict at startup.
+   const bool rolled_over = audio_directory_rolled_over;
+   audio_directory_rolled_over = false;
+   return rolled_over;
 }
 
 void storage_get_error_counts(uint32_t *read_errors, uint32_t *write_errors, uint32_t *timeouts)

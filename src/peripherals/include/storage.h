@@ -21,6 +21,8 @@ bool storage_write(const void *data, uint32_t data_len);
 bool storage_write_audio(const void *data, uint32_t data_len, bool is_last_packet);
 void storage_write_log(const char *fmt, ...);
 void storage_flush_log(void);
+void storage_write_event(const char *code, const char *fmt, ...);
+bool storage_audio_directory_rolled_over(void);
 void storage_get_error_counts(uint32_t *read_errors, uint32_t *write_errors, uint32_t *timeouts);
 uint32_t storage_get_free_space_mb(void);
 bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime,

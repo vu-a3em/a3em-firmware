@@ -672,11 +672,17 @@ int32_t lis2du12_orientation_mode_get(const stmdev_ctx_t *ctx, lis2du12_orient_m
 void imu_init(void);
 void imu_deinit(void);
 void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, uint32_t data_rate_hz, lis2du12_bw_t bandwidth, imu_data_ready_callback_t callback);
-// Motion-detection sensitivity, as a fraction of the configured accelerometer full
-// scale in the range (0, 1]. The LIS2DU12 wake-up threshold is 8 bits over full scale,
-// so the achievable resolution is 1/255 of full scale -- about 7.8 mg at the +/-2 g
-// setting used here. A value of 0 selects the previous fixed default.
-void imu_enable_motion_change_detection(bool enable, float threshold_fraction, motion_change_callback_t callback);
+// Accelerometer full scale used for motion detection, in milli-g. The LIS2DU12 is
+// configured for +/-2 g, and its wake-up threshold is 8 bits across that range.
+#define IMU_MOTION_FULL_SCALE_MG        2000.0f
+#define IMU_MOTION_THRESHOLD_STEPS      255
+#define IMU_MOTION_THRESHOLD_STEP_MG    (IMU_MOTION_FULL_SCALE_MG / IMU_MOTION_THRESHOLD_STEPS)
+
+// Motion-detection sensitivity in ABSOLUTE MILLI-G, which is how an ecologist reasons
+// about it ("trigger if it moves more than 100 mg") and what the configuration file
+// stores. Resolution is about 7.8 mg; values are clamped to one step at the low end and
+// to full scale at the high end. A value of 0 selects the previous fixed default.
+void imu_enable_motion_change_detection(bool enable, float threshold_mg, motion_change_callback_t callback);
 void imu_read_accel_data(float *accel_x_mg, float *accel_y_mg, float *accel_z_mg);
 void imu_drain_fifo(void);
 

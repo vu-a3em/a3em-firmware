@@ -865,7 +865,7 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
    }
 }
 
-void imu_enable_motion_change_detection(bool enable, float threshold_fraction, motion_change_callback_t callback)
+void imu_enable_motion_change_detection(bool enable, float threshold_mg, motion_change_callback_t callback)
 {
    // Enable or disable to output of motion change notifications
    if (enable)
@@ -873,20 +873,20 @@ void imu_enable_motion_change_detection(bool enable, float threshold_fraction, m
       // Set the criteria for motion detection:
       //   [80.0 ms (0x01 * 1 / ODR_XL), 9.85 s (MAX(16, 0x01 * 16) / ODR_XL)]
       //
-      // The threshold arrives as a fraction of full scale and is scaled to the 8-bit
-      // range that lis2du12_wake_up_mode_set() expects, which it then splits between
-      // the 6-bit WAKE_UP_THS field and the WAKE_THS_W weight selector. Clamped to at
-      // least one step, since a threshold of zero would fire continuously.
+      // The threshold arrives in absolute milli-g and is converted to the 8-bit range
+      // that lis2du12_wake_up_mode_set() expects, which it then splits between the
+      // 6-bit WAKE_UP_THS field and the WAKE_THS_W weight selector. Clamped to at least
+      // one step, since a threshold of zero would fire continuously.
       lis2du12_wkup_md_t motion_mode;
       motion_mode.duration = 0x01;
-      if (threshold_fraction > 0.0f)
+      if (threshold_mg > 0.0f)
       {
-         int32_t scaled = (int32_t)((threshold_fraction * 255.0f) + 0.5f);
-         if (scaled < 1)
-            scaled = 1;
-         else if (scaled > 255)
-            scaled = 255;
-         motion_mode.threshold = (uint8_t)scaled;
+         int32_t steps = (int32_t)((threshold_mg / IMU_MOTION_THRESHOLD_STEP_MG) + 0.5f);
+         if (steps < 1)
+            steps = 1;
+         else if (steps > IMU_MOTION_THRESHOLD_STEPS)
+            steps = IMU_MOTION_THRESHOLD_STEPS;
+         motion_mode.threshold = (uint8_t)steps;
       }
       else
          motion_mode.threshold = 0x02;   // preserve the historical default

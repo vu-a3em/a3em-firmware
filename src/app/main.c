@@ -74,10 +74,15 @@ int main(void)
          _FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME);
    print("INFO: Last deactivation reason: %s\n",
          mram_deactivation_reason_name(mram_get_deactivation_reason()));
+   log_event("BOOT", "fw=%s,hw=%s,built=%s,uid=%s,last_stop=%s",
+             _FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, device_uid,
+             mram_deactivation_reason_name(mram_get_deactivation_reason()));
 
    // Retrieve the runtime configuration from storage
    bool success = fetch_runtime_configuration();
    print("INFO: Fetching runtime configuration...%s\n", success ? "SUCCESS" : "FAILURE");
+   log_event("CONFIG", "result=%s,phases=%d", success ? "OK" : "FAIL",
+             (int)config_get_num_deployment_phases());
 
    // Record device identity and last-known state where the dashboard can read it
    // without parsing a multi-megabyte log. Rewritten on every boot, so always current.
@@ -114,6 +119,8 @@ int main(void)
       const uint32_t current_timestamp = rtc_get_timestamp();
       const uint32_t vhf_enable_timestamp = config_get_vhf_start_timestamp();
       print("WARNING: Battery low @ %u...shutting down for 1 hour\n", current_timestamp);
+      log_event("BATTERY_LOW", "batt_mv=%u,cutoff_mv=%u",
+                battery_monitor_get_details().millivolts, config_get_battery_mV_low());
       mram_set_deactivation_reason(DEACTIVATION_BATTERY_LOW);
       const bool vhf_enabled = config_is_device_activated() && vhf_enable_timestamp && (current_timestamp >= vhf_enable_timestamp);
       if (vhf_enabled)
@@ -229,6 +236,7 @@ int main(void)
             if (use_magnetic_activation && !device_activated)
             {
                print("INFO: Device was magnetically deactivated!\n");
+               log_event("DEACTIVATED", "reason=MAGNET");
                mram_set_deactivation_reason(DEACTIVATION_MAGNET);
                config_set_activation_status(false);
             }
@@ -285,6 +293,7 @@ int main(void)
          handle_magnetic_field(true, false);
       }
       print("INFO: Device activated!\n");
+      log_event("ACTIVATED", "activation=%u", config_get_activation_number() + 1);
       config_increase_activation_number();
       if (config_set_rtc_at_magnet_detect())
       {

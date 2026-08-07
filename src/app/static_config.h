@@ -40,6 +40,11 @@
 #define LOG_FILE_NAME                               "a3em.log"
 #define DEVICE_INFO_FILE_NAME                       "_a3em.dev"
 
+// Alternative log names tried within a timestamped directory before giving up. Log
+// entries belong beside the audio they describe, so a damaged log file is worked
+// around in place rather than by diverting entries to the root log.
+#define MAX_LOG_FILE_ALTERNATIVES                   10
+
 // Firmware version, supplied by the Makefile as "<version>+<githash>[-dirty]".
 // Fallback exists only so the tree still compiles outside the normal build.
 #ifndef _FW_VERSION
@@ -49,8 +54,23 @@
 // Expected range of the analog microphone DC offset. A healthy path sits near mid-
 // scale; a disconnected or shorted microphone sits at a rail. Used to log a pass/fail
 // verdict so the microphone path can be verified after assembly.
+//
+// PROVISIONAL: chosen so that the one reference deployment available (which measured
+// 32320) passes comfortably. Narrow this once several known-good units have been
+// measured -- a tolerance this wide will pass some genuinely marginal paths.
 #define MIC_DC_OFFSET_NOMINAL                       32768
 #define MIC_DC_OFFSET_TOLERANCE                     4000
+
+// Peak excursion at or below which a recording window is reported as silent. Distinct
+// from a constant output, which is unambiguously a broken signal path. This is only
+// reported, never acted upon: a sealed enclosure in a quiet place is legitimately
+// near-silent, so treating silence as a fault would produce false alarms.
+#define AUDIO_HEALTH_SILENCE_FLOOR                  4
+
+// Number of samples examined at startup to verify a digital microphone is producing a
+// varying signal. The analog path has its DC-offset calibration to lean on; the
+// digital path had no startup check at all.
+#define MIC_DIGITAL_CHECK_SAMPLES                   4096
 
 #ifndef MIN
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))
