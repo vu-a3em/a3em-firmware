@@ -87,6 +87,39 @@
 // microphone as a dead one.
 #define AUDIO_HEALTH_RMS_STRIDE                     1
 
+
+// Self-Test Definitions -----------------------------------------------------------------------------------------------
+
+// Run once per magnetic activation, before any deployment recording begins. Verifies
+// the failures that are invisible once a unit is sealed and in the field.
+#define SELF_TEST_RESULTS_FILE_NAME                 "_a3em.test.results"
+#define SELF_TEST_CLIP_FILE_NAME                    "_a3em.test.wav"
+#define SELF_TEST_STORAGE_FILE_NAME                 "_a3em.test.tmp"
+
+// Length of the microphone window. Long enough to tap the enclosure several times and
+// watch the LED respond, short enough not to delay every activation noticeably.
+#define SELF_TEST_AUDIO_SECONDS                     20
+#define SELF_TEST_AUDIO_SAMPLE_RATE_HZ              16000
+
+// Peak sample above which the green LED lights during the live level monitor. Set well
+// clear of the noise floor so an untouched unit sits dark and a tap is unmistakable.
+#define SELF_TEST_LIVE_LEVEL_THRESHOLD              600
+
+// Round-tripped through the filesystem to prove the card is seated and writable.
+#define SELF_TEST_STORAGE_BYTES                     4096
+
+// A stationary device reads one g in some direction whatever its orientation.
+#define SELF_TEST_IMU_MIN_MG                        700.0f
+#define SELF_TEST_IMU_MAX_MG                        1300.0f
+
+#define SELF_TEST_BATTERY_MIN_MV                    2500
+#define SELF_TEST_BATTERY_MAX_MV                    5000
+#define SELF_TEST_TEMPERATURE_MIN_C                 (-40.0f)
+#define SELF_TEST_TEMPERATURE_MAX_C                 85.0f
+
+#define SELF_TEST_PASS_INDICATION_US                3000000
+#define SELF_TEST_FAIL_INDICATION_REPEATS           3
+
 #ifndef MIN
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))
 #endif

@@ -15,6 +15,7 @@ bool storage_sd_card_error(void);
 bool storage_mkdir(const char *directory);
 bool storage_open(const char *file_path, bool writeable);
 bool storage_open_audio_file(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time, bool use_ogg);
+bool storage_open_named_wav_file(const char *file_path, uint32_t num_channels, uint32_t sample_rate_hz);
 bool storage_open_imu_file(uint32_t activation_number, const char *device_label, uint32_t current_time, uint32_t sample_rate_hz);
 uint32_t storage_get_current_activation_number(const char *device_label);
 bool storage_write(const void *data, uint32_t data_len);

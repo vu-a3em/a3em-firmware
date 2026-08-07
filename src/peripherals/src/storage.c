@@ -468,6 +468,8 @@ static void storage_close_ogg_opus_audio(void)
    }
 }
 
+static bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz);
+
 static void storage_rotate_log(void)
 {
    // Move logging into the current audio directory. A single deployment-long log means
@@ -584,7 +586,11 @@ static bool storage_open_wav_file(uint32_t activation_number, const char *device
    static char file_name[FF_MAX_LFN] = { 0 };
    snprintf(file_name, sizeof(file_name), "%s/%s.wav", audio_directory, time_string);
    audio_file_open = (f_open(&audio_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+   return storage_write_wav_header(num_channels, sample_rate_hz);
+}
 
+static bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz)
+{
    // Write the WAV header segment
    if (audio_file_open)
    {
@@ -871,6 +877,19 @@ bool storage_audio_directory_rolled_over(void)
    const bool rolled_over = audio_directory_rolled_over;
    audio_directory_rolled_over = false;
    return rolled_over;
+}
+
+bool storage_open_named_wav_file(const char *file_path, uint32_t num_channels, uint32_t sample_rate_hz)
+{
+   // Open a WAV at an explicit path rather than in the timestamped deployment tree.
+   // Used for the self-test clip, which belongs at the card root where it can be found
+   // and listened to without hunting through directories.
+   if (audio_file_open)
+      storage_close_audio();
+   using_ogg = false;
+   data_size = 0;
+   audio_file_open = (f_open(&audio_file, file_path, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+   return storage_write_wav_header(num_channels, sample_rate_hz);
 }
 
 bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp,

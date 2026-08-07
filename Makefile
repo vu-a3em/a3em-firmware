@@ -274,6 +274,7 @@ SRC += mfcc.c
 SRC += silence.c
 
 SRC += active_main.c
+SRC += self_test.c
 SRC += main.c
 
 CSRC   = $(filter %.c,$(SRC))
