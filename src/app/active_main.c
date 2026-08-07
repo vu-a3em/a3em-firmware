@@ -30,6 +30,13 @@ static uint8_t imu_degrees_of_freedom;
 // single line per phase.
 static uint32_t phase_clips_written, phase_start_timestamp;
 static uint32_t phase_battery_mv_min, phase_battery_mv_max;
+
+// A GPS fix corrects the RTC from inside an interrupt, which cannot touch the
+// filesystem. The correction is captured here and logged from the main loop, because
+// without a record of it the dashboard cannot tell an in-flight clock correction from
+// a scheduled deployment simply sleeping between listening windows.
+static volatile bool clock_sync_pending;
+static volatile uint32_t clock_sync_before, clock_sync_after;
 static float phase_temperature_min, phase_temperature_max;
 
 
@@ -74,6 +81,14 @@ static void report_microphone_health(void)
 
 static void validate_device_settings(uint32_t current_timestamp)
 {
+   // Report any clock correction captured since the last check. Logged here rather than
+   // where it happens because that is interrupt context.
+   if (clock_sync_pending)
+   {
+      clock_sync_pending = false;
+      log_event("CLOCK_SYNC", "source=GPS,before=%u,after=%u", clock_sync_before, clock_sync_after);
+   }
+
    // Check if the battery voltage is too low to continue
    const battery_result_t battery_details = battery_monitor_get_details();
    phase_ended = (battery_details.millivolts <= config_get_battery_mV_low());
@@ -207,8 +222,18 @@ static void tracker_data_available(tracker_msg_t message_type, const void *new_d
       {
          // Sync RTC to GPS time whenever an update is received
          const tracker_gps_data_t *gps_data = (const tracker_gps_data_t*)new_data;
+         const uint32_t before_sync = rtc_get_timestamp();
          mram_set_last_known_timestamp(gps_data->utc_timestamp);
          rtc_set_time_from_timestamp(gps_data->utc_timestamp);
+
+         // Record the correction for the main loop to log. Everything recorded before
+         // this instant carries the old error; everything after is true UTC.
+         if (before_sync != gps_data->utc_timestamp)
+         {
+            clock_sync_before = before_sync;
+            clock_sync_after = gps_data->utc_timestamp;
+            clock_sync_pending = true;
+         }
          last_height = gps_data->height;
          last_lat = gps_data->lat;
          last_lon = gps_data->lon;
