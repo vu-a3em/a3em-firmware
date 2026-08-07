@@ -1,7 +1,6 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
 #include <stdio.h>
-#include <time.h>
 #include "diskio.h"
 #include "imu.h"
 #include "logging.h"
@@ -540,32 +539,39 @@ void storage_write_event(const char *code, const char *fmt, ...)
 
 static void storage_update_audio_directory(uint32_t activation_number, const char *device_label, uint32_t current_time)
 {
-   // Build the timestamped file name used by every audio and IMU file
-   const time_t timestamp = (time_t)current_time;
-   struct tm *curr_time = gmtime(&timestamp);
-   strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
+   // File and directory names are UTC Unix timestamps rather than rendered dates.
+   //
+   // The device sets its clock from the CONFIGURED deployment start when the magnet
+   // activates it, so unless activation happens exactly on schedule -- which it rarely
+   // does -- every name on the card is offset from reality by however early or late the
+   // unit was switched on. A rendered date is then close enough to look authoritative
+   // and wrong enough to mislead. An epoch asserts nothing about local time, and the
+   // dashboard applies the measured offset when displaying or exporting.
+   snprintf(time_string, sizeof(time_string), "%010lu", (unsigned long)current_time);
 
-   // Nothing further to do unless it is time to roll over to a new directory
-   if ((current_time - audio_directory_timestamp) < NUM_SECONDS_PER_AUDIO_DIRECTORY)
+   // Bucket boundaries fall on exact multiples of their period, so truncation replaces
+   // the gmtime/strftime/mktime round trip this used to perform -- which also relied on
+   // mktime reading a UTC struct tm as though it were local time.
+   const uint32_t hour_bucket = (current_time / NUM_SECONDS_PER_AUDIO_DIRECTORY) * NUM_SECONDS_PER_AUDIO_DIRECTORY;
+   if (hour_bucket == audio_directory_timestamp)
       return;
+   const uint32_t day_bucket = (current_time / 86400u) * 86400u;
 
-   // Generate a new directory name from the current date and time
+   // Create each level in turn, keeping the depth the card has always had
    static FILINFO file_info;
-   curr_time->tm_min = curr_time->tm_sec = 0;
-   curr_time->tm_hour = (curr_time->tm_hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY;
-   size_t label_len = strlen(device_label);
-   memset(audio_directory, 0, sizeof(audio_directory));
-   strncpy(audio_directory, device_label, label_len + 1);
-   snprintf(audio_directory + label_len, sizeof(audio_directory) - label_len, "/Activation_%04lu", activation_number);
+   snprintf(audio_directory, sizeof(audio_directory), "%s/Activation_%04lu",
+            device_label, activation_number);
    if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
       print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-   strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F", curr_time);
+   snprintf(audio_directory, sizeof(audio_directory), "%s/Activation_%04lu/%010lu",
+            device_label, activation_number, (unsigned long)day_bucket);
    if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
       print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-   strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F/%H", curr_time);
+   snprintf(audio_directory, sizeof(audio_directory), "%s/Activation_%04lu/%010lu/%010lu",
+            device_label, activation_number, (unsigned long)day_bucket, (unsigned long)hour_bucket);
    if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
       print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-   audio_directory_timestamp = (uint32_t)mktime(curr_time);
+   audio_directory_timestamp = hour_bucket;
 
    // Start a fresh log inside the directory just created
    storage_rotate_log();
@@ -658,7 +664,7 @@ void storage_init(void)
    log_open = file_open = imu_file_open = audio_file_open = false;
    imu_storage_buffer = imu_data_buffer;
    imu_data_awaiting_storage = NULL;
-   audio_directory_timestamp = 0;
+   audio_directory_timestamp = UINT32_MAX;   // force the first rollover
    sd_disk_status = STA_NOINIT;
 
    // Set up the SD Card configuration structure
@@ -706,7 +712,7 @@ void storage_deinit(void)
    if (log_open)
       f_close(&log_file);
    log_open = file_open = imu_file_open = audio_file_open = false;
-   audio_directory_timestamp = 0;
+   audio_directory_timestamp = UINT32_MAX;
 
    // De-initialize and power down the SD card host
    if (sd_card_host)
