@@ -72,6 +72,21 @@
 // digital path had no startup check at all.
 #define MIC_DIGITAL_CHECK_SAMPLES                   4096
 
+// Subsampling stride for the RMS accumulation only, which is the sole part of the
+// health calculation carrying a multiply. 1 means every sample.
+//
+// Measured cost at 1 is about 0.4% of the CPU even at 48 kHz, so this exists as a
+// tuning knob rather than a necessity. If it is ever raised, note that the samples
+// examined are spread across each buffer with a ROTATING START OFFSET: taking the
+// first N samples of every buffer instead would be a periodic sample that aliases
+// against any periodic signal content, and would systematically mis-measure a tone.
+//
+// Minimum, maximum, and constant-output detection always examine EVERY sample. They
+// cost two comparisons, and subsampling them would be unsound: a peak is by definition
+// a rare event, and a subset that happened to be flat would report a working
+// microphone as a dead one.
+#define AUDIO_HEALTH_RMS_STRIDE                     1
+
 #ifndef MIN
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))
 #endif

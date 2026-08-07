@@ -48,6 +48,11 @@ static volatile uint32_t imu_storage_index;
 static volatile DSTATUS sd_disk_status;
 static volatile uint32_t sd_read_errors, sd_write_errors, sd_timeout_errors;
 static bool audio_directory_rolled_over;
+
+// Static half of the device info file, captured on the first write so the file can be
+// refreshed later without the caller re-supplying values that never change.
+static char dev_fw_version[40], dev_hw_revision[8], dev_build_datetime[40], dev_uid[24];
+static bool dev_info_captured;
 static ogg_writer_t ogg_writer;
 static ogg_data_packet_t ogg_packet;
 
@@ -868,6 +873,19 @@ bool storage_audio_directory_rolled_over(void)
    return rolled_over;
 }
 
+bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp,
+                                 uint32_t battery_mv, const char *last_deactivation_reason)
+{
+   // Rewrite _a3em.dev with current values, reusing the identity fields captured at
+   // boot. Called on every audio directory rollover, so LAST_TIMESTAMP and
+   // LAST_BATTERY_MV stay within four hours of reality across a months-long
+   // deployment rather than reflecting the moment the device booted.
+   if (!dev_info_captured)
+      return false;
+   return storage_write_device_info(dev_fw_version, dev_hw_revision, dev_build_datetime, dev_uid,
+                                    activation_number, timestamp, battery_mv, last_deactivation_reason);
+}
+
 void storage_get_error_counts(uint32_t *read_errors, uint32_t *write_errors, uint32_t *timeouts)
 {
    // Report SD card failures accumulated at the disk layer.
@@ -909,6 +927,14 @@ bool storage_write_device_info(const char *fw_version, const char *hw_revision, 
    // which should require parsing a multi-megabyte log.
    //
    // Same KEY = "value" grammar as the configuration file, so it reuses the parser.
+   // Remember the unchanging fields so storage_refresh_device_info() can rewrite the
+   // file on its own during a long deployment
+   snprintf(dev_fw_version, sizeof(dev_fw_version), "%s", fw_version);
+   snprintf(dev_hw_revision, sizeof(dev_hw_revision), "%s", hw_revision);
+   snprintf(dev_build_datetime, sizeof(dev_build_datetime), "%s", build_datetime);
+   snprintf(dev_uid, sizeof(dev_uid), "%s", device_uid);
+   dev_info_captured = true;
+
    FIL info_file;
    if (!card_present || (f_open(&info_file, DEVICE_INFO_FILE_NAME, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK))
       return false;

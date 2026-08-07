@@ -23,6 +23,8 @@ void storage_write_log(const char *fmt, ...);
 void storage_flush_log(void);
 void storage_write_event(const char *code, const char *fmt, ...);
 bool storage_audio_directory_rolled_over(void);
+bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp,
+                                 uint32_t battery_mv, const char *last_deactivation_reason);
 void storage_get_error_counts(uint32_t *read_errors, uint32_t *write_errors, uint32_t *timeouts);
 uint32_t storage_get_free_space_mb(void);
 bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime,

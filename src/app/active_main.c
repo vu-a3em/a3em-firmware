@@ -64,14 +64,6 @@ static void report_microphone_health(void)
    else if (health.silent)
       verdict = "WARN_SILENT";
 
-   if (health.constant_output)
-      print("ERROR: Microphone health: output is a constant value (%d) over %u samples, "
-            "signal path is dead\n", (int)health.min_sample, health.num_samples);
-   else
-      print("INFO: Microphone health: rms=%u peak=%u range=[%d,%d] mean=%d samples=%u result=%s\n",
-            health.rms, health.peak, (int)health.min_sample, (int)health.max_sample,
-            (int)health.mean, health.num_samples, verdict);
-
    log_event("MIC_HEALTH", "result=%s,rms=%u,peak=%u,min=%d,max=%d,mean=%d,samples=%u,dc_offset=%d",
              verdict, health.rms, health.peak, (int)health.min_sample, (int)health.max_sample,
              (int)health.mean, health.num_samples, (int)audio_get_dc_offset());
@@ -147,18 +139,6 @@ static void validate_device_settings(uint32_t current_timestamp)
    uint32_t read_errors = 0, write_errors = 0, timeout_errors = 0;
    storage_get_error_counts(&read_errors, &write_errors, &timeout_errors);
    mram_set_last_known_timestamp(current_timestamp);
-   print("INFO: Current Device Details:\n"
-         "   UTC Timestamp: %u\n"
-         "   Battery Voltage (mV): %u\n"
-         "   Temperature (C): %0.2f\n"
-         "   Location: [%0.6f, %0.6f, %0.2f]\n"
-         "   LEDs Active: %s\n"
-         "   VHF Active: %s\n"
-         "   SD Free (MB): %u\n"
-         "   SD Errors (read/write/timeout): %u/%u/%u\n",
-         current_timestamp, battery_details.millivolts, battery_details.celcius,
-         last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False",
-         storage_get_free_space_mb(), read_errors, write_errors, timeout_errors);
    log_event("TELEM", "batt_mv=%u,temp_c=%0.2f,lat=%0.6f,lon=%0.6f,alt=%0.2f,"
                       "leds=%u,vhf=%u,sd_free_mb=%u,sd_err=%u/%u/%u",
              battery_details.millivolts, battery_details.celcius, last_lat, last_lon, last_height,
@@ -168,7 +148,11 @@ static void validate_device_settings(uint32_t current_timestamp)
    // A new audio directory means a new recording window; summarize the microphone
    // health of the window that just closed.
    if (storage_audio_directory_rolled_over())
+   {
       report_microphone_health();
+      storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts,
+                                  mram_deactivation_reason_name(mram_get_deactivation_reason()));
+   }
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time
@@ -713,20 +697,6 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    uint32_t read_errors = 0, write_errors = 0, timeout_errors = 0;
    storage_get_error_counts(&read_errors, &write_errors, &timeout_errors);
    const uint32_t phase_duration = rtc_get_timestamp() - phase_start_timestamp;
-   print("INFO: Phase #%d summary:\n"
-         "   Clips Written: %u\n"
-         "   Duration (s): %u\n"
-         "   Battery (mV): %u to %u\n"
-         "   Temperature (C): %0.2f to %0.2f\n"
-         "   SD Free (MB): %u\n"
-         "   SD Errors (read/write/timeout): %u/%u/%u\n"
-         "   Stop Reason: %s\n",
-         phase_index+1, phase_clips_written, phase_duration,
-         phase_battery_mv_min, phase_battery_mv_max,
-         (phase_temperature_min > 999.0f) ? 0.0f : phase_temperature_min,
-         (phase_temperature_max < -999.0f) ? 0.0f : phase_temperature_max,
-         storage_get_free_space_mb(), read_errors, write_errors, timeout_errors,
-         mram_deactivation_reason_name(mram_get_deactivation_reason()));
    log_event("PHASE_END", "phase=%d,clips=%u,duration_s=%u,batt_min_mv=%u,batt_max_mv=%u,"
                           "temp_min_c=%0.2f,temp_max_c=%0.2f,sd_free_mb=%u,sd_err=%u/%u/%u,reason=%s",
              phase_index+1, phase_clips_written, phase_duration,

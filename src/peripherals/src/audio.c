@@ -382,7 +382,6 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
    led_off(LED_ALL);
    audio_adc_start();
    uint32_t dc_calculated = 0;
-   print("INFO: Calculating analog microphone DC offset...\n");
    while (*device_activated && (dc_calculated < 4))
    {
       if (dma_error)
@@ -404,7 +403,6 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
    }
    led_off(LED_ALL);
    dc_offset <<= 4;
-   print("INFO: Analog microphone DC offset calculated: %u\n", dc_offset);
 
    // Report a verdict on the microphone signal path.
    //
@@ -414,13 +412,6 @@ void audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
    // least one deployment. The measurement was always here -- only the verdict is new.
    const int32_t dc_deviation = abs((int32_t)dc_offset - MIC_DC_OFFSET_NOMINAL);
    const bool dc_offset_ok = (dc_deviation <= MIC_DC_OFFSET_TOLERANCE);
-   if (dc_offset_ok)
-      print("INFO: Microphone check: type=ANALOG dc_offset=%u expected=%d+/-%d result=PASS\n",
-            dc_offset, MIC_DC_OFFSET_NOMINAL, MIC_DC_OFFSET_TOLERANCE);
-   else
-      print("ERROR: Microphone check: type=ANALOG dc_offset=%u expected=%d+/-%d result=FAIL "
-            "(check microphone wiring and connector)\n",
-            dc_offset, MIC_DC_OFFSET_NOMINAL, MIC_DC_OFFSET_TOLERANCE);
    log_event("MIC_CHECK", "type=ANALOG,dc_offset=%u,nominal=%d,tolerance=%d,result=%s",
              dc_offset, MIC_DC_OFFSET_NOMINAL, MIC_DC_OFFSET_TOLERANCE, dc_offset_ok ? "PASS" : "FAIL");
 
@@ -540,7 +531,7 @@ bool audio_error_encountered(void)
 
 static int16_t health_min_sample, health_max_sample;
 static int64_t health_sum, health_sum_squares;
-static uint32_t health_num_samples;
+static uint32_t health_num_samples, health_num_rms_samples, health_stride_phase;
 
 static void audio_health_accumulate(const int16_t *samples, uint32_t num_samples)
 {
@@ -555,6 +546,9 @@ static void audio_health_accumulate(const int16_t *samples, uint32_t num_samples
       health_min_sample = INT16_MAX;
       health_max_sample = INT16_MIN;
    }
+   // Every sample participates in min/max, and therefore in constant-output detection.
+   // These are two comparisons each and must not be subsampled: peaks are rare by
+   // definition, and a flat subset would misreport a working microphone as dead.
    for (uint32_t i = 0; i < num_samples; ++i)
    {
       const int16_t sample = samples[i];
@@ -562,10 +556,22 @@ static void audio_health_accumulate(const int16_t *samples, uint32_t num_samples
          health_min_sample = sample;
       if (sample > health_max_sample)
          health_max_sample = sample;
-      health_sum += sample;
-      health_sum_squares += (int64_t)sample * (int64_t)sample;
    }
    health_num_samples += num_samples;
+
+   // The sum and sum-of-squares carry the only multiply, so they are the only part
+   // worth subsampling. The start offset rotates between buffers so that successive
+   // buffers examine different phases -- a fixed offset would sample periodically and
+   // alias against periodic signal content.
+   const uint32_t stride = AUDIO_HEALTH_RMS_STRIDE;
+   for (uint32_t i = (stride > 1) ? (health_stride_phase % stride) : 0; i < num_samples; i += stride)
+   {
+      const int16_t sample = samples[i];
+      health_sum += sample;
+      health_sum_squares += (int64_t)sample * (int64_t)sample;
+      ++health_num_rms_samples;
+   }
+   ++health_stride_phase;
 }
 
 void audio_health_reset(void)
@@ -573,7 +579,7 @@ void audio_health_reset(void)
    health_min_sample = INT16_MAX;
    health_max_sample = INT16_MIN;
    health_sum = health_sum_squares = 0;
-   health_num_samples = 0;
+   health_num_samples = health_num_rms_samples = 0;
 }
 
 bool audio_health_available(void)
@@ -590,8 +596,10 @@ audio_health_t audio_health_get(void)
    health.num_samples = health_num_samples;
    health.min_sample = health_min_sample;
    health.max_sample = health_max_sample;
-   health.mean = (int32_t)(health_sum / (int64_t)health_num_samples);
-   health.rms = (uint32_t)sqrtf((float)(health_sum_squares / (int64_t)health_num_samples));
+   // Mean and RMS come from the subsampled population, min/max from all of it
+   const int64_t rms_count = health_num_rms_samples ? (int64_t)health_num_rms_samples : 1;
+   health.mean = (int32_t)(health_sum / rms_count);
+   health.rms = (uint32_t)sqrtf((float)(health_sum_squares / rms_count));
    const int32_t neg_excursion = (health_min_sample < 0) ? -(int32_t)health_min_sample : 0;
    health.peak = (uint32_t)MAX((int32_t)health_max_sample, neg_excursion);
 
