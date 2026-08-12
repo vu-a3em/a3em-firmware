@@ -71,7 +71,7 @@ void battery_monitor_init(void)
       .bWindowCompare = false,
       .eChannel = PIN_BATTERY_VOLTAGE_ADC_CHANNEL,
       .ePrecisionMode = AM_HAL_ADC_SLOT_12BIT,
-      .ui32TrkCyc = AM_HAL_ADC_MIN_TRKCYC,
+      .ui32TrkCyc = 63,
       .eMeasToAvg = AM_HAL_ADC_SLOT_AVG_1
    };
    am_hal_adc_slot_config_t temperature_slot_config =
@@ -80,7 +80,7 @@ void battery_monitor_init(void)
       .bWindowCompare = false,
       .eChannel = AM_HAL_ADC_SLOT_CHSEL_TEMP,
       .ePrecisionMode = AM_HAL_ADC_SLOT_10BIT,
-      .ui32TrkCyc = AM_HAL_ADC_MIN_TRKCYC,
+      .ui32TrkCyc = 32,
       .eMeasToAvg = AM_HAL_ADC_SLOT_AVG_1
    };
 
@@ -125,7 +125,6 @@ void battery_monitor_deinit(void)
 battery_result_t battery_monitor_get_details(void)
 {
    // Wake up the ADC
-   conversion_complete = false;
    battery_result_t result = { 0 };
    battery_voltage_code = temperature_code = 0;
    if (am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_WAKE, true) != AM_HAL_STATUS_SUCCESS)
@@ -136,17 +135,33 @@ battery_result_t battery_monitor_get_details(void)
    NVIC_SetPriority(ADC_IRQn, BATT_ADC_INTERRUPT_PRIORITY);
    NVIC_EnableIRQ(ADC_IRQn);
 
-   // Read multiple times to ensure that ADC measurement has settled
-   for (uint32_t i = 0; i < 3; ++i)
+   // Enable the ADC
+   if (am_hal_adc_enable(adc_handle) != AM_HAL_STATUS_SUCCESS)
    {
-      // Enable the ADC
-      if ((am_hal_adc_enable(adc_handle) != AM_HAL_STATUS_SUCCESS) || am_hal_adc_sw_trigger(adc_handle))
-      {
-         am_hal_adc_interrupt_disable(adc_handle, AM_HAL_ADC_INT_CNVCMP);
-         am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true);
-         NVIC_DisableIRQ(ADC_IRQn);
-         return result;
-      }
+      am_hal_adc_interrupt_disable(adc_handle, AM_HAL_ADC_INT_CNVCMP);
+      am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true);
+      NVIC_DisableIRQ(ADC_IRQn);
+      return result;
+   }
+
+   // Clear any stale state left over from a previous call
+   uint32_t status;
+   am_hal_adc_interrupt_status(adc_handle, &status, true);
+   am_hal_adc_interrupt_clear(adc_handle, status);
+   while (AM_HAL_ADC_FIFO_COUNT(ADC->FIFO))
+   {
+      uint32_t samples_to_read = 1;
+      am_hal_adc_sample_t junk;
+      am_hal_adc_samples_read(adc_handle, true, NULL, &samples_to_read, &junk);
+   }
+
+   // Read multiple times to ensure the ADC measurement has settled
+   for (uint32_t i = 0; i < 5; ++i)
+   {
+      // Trigger an ADC measurement
+      conversion_complete = false;
+      if (am_hal_adc_sw_trigger(adc_handle) != AM_HAL_STATUS_SUCCESS)
+         break;
 
       // Wait until the conversion has completed
       uint32_t retries_remaining = 25;
@@ -156,13 +171,13 @@ battery_result_t battery_monitor_get_details(void)
 
    // Disable the ADC
    am_hal_adc_interrupt_disable(adc_handle, AM_HAL_ADC_INT_CNVCMP);
+   am_hal_adc_disable(adc_handle);
    am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true);
    NVIC_DisableIRQ(ADC_IRQn);
 
    // Calculate and return the battery voltage and temperature
-   battery_voltage_code += 512; // TODO: THIS SHOULD CERTAINLY NOT BE NECESSARY, SOMETHING IS WRONG
    float temperature_codes[3] = { (float)temperature_code * AM_HAL_ADC_VREF / 1024.0f, 0.0f, -123.456f };
-   result.millivolts = (battery_voltage_code * AM_HAL_ADC_VREFMV / 4096) * (VOLTAGE_DIVIDER_UPPER + VOLTAGE_DIVIDER_LOWER) / VOLTAGE_DIVIDER_LOWER;
+   result.millivolts = (uint32_t)(((uint64_t)battery_voltage_code * AM_HAL_ADC_VREFMV * (VOLTAGE_DIVIDER_UPPER + VOLTAGE_DIVIDER_LOWER)) / (4096ull * VOLTAGE_DIVIDER_LOWER));
    if (am_hal_adc_control(adc_handle, AM_HAL_ADC_REQ_TEMP_CELSIUS_GET, temperature_codes) == AM_HAL_STATUS_SUCCESS)
       result.celcius = temperature_codes[1];
    return result;
