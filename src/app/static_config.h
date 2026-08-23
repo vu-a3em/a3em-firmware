@@ -38,6 +38,45 @@
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define LOG_FILE_NAME                               "a3em.log"
+#define BOOT_LOG_FILE_NAME                          "boot.log"
+
+
+// Watchdog Definitions ------------------------------------------------------------------------------------------------
+
+#define WATCHDOG_TIMEOUT_SECONDS                    120
+
+
+// Failure Handling and Diagnostics Definitions ------------------------------------------------------------------------
+
+// Consecutive-failure budgets before escalating
+#define STORAGE_MAX_REOPEN_ATTEMPTS                 3
+#define STORAGE_MAX_REMOUNT_ATTEMPTS                2
+#define STORAGE_MAX_CONSECUTIVE_FAILURES            8
+
+// Bounds on the spin loops that wait for peripherals to reach a requested state
+#define PERIPHERAL_MAX_WAIT_ATTEMPTS                1000
+#define PERIPHERAL_WAIT_INTERVAL_US                 100
+
+// Fixed-size boot log record layout. Records are written at a fixed offset inside a pre-allocated
+// file and each carries its own sequence number and checksum, so a torn write during power loss
+// can damage at most one record and every surviving record remains independently parseable.
+#define BOOT_LOG_RECORD_LEN                         64
+#define BOOT_LOG_NUM_RECORDS                        512
+#define BOOT_LOG_FILE_SIZE                          (BOOT_LOG_RECORD_LEN * BOOT_LOG_NUM_RECORDS)
+
+// Software reset reason codes stored in MCUCTRL->SCRATCH0 across a reset
+#define RESET_REASON_NONE                           0x00
+#define RESET_REASON_UNKNOWN                        0x01
+#define RESET_REASON_HARD_FAULT                     0x02
+#define RESET_REASON_PHASE_COMPLETE                 0x03
+#define RESET_REASON_AUDIO_ERROR                    0x04
+#define RESET_REASON_STORAGE_FAILURE                0x05
+#define RESET_REASON_RTC_STOPPED                    0x06
+#define RESET_REASON_BATTERY_LOW                    0x07
+#define RESET_REASON_MISSING_CONFIG                 0x08
+#define RESET_REASON_MAGNET_DEACTIVATED             0x09
+#define RESET_REASON_ACTIVATED                      0x0A
+#define RESET_REASON_PERIPHERAL_TIMEOUT             0x0B
 
 #ifndef MIN
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))
@@ -46,27 +85,39 @@
 #define MAX(a, b)                                   (((a) < (b)) ? (b) : (a))
 #endif
 
+// Records a HAL call that returned an unexpected status. Deliberately non-fatal: a failed pin
+// configuration should be visible in the logs, not a reason to brick a deployed device. The first
+// failure and a running count are surfaced through system_get_hal_failure_count() and logged with
+// the periodic device details.
+extern void system_note_hal_failure(const char *file, uint32_t line, uint32_t status);
+
 #ifdef AM_DEBUG_PRINTF
 extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define configASSERT0( x ) if( ( x ) != 0 ) vAssertCalled( __FILE__, __LINE__ )
 #define configASSERT1( x ) if( ( x ) != 1 ) vAssertCalled( __FILE__, __LINE__ )
 #else
-#define configASSERT0( x ) x
-#define configASSERT1( x ) x
+#define configASSERT0( x ) do { const uint32_t _hal_status = (uint32_t)( x ); \
+   if (_hal_status != 0) system_note_hal_failure(__FILE__, __LINE__, _hal_status); } while (0)
+#define configASSERT1( x ) do { const uint32_t _hal_status = (uint32_t)( x ); \
+   if (_hal_status != 1) system_note_hal_failure(__FILE__, __LINE__, _hal_status); } while (0)
 #endif
 
 
 // Interrupt Priorities ------------------------------------------------------------------------------------------------
 
+// NOTE: The magnet sensor input and the IMU interrupt line are serviced by a single NVIC vector
+#define GPIO_INTERRUPT_PRIORITY                         (AM_IRQ_PRIORITY_DEFAULT)
+
 #define COMPARATOR_THRESHOLD_INTERRUPT_PRIORITY         (AM_IRQ_PRIORITY_DEFAULT)
-#define MAGNET_SENSOR_INTERRUPT_PRIORITY                (AM_IRQ_PRIORITY_DEFAULT)
+#define MAGNET_SENSOR_INTERRUPT_PRIORITY                (GPIO_INTERRUPT_PRIORITY)
 #define MAGNET_VALIDATION_TIMER_INTERRUPT_PRIORITY      (AM_IRQ_PRIORITY_DEFAULT)
 #define AUDIO_ADC_INTERRUPT_PRIORITY                    (AM_IRQ_PRIORITY_DEFAULT - 1)
-#define IMU_DATA_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 2)
+#define IMU_DATA_INTERRUPT_PRIORITY                     (GPIO_INTERRUPT_PRIORITY)
 #define STORAGE_INTERRUPT_PRIORITY                      (AM_IRQ_PRIORITY_DEFAULT - 2)
 #define RTC_ALARM_INTERRUPT_PRIORITY                    (AM_IRQ_PRIORITY_DEFAULT)
 #define BATT_ADC_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 1)
 #define AUDIO_TIMER_INTERRUPT_PRIORITY                  (AM_IRQ_PRIORITY_DEFAULT + 1)
+#define AUDIO_DMA_TIMER_INTERRUPT_PRIORITY              (AM_IRQ_PRIORITY_DEFAULT - 1)
 #define EXT_HW_INTERRUPT_PRIORITY                       (AM_IRQ_PRIORITY_DEFAULT)
 
 
@@ -75,9 +126,23 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define AUDIO_NUM_CHANNELS                              1
 #define AUDIO_MIC_BIAS_VOLTAGE                          0.0f
 #define AUDIO_DEFAULT_SAMPLING_RATE_HZ                  16000
-#define AUDIO_BUFFER_MAX_SAMPLES                        96000
+
+#define AUDIO_BUFFER_MAX_SAMPLES                        48000
 #define AUDIO_BUFFER_MAX_NUM_SECONDS                    (AUDIO_BUFFER_MAX_SAMPLES / 8000)
 #define AUDIO_DEFAULT_CLIP_LENGTH_SECONDS               10
+
+#define AUDIO_MIN_SAMPLING_RATE_HZ                      4000
+#define AUDIO_MAX_SAMPLING_RATE_HZ                      AUDIO_BUFFER_MAX_SAMPLES
+#define AUDIO_MIN_CLIP_LENGTH_SECONDS                   1
+#define AUDIO_MAX_CLIP_LENGTH_SECONDS                   3600
+
+// Margin applied around the expected AUDADC DMA completion time. While the DMA-complete (DCMP)
+// interrupt is still unproven the backstop timer fires this far BEFORE the expected completion and
+// opens a short FIFO-threshold window, so a missed DCMP costs no samples. Once DCMP has proven
+// reliable for AUDIO_DMA_DCMP_CONFIDENCE consecutive buffers the backstop moves to just AFTER the
+// expected completion and the device settles at roughly one wake-up per buffer.
+#define AUDIO_DMA_BACKSTOP_MARGIN_MS                    8
+#define AUDIO_DMA_DCMP_CONFIDENCE                       16
 
 #define AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS        60
 #define AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ             16000
@@ -104,6 +169,10 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 #define IMU_DEFAULT_SAMPLING_RATE_HZ                    25
 #define IMU_BUFFER_MAX_SAMPLES                          ((AUDIO_BUFFER_MAX_SAMPLES / 80) + 100)
+
+#define IMU_FIFO_WATERMARK                              32
+#define IMU_FIFO_MAX_LEVEL                              128
+#define IMU_FIFO_BURST_ENTRIES                          16
 
 
 // Magnetic Sensing Definitions ----------------------------------------------------------------------------------------

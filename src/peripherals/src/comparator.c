@@ -17,6 +17,8 @@ void am_vcomp_isr(void)
    // Set the threshold exceeded flag and disable further interrupts
    threshold_exceeded = true;
    VCOMP->INTEN_b.OUTHI = 0;
+   VCOMP->INTCLR = VCOMP->INTSTAT;
+   NVIC_ClearPendingIRQ(VCOMP_IRQn);
 }
 
 

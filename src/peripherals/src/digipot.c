@@ -9,12 +9,14 @@
 #define REG_ADDRESS_WR    0x0
 
 static void *i2c_handle = NULL;
+static uint32_t i2c_scratch;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
 static int32_t i2c_read(void *handle, uint8_t reg_number, uint8_t *read_buffer)
 {
+   i2c_scratch = 0;
    am_hal_iom_transfer_t read_transaction = {
       .uPeerInfo.ui32I2CDevAddr     = DIGIPOT_I2C_ADDRESS,
       .ui32InstrLen                 = 1,
@@ -22,25 +24,28 @@ static int32_t i2c_read(void *handle, uint8_t reg_number, uint8_t *read_buffer)
       .eDirection                   = AM_HAL_IOM_RX,
       .ui32NumBytes                 = 1,
       .pui32TxBuffer                = NULL,
-      .pui32RxBuffer                = (uint32_t*)read_buffer,
+      .pui32RxBuffer                = &i2c_scratch,
       .bContinue                    = false,
       .ui8RepeatCount               = 0,
       .ui8Priority                  = 1,
       .ui32PauseCondition           = 0,
       .ui32StatusSetClr             = 0
    };
-   return am_hal_iom_blocking_transfer(i2c_handle, &read_transaction);
+   const int32_t result = am_hal_iom_blocking_transfer(i2c_handle, &read_transaction);
+   *read_buffer = (uint8_t)(i2c_scratch & 0xFF);
+   return result;
 }
 
 static int32_t i2c_write(void *handle, uint8_t reg_number, const uint8_t *write_buffer)
 {
+   i2c_scratch = *write_buffer;
    am_hal_iom_transfer_t write_transaction = {
       .uPeerInfo.ui32I2CDevAddr     = DIGIPOT_I2C_ADDRESS,
       .ui32InstrLen                 = 1,
       .ui64Instr                    = reg_number,
       .eDirection                   = AM_HAL_IOM_TX,
       .ui32NumBytes                 = 1,
-      .pui32TxBuffer                = (uint32_t*)write_buffer,
+      .pui32TxBuffer                = &i2c_scratch,
       .pui32RxBuffer                = NULL,
       .bContinue                    = false,
       .ui8RepeatCount               = 0,
@@ -93,7 +98,14 @@ void digipot_deinit(void)
       i2c_write(i2c_handle, REG_ADDRESS_ACR, &shutdown_mode);
 
       // Disable all I2C communications
-      while (am_hal_iom_disable(i2c_handle) != AM_HAL_STATUS_SUCCESS);
+      bool disabled = false;
+      for (uint32_t attempt = 0; (attempt < PERIPHERAL_MAX_WAIT_ATTEMPTS) && !disabled; ++attempt)
+      {
+         if (am_hal_iom_disable(i2c_handle) == AM_HAL_STATUS_SUCCESS)
+            disabled = true;
+         else
+            am_hal_delay_us(PERIPHERAL_WAIT_INTERVAL_US);
+      }
       am_hal_iom_uninitialize(i2c_handle);
       i2c_handle = NULL;
    }

@@ -16,7 +16,18 @@
 
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
+#define SCRATCH_MAGIC_MASK          0xFFFF0000
+#define SCRATCH_MAGIC               0xA3E30000
+#define SCRATCH0_REASON_MASK        0x000000FF
+#define SCRATCH1_RESET_COUNT_MASK   0x0000FFFF
+
 extern uint8_t _uid_base_address;
+
+static system_boot_info_t boot_info;
+static volatile uint32_t hal_failure_count;
+static const char *first_hal_failure_file;
+static uint32_t first_hal_failure_line, first_hal_failure_status;
+static bool watchdog_running, sram_active_in_deep_sleep;
 
 
 // Ambiq Interrupt Service Routines and MCU Functions ------------------------------------------------------------------
@@ -93,17 +104,58 @@ void system_hard_fault_handler(sContextStateFrame *frame)
          __asm("bkpt 1");
    } while (0);
 #else
+   // Record where the fault happened before restarting
+   const uint32_t faulting_address = frame ? frame->return_address : 0;
+   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | RESET_REASON_HARD_FAULT;
+   MCUCTRL->SCRATCH1 = MCUCTRL->SCRATCH1;   // Preserve the reset counter across this path
+
+   // Persist the faulting address as well, but only when it differs from what is already stored
+   mram_boot_record_t stored_record;
+   mram_get_boot_record(&stored_record);
+   if (stored_record.fault_address != faulting_address)
+      mram_store_fault(RESET_REASON_HARD_FAULT, SCB->CFSR, faulting_address);
    NVIC_SystemReset();
    while (true) {}
 #endif
 }
 
 void HardFault_Handler(void) { HARDFAULT_HANDLING_ASM(); }
+void MemManage_Handler(void)  { HARDFAULT_HANDLING_ASM(); }
+void BusFault_Handler(void)   { HARDFAULT_HANDLING_ASM(); }
+void UsageFault_Handler(void) { HARDFAULT_HANDLING_ASM(); }
 
 void vAssertCalled(const char * const pcFileName, unsigned long ulLine)
 {
    volatile uint32_t ulSetToNonZeroInDebuggerToContinue = 0;
    while (ulSetToNonZeroInDebuggerToContinue == 0);
+}
+
+void system_note_hal_failure(const char *file, uint32_t line, uint32_t status)
+{
+   // Capture the first failure in full and count the rest
+   AM_CRITICAL_BEGIN
+   if (!hal_failure_count)
+   {
+      first_hal_failure_file = file;
+      first_hal_failure_line = line;
+      first_hal_failure_status = status;
+   }
+   ++hal_failure_count;
+   AM_CRITICAL_END
+}
+
+uint32_t system_get_hal_failure_count(void)
+{
+   return hal_failure_count;
+}
+
+const char* system_get_first_hal_failure(uint32_t *line, uint32_t *status)
+{
+   if (line)
+      *line = first_hal_failure_line;
+   if (status)
+      *status = first_hal_failure_status;
+   return first_hal_failure_file;
 }
 
 
@@ -118,15 +170,42 @@ static void system_initialize_unused_pins(void)
       am_hal_gpio_pinconfig(unused_pins[i], unused_pin_config);
 }
 
+static void system_capture_boot_info(void)
+{
+   // Read the hardware reset status latched by the reset generator
+   am_hal_reset_status_get(&boot_info.hardware_status);
+
+   // Recover the software reset reason handed over by the previous run.
+   // A missing magic tag means the scratch register lost its contents, which only happens on a real power cycle.
+   const uint32_t scratch0 = MCUCTRL->SCRATCH0, scratch1 = MCUCTRL->SCRATCH1;
+   const bool scratch_valid = ((scratch1 & SCRATCH_MAGIC_MASK) == SCRATCH_MAGIC);
+   boot_info.was_power_on = !scratch_valid;
+   boot_info.resets_this_epoch = scratch_valid ? ((scratch1 & SCRATCH1_RESET_COUNT_MASK) + 1) : 0;
+   if ((scratch0 & SCRATCH_MAGIC_MASK) == SCRATCH_MAGIC)
+      boot_info.software_reason = scratch0 & SCRATCH0_REASON_MASK;
+   else
+      boot_info.software_reason = scratch_valid ? RESET_REASON_UNKNOWN : RESET_REASON_NONE;
+
+   // A power cycle starts a new epoch, which is the only time the counter in MRAM is programmed
+   if (boot_info.was_power_on)
+      mram_increment_boot_epoch();
+   boot_info.boot_epoch = mram_get_boot_epoch();
+
+   // Recover the fault address recorded by a previous hard fault
+   mram_boot_record_t stored_record;
+   mram_get_boot_record(&stored_record);
+   boot_info.fault_address = (boot_info.software_reason == RESET_REASON_HARD_FAULT) ? stored_record.fault_address : 0;
+
+   // Re-stamp the scratch registers for the next boot
+   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | RESET_REASON_UNKNOWN;
+   MCUCTRL->SCRATCH1 = SCRATCH_MAGIC | (boot_info.resets_this_epoch & SCRATCH1_RESET_COUNT_MASK);
+}
+
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
 void setup_hardware(void)
 {
-   // Read the hardware reset reason
-   am_hal_reset_status_t reset_reason;
-   am_hal_reset_status_get(&reset_reason);
-
    // Enable the floating point module
    am_hal_sysctrl_fpu_enable();
    am_hal_sysctrl_fpu_stacking_enable(true);
@@ -149,7 +228,7 @@ void setup_hardware(void)
    };
    am_hal_pwrctrl_mcu_memory_config_t mcu_mem_config =
    {
-      .eCacheCfg    = AM_HAL_PWRCTRL_CACHE_NONE,
+      .eCacheCfg    = AM_HAL_PWRCTRL_CACHEB0_ONLY,
       .bRetainCache = false,
       .eDTCMCfg     = AM_HAL_PWRCTRL_DTCM_384K,
       .eRetainDTCM  = AM_HAL_PWRCTRL_DTCM_384K,
@@ -163,7 +242,7 @@ void setup_hardware(void)
       .eActiveWithMCU     = AM_HAL_PWRCTRL_SRAM_ALL,
 #else
       .eSRAMCfg           = AM_HAL_PWRCTRL_SRAM_1M_GRP0,
-      .eActiveWithMCU     = AM_HAL_PWRCTRL_SRAM_1M_GRP0,
+      .eActiveWithMCU     = AM_HAL_PWRCTRL_SRAM_NONE,
 #endif
       .eActiveWithGFX     = AM_HAL_PWRCTRL_SRAM_NONE,
       .eActiveWithDISP    = AM_HAL_PWRCTRL_SRAM_NONE,
@@ -178,20 +257,42 @@ void setup_hardware(void)
    am_hal_pwrctrl_dsp_memory_config(AM_HAL_DSP1, &dsp_mem_config);
    am_hal_pwrctrl_mcu_memory_config(&mcu_mem_config);
    am_hal_pwrctrl_sram_config(&sram_mem_config);
-   am_hal_cachectrl_disable();
+   sram_active_in_deep_sleep = false;
+
+   // Enable the MRAM instruction cache
+   const am_hal_cachectrl_config_t cache_config =
+   {
+      .eDescript = AM_HAL_CACHECTRL_DESCR_1WAY_128B_512E,
+      .eMode     = AM_HAL_CACHECTRL_CONFIG_MODE_INSTR,
+      .bLRU      = false
+   };
+   configASSERT0(am_hal_cachectrl_config(&cache_config));
+   configASSERT0(am_hal_cachectrl_enable());
 
    // Initialize all unused GPIO pins to a known state
    system_initialize_unused_pins();
 
-   // Set up printing to the console
+   // Set up persistent storage and determine why the device restarted
    mram_init();
+   system_capture_boot_info();
    logging_init();
-   print_reset_reason(&reset_reason);
+   print_reset_reason(&boot_info.hardware_status);
+}
+
+const system_boot_info_t* system_get_boot_info(void)
+{
+   return &boot_info;
 }
 
 void system_reset(void)
 {
-   // Gracefully shut down all peripherals and initiate a power-on reset
+   system_reset_with_reason(RESET_REASON_UNKNOWN);
+}
+
+void system_reset_with_reason(uint32_t reason)
+{
+   // Record why the device is restarting so that the next boot can report it
+   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (reason & SCRATCH0_REASON_MASK);
    system_deinitialize_peripherals();
    am_hal_reset_control(AM_HAL_RESET_CONTROL_SWPOR, NULL);
 }
@@ -247,6 +348,9 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
 {
    // Turn off all peripherals
    print("WARNING: Powering off. Will awake on: [ %s%s]...\n", wake_on_magnet ? "Magnet " : "", wake_on_timestamp ? "Timestamp " : "");
+   storage_flush_log();
+   system_disable_watchdog();
+   system_set_sram_active(false);
    system_deinitialize_peripherals();
 
    // Power down the crypto module followed by all peripherals
@@ -288,6 +392,7 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
       battery_monitor_init();
       magnet_sensor_init();
       storage_setup_logs();
+      system_enable_watchdog();
       print("INFO: Device woke up!\n");
    }
 }
@@ -318,20 +423,50 @@ void system_delay(uint32_t delay_us)
 
 void system_enable_watchdog(void)
 {
-   // Configure a watchdog timer which must be fed within 255s
+   // Configure a watchdog timer which must be fed within WATCHDOG_TIMEOUT_SECONDS
+   if (watchdog_running)
+   {
+      am_hal_wdt_restart(AM_HAL_WDT_MCU);
+      return;
+   }
    am_hal_wdt_config_t watchdog_config = {
       .eClockSource = AM_HAL_WDT_1HZ,
       .bInterruptEnable = false,
       .ui32InterruptValue = 0,
       .bResetEnable = true,
-      .ui32ResetValue = 255,
+      .ui32ResetValue = WATCHDOG_TIMEOUT_SECONDS,
       .bAlertOnDSPReset = false
    };
    configASSERT0(am_hal_wdt_config(AM_HAL_WDT_MCU, &watchdog_config));
    configASSERT0(am_hal_wdt_start(AM_HAL_WDT_MCU, false));
+   watchdog_running = true;
+}
+
+void system_disable_watchdog(void)
+{
+   // Stop the watchdog
+   if (watchdog_running)
+   {
+      am_hal_wdt_stop(AM_HAL_WDT_MCU);
+      watchdog_running = false;
+   }
 }
 
 void system_feed_watchdog(void)
 {
-   am_hal_wdt_restart(AM_HAL_WDT_MCU);
+   if (watchdog_running)
+      am_hal_wdt_restart(AM_HAL_WDT_MCU);
+}
+
+void system_set_sram_active(bool active_during_deep_sleep)
+{
+   // Hold the lower SSRAM group fully active only while a DMA transfer needs to reach it during Deep Sleep
+   if (active_during_deep_sleep != sram_active_in_deep_sleep)
+   {
+      am_hal_pwrctrl_sram_memcfg_t sram_mem_config;
+      am_hal_pwrctrl_sram_config_get(&sram_mem_config);
+      sram_mem_config.eActiveWithMCU = active_during_deep_sleep ? AM_HAL_PWRCTRL_SRAM_1M_GRP0 : AM_HAL_PWRCTRL_SRAM_NONE;
+      configASSERT0(am_hal_pwrctrl_sram_config(&sram_mem_config));
+      sram_active_in_deep_sleep = active_during_deep_sleep;
+   }
 }

@@ -20,8 +20,8 @@ static magnet_sensor_callback_t detection_callback;
 static int32_t validation_ticks_requested, transition_ticks;
 static magnetic_field_validation_callback_t validation_callback;
 static volatile int32_t validation_tick_count, transition_tick_count, validation_phase;
+static volatile bool magnetic_field_present, validation_complete, validation_result;
 static volatile am_hal_gpio_pincfg_t input_pin_config;
-static volatile bool magnetic_field_present;
 static bool sensor_enabled;
 
 
@@ -54,12 +54,32 @@ static void magnet_sensor_isr(void*)
       transition_tick_count = transition_ticks;
 }
 
+static void finish_validation(bool validated)
+{
+   // Complete a validation sequence
+   am_hal_timer_clear_stop(TIMER_NUMBER_MAG_DETECT);
+   transition_tick_count = -1;
+   validation_tick_count = 0;
+   validation_phase = 0;
+
+   // Hand the result to the main loop
+   validation_result = validated;
+   validation_complete = true;
+}
+
 void mag_detect_timer_isr(void)
 {
    // Verify that the magnetic field is still as expected
    const bool required_field_presence = (validation_phase % 2) == 0;
    const bool field_present = am_hal_gpio_input_read(PIN_MAG_SENSOR_INP);
    am_hal_timer_interrupt_clear(AM_HAL_TIMER_MASK(TIMER_NUMBER_MAG_DETECT, AM_HAL_TIMER_COMPARE_BOTH));
+
+   // Ignore a stray interrupt arriving when no validation is in progress
+   if (!validation_callback)
+   {
+      am_hal_timer_clear_stop(TIMER_NUMBER_MAG_DETECT);
+      return;
+   }
 
    // Handle verification based on the current phase
    if (transition_tick_count >= 0)
@@ -68,11 +88,7 @@ void mag_detect_timer_isr(void)
       {
          transition_tick_count = -1;
          if (field_present != required_field_presence)
-         {
-            led_indicate_validation_failed();
-            validation_callback(false);
-            validation_callback = NULL;
-         }
+            finish_validation(false);
          else
             am_hal_timer_clear(TIMER_NUMBER_MAG_DETECT);
       }
@@ -83,18 +99,12 @@ void mag_detect_timer_isr(void)
       }
    }
    else if (field_present != required_field_presence)
-   {
-      validation_callback(false);
-      validation_callback = NULL;
-   }
+      finish_validation(false);
    else if (++validation_tick_count >= validation_ticks_requested)
    {
       validation_tick_count = 0;
       if (++validation_phase == VALIDATION_NUM_PHASES)
-      {
-         validation_callback(true);
-         validation_callback = NULL;
-      }
+         finish_validation(true);
       else
       {
          led_off(LED_ALL);
@@ -248,7 +258,7 @@ void magnet_sensor_register_callback(magnet_sensor_callback_t callback)
 void magnet_sensor_verify_field(uint32_t milliseconds, magnetic_field_validation_callback_t callback)
 {
    // Only proceed if there is not a pending verification in progress
-   if (!validation_callback)
+   if (!validation_callback && !validation_complete)
    {
       // Start the field validation timer for the requested number of milliseconds
       transition_tick_count = -1;
@@ -256,6 +266,37 @@ void magnet_sensor_verify_field(uint32_t milliseconds, magnetic_field_validation
       validation_phase = validation_tick_count = 0;
       validation_ticks_requested = milliseconds / VALIDATION_TIMER_TICK_RATE_MS;
       transition_ticks = VALIDATION_TRANSITION_TIME_BUFFER_MS / VALIDATION_TIMER_TICK_RATE_MS;
+      if (validation_ticks_requested < 1)
+         validation_ticks_requested = 1;
       am_hal_timer_clear(TIMER_NUMBER_MAG_DETECT);
    }
+}
+
+void magnet_sensor_handle_pending_validation(void)
+{
+   // Deliver any completed validation result from the main loop
+   bool deliver = false, result = false;
+   magnetic_field_validation_callback_t callback = NULL;
+   AM_CRITICAL_BEGIN
+   if (validation_complete)
+   {
+      deliver = true;
+      result = validation_result;
+      callback = validation_callback;
+      validation_complete = false;
+      validation_callback = NULL;
+   }
+   AM_CRITICAL_END
+   if (deliver)
+   {
+      if (!result)
+         led_indicate_validation_failed();
+      if (callback)
+         callback(result);
+   }
+}
+
+bool magnet_sensor_validation_in_progress(void)
+{
+   return (validation_callback != NULL) || validation_complete;
 }

@@ -265,6 +265,7 @@ SRC += led.c
 SRC += logging.c
 SRC += magnet.c
 SRC += mram.c
+SRC += datetime.c
 SRC += rtc.c
 SRC += runtime_config.c
 SRC += storage.c
@@ -471,7 +472,7 @@ $(CONFIG)/%.o: %.s $(CONFIG)/%.d
 	@echo " Assembling $<" ;\
 	$(CC) -c $(CFLAGS) $< -o $@
 
-$(CONFIG)/%.axf: $(OBJS) $(LIBS)
+$(CONFIG)/%.axf: $(OBJS) $(LIBS) $(LINKER_FILE)
 	@echo " Linking $@" ;\
 	$(CC) -Wl,-T,$(LINKER_FILE) -o $@ $(OBJS) $(LFLAGS)
 

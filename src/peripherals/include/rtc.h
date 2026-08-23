@@ -3,6 +3,7 @@
 
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
+#include "datetime.h"
 #include "runtime_config.h"
 
 
@@ -11,9 +12,12 @@
 void rtc_init(void);
 void rtc_set_time_to_compile_time(void);
 bool rtc_set_time_from_timestamp(uint32_t timestamp);
-void rtc_set_wakeup_timestamp(uint32_t timestamp);
 uint32_t rtc_get_timestamp(void);
 uint32_t rtc_get_time_of_day(void);
 bool rtc_is_valid(void);
+void rtc_set_wakeup_timestamp(uint32_t timestamp);
+uint32_t rtc_get_wakeup_timestamp(void);
+bool rtc_wakeup_elapsed(void);
+void rtc_clear_wakeup(void);
 
 #endif  // #ifndef __RTC_HEADER_H__

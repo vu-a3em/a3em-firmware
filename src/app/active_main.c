@@ -4,6 +4,7 @@
 #include "imu.h"
 #include "led.h"
 #include "logging.h"
+#include "magnet.h"
 #include "mram.h"
 #include "opus_config.h"
 #include "rtc.h"
@@ -19,6 +20,7 @@
 static volatile uint32_t num_clips_stored, audio_samples_per_dma;
 static volatile bool *device_active, phase_ended, audio_timer_triggered, in_motion, new_imu_stream, validation_time;
 static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds, imu_sampling_rate_hz, activation_number;
+static uint32_t end_of_phase_reason = RESET_REASON_PHASE_COMPLETE;
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
 static bool record_imu_with_audio, use_silence_filter;
@@ -43,13 +45,21 @@ static void validate_device_settings(uint32_t current_timestamp)
 {
    // Check if the battery voltage is too low to continue
    const battery_result_t battery_details = battery_monitor_get_details();
-   phase_ended = (battery_details.millivolts <= config_get_battery_mV_low());
+   phase_ended = battery_monitor_is_critically_low(config_get_battery_mV_low());
+   if (phase_ended)
+   {
+      print("WARNING: Battery confirmed low at %u mV - ending phase\n", battery_details.millivolts);
+      end_of_phase_reason = RESET_REASON_BATTERY_LOW;
+   }
 
    // Check if the current phase has ended or if it is time to activate the VHF radio
    static uint32_t previous_timestamp = 0;
    uint32_t wakeup_timestamp = MIN(current_timestamp + MIN_LOG_DATA_INTERVAL_SECONDS, phase_end_timestamp);
    if (current_timestamp >= phase_end_timestamp)
+   {
       phase_ended = true;
+      end_of_phase_reason = RESET_REASON_PHASE_COMPLETE;
+   }
    else if (vhf_enable_timestamp)
    {
       if (current_timestamp >= vhf_enable_timestamp)
@@ -64,40 +74,94 @@ static void validate_device_settings(uint32_t current_timestamp)
    // Check if it is time to deactivate the LEDs
    if (led_active_seconds)
    {
-      if ((current_timestamp - config_get_deployment_start_time()) >= led_active_seconds)
+      const uint32_t deployment_start = config_get_deployment_start_time();
+      if ((current_timestamp >= deployment_start) && ((current_timestamp - deployment_start) >= led_active_seconds))
       {
          leds_enable(false);
          led_active_seconds = 0;
       }
-      else
-         wakeup_timestamp = MIN(wakeup_timestamp, config_get_deployment_start_time() + led_active_seconds);
+      else if (current_timestamp >= deployment_start)
+         wakeup_timestamp = MIN(wakeup_timestamp, deployment_start + led_active_seconds);
    }
 
    // Ensure that the RTC is still ticking
-   if (current_timestamp == previous_timestamp)
+   if (current_timestamp && (current_timestamp == previous_timestamp))
    {
       print("ERROR: RTC appears to have stopped ticking...resetting device\n");
       phase_ended = true;
+      end_of_phase_reason = RESET_REASON_RTC_STOPPED;
    }
    previous_timestamp = current_timestamp;
 
    // Log relevant current device information
    mram_set_last_known_timestamp(current_timestamp);
+   audio_stats_t audio_stats;
+   storage_health_t storage_health;
+   audio_get_stats(&audio_stats);
+   storage_get_health(&storage_health);
    print("INFO: Current Device Details:\n"
          "   UTC Timestamp: %u\n"
          "   Battery Voltage (mV): %u\n"
          "   Temperature (C): %0.2f\n"
          "   Location: [%0.6f, %0.6f, %0.2f]\n"
          "   LEDs Active: %s\n"
-         "   VHF Active: %s\n",
+         "   VHF Active: %s\n"
+         "   Audio Buffers: %u captured, %u dropped, %u recovered (DCMP %s)\n"
+         "   Storage: %u write failures, %u reopens, %u remounts, %u IMU buffers dropped\n"
+         "   IMU FIFO overruns: %u\n"
+         "   HAL failures: %u\n",
          current_timestamp, battery_details.millivolts, battery_details.celcius,
-         last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False");
+         last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False",
+         audio_stats.buffers_captured, audio_stats.buffers_dropped, audio_stats.missed_completions,
+         audio_stats.dcmp_trusted ? "trusted" : "unproven",
+         storage_health.write_failures, storage_health.reopen_recoveries, storage_health.remount_recoveries,
+         storage_health.imu_buffers_dropped, imu_get_fifo_overrun_count(), system_get_hal_failure_count());
+   if (system_get_hal_failure_count())
+   {
+      uint32_t line = 0, status = 0;
+      const char *file = system_get_first_hal_failure(&line, &status);
+      print("   First HAL failure: %s:%u status %u\n", file ? file : "unknown", line, status);
+   }
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time
    validation_time = false;
    if (!phase_ended && *device_active)
       rtc_set_wakeup_timestamp(wakeup_timestamp);
+}
+
+static bool recover_from_audio_write_failure(uint32_t sampling_rate, uint32_t current_time)
+{
+   // Handle a failed audio write by escalating through the storage layer's recovery options
+   if (storage_recover_audio(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+      return true;
+   end_of_phase_reason = RESET_REASON_STORAGE_FAILURE;
+   return false;
+}
+
+static void service_background_work(void)
+{
+   // Perform work that every audio processing loop requires on each pass
+   system_feed_watchdog();
+   magnet_sensor_handle_pending_validation();
+
+   // Apply a GPS update from the main loop rather than from the tracker interrupt
+   tracker_gps_data_t gps;
+   if (tracker_get_pending_gps_data(&gps))
+   {
+      last_height = gps.height;
+      last_lat = gps.lat;
+      last_lon = gps.lon;
+      if (gps.utc_timestamp)
+      {
+         mram_set_last_known_timestamp(gps.utc_timestamp);
+         rtc_set_time_from_timestamp(gps.utc_timestamp);
+      }
+   }
+
+   // Treat a passed validation deadline as equivalent to the RTC interrupt firing
+   if (!validation_time && rtc_wakeup_elapsed())
+      validation_time = true;
 }
 
 
@@ -139,23 +203,15 @@ void audio_processing_timer_isr(void)
 
 static void tracker_data_available(tracker_msg_t message_type, const void *new_data)
 {
-   // Handle the incoming message based on type
+   // This runs in the I2C slave interrupt handler, so it must do essentially nothing. GPS messages
+   // are queued by the tracker driver itself and applied by service_background_work() from the main
+   // loop: the RTC update needs calendar conversion and the location update needs an MRAM program,
+   // and neither belongs in an interrupt while audio DMA is running.
+   (void)new_data;
    switch (message_type)
    {
-      case MSG_GPS:
-      {
-         // Sync RTC to GPS time whenever an update is received
-         const tracker_gps_data_t *gps_data = (const tracker_gps_data_t*)new_data;
-         mram_set_last_known_timestamp(gps_data->utc_timestamp);
-         rtc_set_time_from_timestamp(gps_data->utc_timestamp);
-         last_height = gps_data->height;
-         last_lat = gps_data->lat;
-         last_lon = gps_data->lon;
-         break;
-      }
       case MSG_CONFIG:
          // TODO: Handle configuration change requests
-         //const tracker_config_data_t *config_data = (const tracker_config_data_t*)new_data;
          break;
       default:
          break;
@@ -179,10 +235,10 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
       imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
 
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
-   system_enable_watchdog();
    while (!phase_ended && *device_active)
    {
-      // Determine if time to re-validate device settings
+      // Perform the per-pass background work, then determine if time to re-validate device settings
+      service_background_work();
       const uint32_t current_time = rtc_get_timestamp();
       if (validation_time)
          validate_device_settings(current_time);
@@ -197,11 +253,13 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
 
       // Handle any newly available audio data
       if (audio_error_encountered())
-         system_reset();
+      {
+         print("ERROR: Audio DMA error encountered - resetting device\n");
+         system_reset_with_reason(RESET_REASON_AUDIO_ERROR);
+      }
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          // Determine if time to create a new audio file
-         system_feed_watchdog();
          if (!audio_clip_in_progress)
          {
             // Check for total silence if silence filtering is enabled
@@ -223,8 +281,13 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
          if (audio_clip_in_progress)
          {
             led_indicate_clip_progress();
-            storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip);
-            if (++num_audio_reads >= num_audio_reads_per_clip)
+            if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip))
+            {
+               if (!recover_from_audio_write_failure(sampling_rate, current_time))
+                  system_reset_with_reason(RESET_REASON_STORAGE_FAILURE);
+               num_audio_reads = 0;
+            }
+            else if (++num_audio_reads >= num_audio_reads_per_clip)
             {
                // Finalize the current audio file
                storage_close_audio();
@@ -268,7 +331,8 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    while (!phase_ended && *device_active)
    {
-      // Determine if time to re-validate device settings
+      // Perform the per-pass background work, then determine if time to re-validate device settings
+      service_background_work();
       const uint32_t current_time = rtc_get_timestamp();
       if (validation_time)
          validate_device_settings(current_time);
@@ -289,12 +353,16 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          if (interval_based && !audio_timer_triggered)
          {
             while (!audio_timer_triggered && !phase_ended && !validation_time && *device_active)
+            {
+               system_feed_watchdog();
                system_enter_deep_sleep_mode();
+            }
             continue;
          }
          else if (!interval_based)
          {
-            uint32_t seconds_to_sleep = MIN(seconds_til_next_scheduled_recording, phase_end_timestamp - current_time);
+            const uint32_t seconds_until_phase_end = (phase_end_timestamp > current_time) ? (phase_end_timestamp - current_time) : 0;
+            uint32_t seconds_to_sleep = MIN(seconds_til_next_scheduled_recording, seconds_until_phase_end);
             if (seconds_to_sleep)
             {
                audio_timer_triggered = false;
@@ -302,7 +370,10 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
                am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
                am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
                while (!audio_timer_triggered && !phase_ended && !validation_time && *device_active)
+               {
+                  system_feed_watchdog();
                   system_enter_deep_sleep_mode();
+               }
                continue;
             }
          }
@@ -333,12 +404,20 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
 
       // Handle any newly available audio data
       if (audio_error_encountered())
-         system_reset();
+      {
+         print("ERROR: Audio DMA error encountered - resetting device\n");
+         system_reset_with_reason(RESET_REASON_AUDIO_ERROR);
+      }
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          led_indicate_clip_progress();
-         storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip);
-         if (++num_audio_reads >= num_audio_reads_per_clip)
+         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip))
+         {
+            if (!recover_from_audio_write_failure(sampling_rate, current_time))
+               system_reset_with_reason(RESET_REASON_STORAGE_FAILURE);
+            num_audio_reads = 0;
+         }
+         else if (++num_audio_reads >= num_audio_reads_per_clip)
          {
             // Finalize the current audio file and stop reading if interval-based or if the current schedule has ended
             storage_close_audio();
@@ -367,6 +446,8 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
 
 static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, uint32_t max_clips, uint32_t per_num_seconds, bool ogg_encode)
 {
+   if (allow_extended_audio_clips)
+      print("WARNING: AUDIO_EXTEND_CLIP is set but is not implemented and will have no effect\n");
    // Initialize all necessary local variables
    audio_samples_per_dma = audio_num_seconds_per_dma() * sampling_rate;
    bool audio_clip_in_progress = false, awaiting_trigger = false;
@@ -383,7 +464,8 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    while (!phase_ended && *device_active)
    {
-      // Determine if time to re-validate device settings
+      // Perform the per-pass background work, then determine if time to re-validate device settings
+      service_background_work();
       const uint32_t current_time = rtc_get_timestamp();
       if (validation_time)
          validate_device_settings(current_time);
@@ -405,7 +487,10 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
 
       // Handle any newly available audio data
       if (audio_error_encountered())
-         system_reset();
+      {
+         print("ERROR: Audio DMA error encountered - resetting device\n");
+         system_reset_with_reason(RESET_REASON_AUDIO_ERROR);
+      }
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
          // Create a WAV file if this is a new audio clip
@@ -429,8 +514,13 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
 
          // Store the audio data to the audio file
          led_indicate_clip_progress();
-         storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip);
-         if (++num_audio_reads >= num_audio_reads_per_clip)
+         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip))
+         {
+            if (!recover_from_audio_write_failure(sampling_rate, current_time))
+               system_reset_with_reason(RESET_REASON_STORAGE_FAILURE);
+            num_audio_reads = 0;
+         }
+         else if (++num_audio_reads >= num_audio_reads_per_clip)
          {
             awaiting_trigger = audio_clip_in_progress = false;
             led_indicate_clip_end();
@@ -460,17 +550,21 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
 {
    // Ensure that a storage directory with the device name exists and is active on the SD card
    print("INFO: Starting main deployment activity for Phase #%d\n", phase_index+1);
-   print("INFO: Validating existence of SD card storage directory...");
    config_get_device_label(device_label, sizeof(device_label));
    activation_number = config_get_activation_number();
    if (device_label[0] == '\0')
       memcpy(device_label, "Default", sizeof("Default"));
    const bool success = storage_mkdir(device_label);
-   print("%s\n", success ? "SUCCESS" : "FAILURE");
+   print("INFO: Validating existence of SD card storage directory...%s\n", success ? "SUCCESS" : "FAILURE");
+
+   // Establish the timestamped directory for this phase and move the deployment log into it
+   storage_rotate_log(activation_number, device_label, rtc_get_timestamp());
 
    // Validate device settings (and implicitly set an RTC alarm for the next important event)
    validation_time = false;
+   phase_ended = false;
    device_active = device_activated;
+   end_of_phase_reason = RESET_REASON_PHASE_COMPLETE;
    vhf_enable_timestamp = config_get_vhf_start_timestamp();
    led_active_seconds = config_get_leds_active_seconds();
    phase_end_timestamp = config_get_end_time(phase_index);
@@ -483,8 +577,10 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    {
       const float threshold = config_get_silence_filter_threshold(phase_index);
       const frequency_range_t frequencies = config_get_frequencies_of_interest(phase_index);
-      silence_filter_initialize(audio_sampling_rate_hz, frequencies.min_frequency, frequencies.max_frequency, threshold);
+      use_silence_filter = silence_filter_initialize(audio_sampling_rate_hz, frequencies.min_frequency, frequencies.max_frequency, threshold);
    }
+   if (use_silence_filter && (config_get_audio_recording_mode(phase_index) != CONTINUOUS))
+      print("WARNING: A silence threshold is configured but only takes effect in CONTINUOUS mode\n");
 
    // Set up Ogg Opus encoding if enabled
    const int32_t encoding_bitrate = config_use_opus_encoding(phase_index) ? config_get_opus_bitrate(phase_index) : 0;
@@ -549,7 +645,8 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                max_clips_interval_seconds = 1;
                break;
          }
-         audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, COMPARATOR_THRESHOLD, config_get_audio_trigger_threshold(phase_index), device_activated);
+         if (!audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, COMPARATOR_THRESHOLD, config_get_audio_trigger_threshold(phase_index), device_activated))
+            break;
          process_audio_triggered(allow_extended_audio_clips, audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), max_num_clips, max_clips_interval_seconds, encoding_bitrate > 0);
          break;
       }
@@ -557,10 +654,10 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       {
          start_end_time_t *schedule;
          uint32_t num_schedules = config_get_audio_trigger_schedule(phase_index, &schedule);
-         if (config_get_mic_type() == MIC_ANALOG)
-            audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
-         else
-            audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db());
+         if (!((config_get_mic_type() == MIC_ANALOG) ?
+               audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated) :
+               audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db())))
+            break;
          process_audio_scheduled(audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), false, 0, num_schedules, schedule, encoding_bitrate > 0);
          break;
       }
@@ -585,19 +682,19 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                audio_recording_interval *= 1;
                break;
          }
-         if (config_get_mic_type() == MIC_ANALOG)
-            audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
-         else
-            audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db());
+         if (!((config_get_mic_type() == MIC_ANALOG) ?
+               audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated) :
+               audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db())))
+            break;
          process_audio_scheduled(audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), true, (int32_t)audio_recording_interval, 0, NULL, encoding_bitrate > 0);
          break;
       }
       case CONTINUOUS:  // Intentional fall-through
       default:
-         if (config_get_mic_type() == MIC_ANALOG)
-            audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
-         else
-            audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db());
+         if (!((config_get_mic_type() == MIC_ANALOG) ?
+               audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated) :
+               audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db())))
+            break;
          process_audio_continuous(audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), encoding_bitrate > 0);
          break;
    }
@@ -612,52 +709,84 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    storage_close();
    storage_close_imu();
    storage_close_audio();
+   storage_flush_log();
    print("INFO: Leaving main deployment activity for Phase #%d\n", phase_index+1);
+}
+
+uint32_t active_main_get_end_reason(void)
+{
+   return end_of_phase_reason;
 }
 
 void pre_active_main(volatile bool *device_activated)
 {
    // Ensure that a storage directory with the device name exists and is active on the SD card
    print("INFO: Starting pre-deployment recording activity\n");
-   print("INFO: Validating existence of SD card storage directory...");
    config_get_device_label(device_label, sizeof(device_label));
    activation_number = config_get_activation_number();
    if (device_label[0] == '\0')
       memcpy(device_label, "Default", sizeof("Default"));
    const bool success = storage_mkdir(device_label);
-   print("%s\n", success ? "SUCCESS" : "FAILURE");
+   print("INFO: Validating existence of SD card storage directory...%s\n", success ? "SUCCESS" : "FAILURE");
+
+   // Establish the timestamped directory and move the deployment log into it
+   const uint32_t start_time = rtc_get_timestamp();
+   storage_rotate_log(activation_number, device_label, start_time);
 
    // Initialize the correct audio input channel
-   if (config_get_mic_type() == MIC_ANALOG)
-      audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated);
-   else
-      audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS, config_get_mic_amplification_db());
-   const uint32_t num_audio_reads_per_clip = AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS / audio_num_seconds_per_dma();
-   audio_samples_per_dma = audio_num_seconds_per_dma() * AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ;
+   if (!((config_get_mic_type() == MIC_ANALOG) ?
+         audio_analog_init(AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated) :
+         audio_digital_init(AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS, config_get_mic_amplification_db())))
+   {
+      print("ERROR: Unable to initialize audio for pre-deployment recording\n");
+      return;
+   }
+   const uint32_t seconds_per_dma = audio_num_seconds_per_dma();
+   if (!seconds_per_dma)
+   {
+      print("ERROR: Invalid audio DMA period for pre-deployment recording\n");
+      return;
+   }
+   const uint32_t num_audio_reads_per_clip = AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS / seconds_per_dma;
+   audio_samples_per_dma = seconds_per_dma * AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ;
    int16_t *audio_buffer;
    audio_begin_reading();
 
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    led_indicate_clip_begin();
-   storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, rtc_get_timestamp(), false);
+   storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, start_time, false);
    for (uint32_t num_audio_reads = 0; *device_activated && (num_audio_reads < num_audio_reads_per_clip); )
    {
+      // Feed the watchdog and deliver any deferred magnet validation
+      system_feed_watchdog();
+      magnet_sensor_handle_pending_validation();
+
       // Handle any newly available audio data
       if (audio_error_encountered())
-         system_reset();
+      {
+         print("ERROR: Audio DMA error during pre-deployment recording - resetting device\n");
+         system_reset_with_reason(RESET_REASON_AUDIO_ERROR);
+      }
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
-         // Write the audio clip to storage
+         // Write the audio clip to storage, giving up on this recording if the card will not take it
          led_indicate_clip_progress();
-         storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, ++num_audio_reads >= num_audio_reads_per_clip);
+         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip))
+         {
+            print("ERROR: Unable to write pre-deployment audio - abandoning the recording\n");
+            break;
+         }
+         ++num_audio_reads;
       }
       else
          system_enter_deep_sleep_mode();
    }
    led_indicate_clip_end();
    storage_close_audio();
+   audio_stop_reading();
 
    // Close any open storage files and return
    storage_close();
+   storage_flush_log();
    print("INFO: Leaving pre-deployment recording activity\n");
 }

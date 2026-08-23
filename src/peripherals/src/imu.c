@@ -1,12 +1,14 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
 #include "imu.h"
+#include "logging.h"
 #include "system.h"
 
 
 // Static Global Variables and Definitions -----------------------------------------------------------------------------
 
 #define PIN_IMU_INTERRUPT PIN_IMU_INTERRUPT2
+#define LIS2DU12_FIFO_WORD_BYTES  6
 
 static void *i2c_handle = NULL;
 static stmdev_ctx_t imu_context;
@@ -14,6 +16,7 @@ static imu_data_ready_callback_t data_ready_callback;
 static motion_change_callback_t motion_change_callback;
 static lis2du12_fifo_md_t fifo_mode;
 static lis2du12_md_t imu_mode;
+static uint32_t fifo_overrun_count;
 static uint8_t skip_first_result;
 
 
@@ -364,15 +367,22 @@ int32_t lis2du12_fifo_mode_set(const stmdev_ctx_t *ctx, lis2du12_fifo_md_t *val)
    bytecpy((uint8_t*)&fifo_wtm, &reg[1]);
    fifo_ctrl.f_mode = (uint8_t) val->operation;
    fifo_ctrl.fifo_depth = (uint8_t) val->store;
-   if (val->watermark != 0x00U)
-      fifo_ctrl.stop_on_fth = PROPERTY_ENABLE;
-   else
-      fifo_ctrl.stop_on_fth = PROPERTY_DISABLE;
+   fifo_ctrl.stop_on_fth = PROPERTY_DISABLE;
+   fifo_ctrl.rounding_xyz = PROPERTY_ENABLE;
+
    fifo_wtm.fth = val->watermark;
    bytecpy(&reg[0], (uint8_t*) &fifo_ctrl);
    bytecpy(&reg[1], (uint8_t*) &fifo_wtm);
    ret += lis2du12_write_reg(ctx, LIS2DU12_FIFO_CTRL, reg, 2);
    return ret;
+}
+
+int32_t lis2du12_fifo_burst_read(const stmdev_ctx_t *ctx, uint8_t *buffer, uint8_t num_words)
+{
+   // Read several FIFO words in a single bus transfer
+   if (!num_words)
+      return 0;
+   return lis2du12_read_reg(ctx, LIS2DU12_OUTX_L, buffer, (uint16_t)(num_words * LIS2DU12_FIFO_WORD_BYTES));
 }
 
 int32_t lis2du12_fifo_status_get(const stmdev_ctx_t *ctx, lis2du12_fifo_status_t *val)
@@ -738,18 +748,33 @@ void imu_init(void)
    system_delay(10 * 1000);
 
    // Check the IMU Device ID
-   int retries = 5;
-   lis2du12_id_t id;
-   while (--retries && (id.whoami != LIS2DU12_ID))
+   bool device_found = false;
+   for (int attempt = 0; (attempt < 5) && !device_found; ++attempt)
    {
-      system_delay(100);
-      lis2du12_id_get(&imu_context, &id);
+      lis2du12_id_t id = { 0 };
+      system_delay(1000);
+      if ((lis2du12_id_get(&imu_context, &id) == 0) && (id.whoami == LIS2DU12_ID))
+         device_found = true;
+   }
+   if (!device_found)
+   {
+      print("ERROR: IMU did not respond with the expected device ID - IMU features unavailable\n");
+      return;
    }
 
    // Restore the default chip configuration and set as ready for usage
-   lis2du12_status_t status;
    lis2du12_init_set(&imu_context, LIS2DU12_RESET);
-   do { lis2du12_status_get(&imu_context, &status); } while (status.sw_reset);
+   bool reset_complete = false;
+   for (uint32_t attempt = 0; (attempt < PERIPHERAL_MAX_WAIT_ATTEMPTS) && !reset_complete; ++attempt)
+   {
+      lis2du12_status_t status = { 0 };
+      if ((lis2du12_status_get(&imu_context, &status) == 0) && !status.sw_reset)
+         reset_complete = true;
+      else
+         am_hal_delay_us(PERIPHERAL_WAIT_INTERVAL_US);
+   }
+   if (!reset_complete)
+      print("WARNING: IMU software reset did not complete\n");
    configASSERT0(lis2du12_init_set(&imu_context, LIS2DU12_DRV_RDY));
 
    // Disable the I3C bus interface
@@ -788,7 +813,14 @@ void imu_deinit(void)
    // Disable all I2C communications
    if (i2c_handle)
    {
-      while (am_hal_iom_disable(i2c_handle) != AM_HAL_STATUS_SUCCESS);
+      bool disabled = false;
+      for (uint32_t attempt = 0; (attempt < PERIPHERAL_MAX_WAIT_ATTEMPTS) && !disabled; ++attempt)
+      {
+         if (am_hal_iom_disable(i2c_handle) == AM_HAL_STATUS_SUCCESS)
+            disabled = true;
+         else
+            am_hal_delay_us(PERIPHERAL_WAIT_INTERVAL_US);
+      }
       am_hal_iom_uninitialize(i2c_handle);
       i2c_handle = NULL;
    }
@@ -825,7 +857,7 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
       // Configure the data FIFO settings
       skip_first_result = 1;
       fifo_mode.store = LIS2DU12_8_BIT;
-      fifo_mode.watermark = 127;
+      fifo_mode.watermark = IMU_FIFO_WATERMARK;
       fifo_mode.operation = LIS2DU12_STREAM;
       configASSERT0(lis2du12_fifo_mode_set(&imu_context, &fifo_mode));
 
@@ -928,27 +960,65 @@ void imu_read_accel_data(float *accel_x_mg, float *accel_y_mg, float *accel_z_mg
    *accel_z_mg = data.xl.mg[2];
 }
 
+uint32_t imu_get_fifo_overrun_count(void)
+{
+   return fifo_overrun_count;
+}
+
 void imu_drain_fifo(void)
 {
-   // Set up static local FIFO status variables
-   static uint8_t fifo_level;
-   static lis2du12_fifo_data_t data;
-   static lis2du12_fifo_status_t fifo_status;
+   // Nothing to do unless raw data output is actually enabled
+   if (!data_ready_callback)
+      return;
 
-   // Read all items currently in the IMU FIFO
-   if (data_ready_callback)
+   // Determine how many words are waiting
+   uint8_t fifo_level = 0;
+   lis2du12_fifo_status_t fifo_status;
+   lis2du12_fifo_status_get(&imu_context, &fifo_status);
+   lis2du12_fifo_level_get(&imu_context, &fifo_mode, &fifo_level);
+   if (fifo_status.fifo_ovr)
+      ++fifo_overrun_count;
+   if (fifo_level > IMU_FIFO_MAX_LEVEL)
+      fifo_level = IMU_FIFO_MAX_LEVEL;
+
+   // Discard the first word after a restart, which carries stale pre-configuration data
+   uint8_t index = 0;
+   if (skip_first_result && fifo_level)
    {
-      __disable_irq();
-      lis2du12_fifo_status_get(&imu_context, &fifo_status);
-      lis2du12_fifo_level_get(&imu_context, &fifo_mode, &fifo_level);
-      if (skip_first_result)
-         lis2du12_fifo_data_get(&imu_context, &imu_mode, &fifo_mode, &data);
-      for (uint8_t i = skip_first_result; i < fifo_level; ++i)
-      {
-         lis2du12_fifo_data_get(&imu_context, &imu_mode, &fifo_mode, &data);
-         data_ready_callback(data.xl[0].mg[0], data.xl[0].mg[1], data.xl[0].mg[2]);
-      }
+      uint8_t discard[LIS2DU12_FIFO_WORD_BYTES];
+      lis2du12_fifo_burst_read(&imu_context, discard, 1);
       skip_first_result = 0;
-      __enable_irq();
+      index = 1;
+   }
+
+   // Pull the remaining words out in bursts
+   static uint8_t burst[IMU_FIFO_BURST_ENTRIES * LIS2DU12_FIFO_WORD_BYTES];
+   while (index < fifo_level)
+   {
+      const uint8_t remaining = (uint8_t)(fifo_level - index);
+      const uint8_t words = (remaining > IMU_FIFO_BURST_ENTRIES) ? IMU_FIFO_BURST_ENTRIES : remaining;
+      if (lis2du12_fifo_burst_read(&imu_context, burst, words) != 0)
+         break;
+      for (uint8_t word = 0; word < words; ++word)
+      {
+         float scale;
+         const uint8_t *raw = &burst[word * LIS2DU12_FIFO_WORD_BYTES];
+         const int16_t x = (int16_t)((uint16_t)raw[0] | ((uint16_t)raw[1] << 8));
+         const int16_t y = (int16_t)((uint16_t)raw[2] | ((uint16_t)raw[3] << 8));
+         const int16_t z = (int16_t)((uint16_t)raw[4] | ((uint16_t)raw[5] << 8));
+         switch (imu_mode.fs)
+         {
+            case LIS2DU12_4g:  scale = 0.122f; break;
+            case LIS2DU12_8g:  scale = 0.244f; break;
+            case LIS2DU12_16g: scale = 0.488f; break;
+            case LIS2DU12_2g:  // Intentional fall-through
+            default:           scale = 0.061f; break;
+         }
+         AM_CRITICAL_BEGIN
+         if (data_ready_callback)
+            data_ready_callback((float)x * scale, (float)y * scale, (float)z * scale);
+         AM_CRITICAL_END
+      }
+      index += words;
    }
 }

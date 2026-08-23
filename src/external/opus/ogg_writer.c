@@ -71,7 +71,7 @@ void ogg_reset_writer(ogg_writer_t *ogg_writer, ogg_data_packet_t *output)
    memcpy(opus_tags + 12, OGG_ENCODER_NAME, vendor_string_length);
 
    // Set up the Opus ID header
-   ogg_data_packet_t temp_output;
+   static ogg_data_packet_t temp_output;
    const uint16_t preskip = 0;
    const uint32_t audio_sample_rate = OGG_AUDIO_SAMPLE_RATE_HZ;
    uint8_t opus_head[19] = { 'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1 };

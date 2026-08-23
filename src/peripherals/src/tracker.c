@@ -12,6 +12,8 @@ static tracker_status_data_t status_data;
 static volatile tracker_gps_data_t gps_data;
 static tracker_data_callback_t data_callback;
 static uint8_t tx_buffer[TX_BUFFER_MAX_BYTES];
+static volatile tracker_gps_data_t pending_gps_data;
+static volatile bool gps_data_pending;
 static void *i2c_handle = NULL;
 
 
@@ -47,7 +49,13 @@ void am_ioslave_ios_isr(void)
 
       // Handle incoming data based on its type
       if ((message_type == MSG_GPS) && (data_length == sizeof(tracker_gps_data_t)))
-         gps_data = *(const tracker_gps_data_t*)packet;
+      {
+         tracker_gps_data_t incoming;
+         memcpy(&incoming, packet, sizeof(incoming));
+         gps_data = incoming;
+         pending_gps_data = incoming;
+         gps_data_pending = true;
+      }
       else if ((message_type == MSG_STATUS_REQUEST) && (data_length == 1))
          tracker_send_status_update();
 
@@ -113,11 +121,33 @@ void tracker_deinit(void)
    {
       // Disable all I2C communications
       am_hal_gpio_output_set(PIN_EXT_HW_INTERRUPT);
-      while (am_hal_ios_disable(i2c_handle) != AM_HAL_STATUS_SUCCESS);
+      bool disabled = false;
+      for (uint32_t attempt = 0; (attempt < PERIPHERAL_MAX_WAIT_ATTEMPTS) && !disabled; ++attempt)
+      {
+         if (am_hal_ios_disable(i2c_handle) == AM_HAL_STATUS_SUCCESS)
+            disabled = true;
+         else
+            am_hal_delay_us(PERIPHERAL_WAIT_INTERVAL_US);
+      }
       am_hal_ios_uninitialize(i2c_handle);
       data_callback = NULL;
       i2c_handle = NULL;
    }
+}
+
+bool tracker_get_pending_gps_data(tracker_gps_data_t *out)
+{
+   // Hand a received GPS message to the main loop
+   bool available = false;
+   AM_CRITICAL_BEGIN
+   if (gps_data_pending)
+   {
+      memcpy(out, (const void*)&pending_gps_data, sizeof(*out));
+      gps_data_pending = false;
+      available = true;
+   }
+   AM_CRITICAL_END
+   return available;
 }
 
 void tracker_register_data_callback(tracker_data_callback_t callback)

@@ -254,6 +254,7 @@ SRC += led.c
 SRC += logging.c
 SRC += magnet.c
 SRC += mram.c
+SRC += datetime.c
 SRC += rtc.c
 SRC += runtime_config.c
 SRC += storage.c
@@ -285,7 +286,7 @@ LIBS += AmbiqSDK/mcu/$(PART)/hal/mcu/gcc/bin/libam_hal.a
 
 CFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
 CFLAGS+= -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-exceptions -fmessage-length=0 -funsigned-char
-CFLAGS+= -fomit-frame-pointer -MMD -MP -Wall -Ofast
+CFLAGS+= -fomit-frame-pointer -fno-strict-aliasing -MMD -MP -Wall -Ofast
 CFLAGS+= $(DEFINES)
 CFLAGS+= $(INCLUDES)
 
@@ -338,7 +339,7 @@ $(CONFIG)/%.o: %.s $(CONFIG)/%.d
 	@echo " Assembling $<" ;\
 	$(CC) -c $(CFLAGS) $< -o $@
 
-$(CONFIG)/$(TARGET).axf: $(OBJS) $(LIBS)
+$(CONFIG)/$(TARGET).axf: $(OBJS) $(LIBS) $(LINKER_FILE)
 	@echo " Linking $@" ;\
 	$(CC) -Wl,-T,$(LINKER_FILE) -o $@ $(OBJS) $(LFLAGS)
 

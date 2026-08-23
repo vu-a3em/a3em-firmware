@@ -11,6 +11,8 @@
 
 static volatile uint32_t battery_voltage_code, temperature_code;
 static volatile bool conversion_complete;
+static uint32_t consecutive_low_readings;
+static bool battery_low_latched;
 static void *adc_handle;
 
 
@@ -155,18 +157,35 @@ battery_result_t battery_monitor_get_details(void)
       am_hal_adc_samples_read(adc_handle, true, NULL, &samples_to_read, &junk);
    }
 
-   // Read multiple times to ensure the ADC measurement has settled
-   for (uint32_t i = 0; i < 5; ++i)
+   // Take several independent measurements and use the median
+   uint32_t voltage_samples[BATTERY_NUM_SAMPLES] = { 0 }, temperature_samples[BATTERY_NUM_SAMPLES] = { 0 }, num_valid = 0;
+   for (uint32_t i = 0; i < BATTERY_NUM_SAMPLES; ++i)
    {
       // Trigger an ADC measurement
       conversion_complete = false;
+      battery_voltage_code = temperature_code = 0;
       if (am_hal_adc_sw_trigger(adc_handle) != AM_HAL_STATUS_SUCCESS)
          break;
 
       // Wait until the conversion has completed
-      uint32_t retries_remaining = 25;
-      while (!conversion_complete && retries_remaining--)
-         am_hal_delay_us(10000);
+      bool completed = false;
+      for (uint32_t attempt = 0; (attempt < BATTERY_CONVERSION_MAX_WAITS) && !completed; ++attempt)
+      {
+         if (conversion_complete)
+            completed = true;
+         else
+            am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);
+      }
+      if (!completed)
+         break;
+
+      // The first conversion after enabling the ADC is discarded as unreliable
+      if (i > 0)
+      {
+         voltage_samples[num_valid] = battery_voltage_code;
+         temperature_samples[num_valid] = temperature_code;
+         ++num_valid;
+      }
    }
 
    // Disable the ADC
@@ -174,11 +193,64 @@ battery_result_t battery_monitor_get_details(void)
    am_hal_adc_disable(adc_handle);
    am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true);
    NVIC_DisableIRQ(ADC_IRQn);
+   if (!num_valid)
+      return result;
+
+   // Insertion sort the samples and take the middle one
+   for (uint32_t i = 1; i < num_valid; ++i)
+   {
+      const uint32_t voltage_key = voltage_samples[i], temperature_key = temperature_samples[i];
+      int32_t j = (int32_t)i - 1;
+      while ((j >= 0) && (voltage_samples[j] > voltage_key))
+      {
+         voltage_samples[j + 1] = voltage_samples[j];
+         temperature_samples[j + 1] = temperature_samples[j];
+         --j;
+      }
+      voltage_samples[j + 1] = voltage_key;
+      temperature_samples[j + 1] = temperature_key;
+   }
+   const uint32_t median_voltage_code = voltage_samples[num_valid / 2];
+   const uint32_t median_temperature_code = temperature_samples[num_valid / 2];
 
    // Calculate and return the battery voltage and temperature
-   float temperature_codes[3] = { (float)temperature_code * AM_HAL_ADC_VREF / 1024.0f, 0.0f, -123.456f };
-   result.millivolts = (uint32_t)(((uint64_t)battery_voltage_code * AM_HAL_ADC_VREFMV * (VOLTAGE_DIVIDER_UPPER + VOLTAGE_DIVIDER_LOWER)) / (4096ull * VOLTAGE_DIVIDER_LOWER));
+   result.valid = true;
+   float temperature_codes[3] = { (float)median_temperature_code * AM_HAL_ADC_VREF / 1024.0f, 0.0f, -123.456f };
+   result.millivolts = (uint32_t)(((uint64_t)median_voltage_code * AM_HAL_ADC_VREFMV * (VOLTAGE_DIVIDER_UPPER + VOLTAGE_DIVIDER_LOWER)) / (4096ull * VOLTAGE_DIVIDER_LOWER));
    if (am_hal_adc_control(adc_handle, AM_HAL_ADC_REQ_TEMP_CELSIUS_GET, temperature_codes) == AM_HAL_STATUS_SUCCESS)
       result.celcius = temperature_codes[1];
    return result;
+}
+
+bool battery_monitor_is_critically_low(uint32_t threshold_millivolts)
+{
+   // Require several consecutive low readings before reporting a low battery, and require the voltage
+   // to recover by a margin before clearing the condition
+   const battery_result_t details = battery_monitor_get_details();
+   if (!details.valid)
+   {
+      // A failed measurement is not evidence of a low battery
+      print("WARNING: Battery measurement failed\n");
+      return battery_low_latched;
+   }
+   if (details.millivolts <= threshold_millivolts)
+   {
+      if (consecutive_low_readings < BATTERY_LOW_CONSECUTIVE_READINGS)
+         ++consecutive_low_readings;
+      if (consecutive_low_readings >= BATTERY_LOW_CONSECUTIVE_READINGS)
+         battery_low_latched = true;
+   }
+   else
+   {
+      consecutive_low_readings = 0;
+      if (battery_low_latched && (details.millivolts > (threshold_millivolts + BATTERY_LOW_HYSTERESIS_MV)))
+         battery_low_latched = false;
+   }
+   return battery_low_latched;
+}
+
+void battery_monitor_reset_low_state(void)
+{
+   consecutive_low_readings = 0;
+   battery_low_latched = false;
 }

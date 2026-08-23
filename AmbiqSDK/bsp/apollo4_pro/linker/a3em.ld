@@ -101,9 +101,9 @@ SECTIONS
 
     .shared (NOLOAD):
     {
-        . = ALIGN(4);
+        . = ALIGN(32);
         KEEP(*(.shared))
-        . = ALIGN(4);
+        . = ALIGN(32);
     } > SHARED_SRAM
 
     .segger (NOLOAD):
@@ -118,3 +118,7 @@ SECTIONS
 
 _uid_base_address = ORIGIN(UID);
 _persistent_base_address = ORIGIN(PERSISTENT);
+
+MIN_STACK_SIZE = 0x8000;   /* 32 kB */
+ASSERT((ORIGIN(MCU_TCM) + LENGTH(MCU_TCM) - _sstack) >= MIN_STACK_SIZE,
+       "ERROR: Less than MIN_STACK_SIZE of TCM remains for the stack - move large buffers into the .shared section")

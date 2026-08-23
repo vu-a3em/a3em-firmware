@@ -1,7 +1,7 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
 #include <stdio.h>
-#include <time.h>
+#include "datetime.h"
 #include "diskio.h"
 #include "imu.h"
 #include "logging.h"
@@ -11,6 +11,11 @@
 
 
 // Private Peripheral Type Definitions ---------------------------------------------------------------------------------
+
+#define EARLY_LOG_MAX_BYTES     4096
+
+#define ASYNC_SPIN_ITERATIONS   400      // 400 x 10 us = 4 ms of fine-grained polling
+#define ASYNC_SLEEP_ITERATIONS  2000     // Then sleep-wait, bounded, woken by the SDIO interrupt
 
 typedef struct
 {
@@ -26,6 +31,7 @@ typedef struct
    am_hal_card_pwr_ctrl_policy_e card_power_ctrl_policy;
    am_hal_host_event_cb_t callback;
    uint32_t sector_count;
+   uint32_t erase_block_sectors;
 } am_device_card_config_t;
 
 
@@ -36,17 +42,29 @@ static am_hal_card_t sd_card;
 static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
 static FIL current_file, log_file, imu_file, audio_file;
-static char time_string[24], audio_directory[MAX_DEVICE_LABEL_LEN + 32];
+static char time_string[DATETIME_STAMP_LEN], audio_directory[MAX_DEVICE_LABEL_LEN + 40];
 static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open;
 static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx;
-static uint8_t work_buf[FF_MAX_SS], opus_audio_buffer[AUDIO_BUFFER_MAX_SIZE];
-static float imu_data_buffer[2*IMU_BUFFER_MAX_SAMPLES][3], (*imu_storage_buffer)[3];
+static uint8_t work_buf[FF_MAX_SS];
 static volatile bool async_write_complete, async_read_complete, card_present;
 static volatile uint8_t *imu_data_awaiting_storage;
 static volatile uint32_t imu_storage_index;
 static volatile DSTATUS sd_disk_status;
+static storage_health_t health;
 static ogg_writer_t ogg_writer;
 static ogg_data_packet_t ogg_packet;
+
+// Holds log output produced before the first timestamped directory exists
+static char early_log[EARLY_LOG_MAX_BYTES];
+static uint32_t early_log_used;
+static bool early_log_overflowed;
+
+// The Opus staging buffer and the IMU double buffer live in the shared SRAM group
+__attribute__((section(".shared"), aligned(32)))
+static uint8_t opus_audio_buffer[AUDIO_BUFFER_MAX_SIZE];
+__attribute__((section(".shared"), aligned(32)))
+static float imu_data_buffer[2*IMU_BUFFER_MAX_SAMPLES][3];
+static float (*imu_storage_buffer)[3];
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
@@ -120,6 +138,8 @@ DSTATUS disk_initialize(BYTE)
       return sd_disk_status;
    }
 
+   sd_card_config.erase_block_sectors = 1;
+
    // Configure the SDIO host
    if (am_hal_card_cfg_set(&sd_card, sd_card_config.card_type, sd_card_config.bus_width, sd_card_config.clock, sd_card_config.bus_voltage, sd_card_config.uhs_mode) != AM_HAL_STATUS_SUCCESS)
    {
@@ -149,6 +169,24 @@ DSTATUS disk_status(BYTE)
    return sd_disk_status;
 }
 
+static bool wait_for_async_transfer(volatile bool *complete_flag)
+{
+   // Wait for an asynchronous SD transfer to complete
+   for (uint32_t i = 0; i < ASYNC_SPIN_ITERATIONS; ++i)
+   {
+      if (*complete_flag)
+         return true;
+      am_hal_delay_us(10);
+   }
+   for (uint32_t i = 0; i < ASYNC_SLEEP_ITERATIONS; ++i)
+   {
+      if (*complete_flag)
+         return true;
+      am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);
+   }
+   return *complete_flag;
+}
+
 DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
 {
    // Validate status and transfer parameters
@@ -165,13 +203,14 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
    }
 
    // Call the appropriate synchronous or asynchronous read API
+   DRESULT result = RES_OK;
    if (!sd_card_config.callback)
    {
       uint32_t status = am_hal_sd_card_block_read_sync(&sd_card, sector, count, (uint8_t*)buff);
       if ((status & 0xFFFF) != AM_HAL_STATUS_SUCCESS)
       {
          printonly("ERROR: Failed to call the synchronous read API...Number of bytes read = %d\n", status);
-         return RES_ERROR;
+         result = RES_ERROR;
       }
    }
    else
@@ -181,41 +220,31 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
       if (status != AM_HAL_STATUS_SUCCESS)
       {
          printonly("ERROR: Failed to call the asynchronous read API...Read Status = %d\n", status);
-         NVIC_SetPriority(SDIO_IRQn, STORAGE_INTERRUPT_PRIORITY);
-         return RES_ERROR;
+         result = RES_ERROR;
       }
-
-      // Wait until the asynchronous read is complete
-      for (int i = 0; (i < 1001) && !async_read_complete; ++i)
+      else if (!wait_for_async_transfer(&async_read_complete))
       {
-         am_util_delay_ms(1);
-         if (i == 1000)
-         {
-            printonly("ERROR: Timed out reading from SD card\n");
-            return RES_ERROR;
-         }
+         printonly("ERROR: Timed out reading from SD card\n");
+         result = RES_ERROR;
       }
    }
 
-   // Power down the SDIO peripheral
+   // Always power down the SDIO peripheral
    if (am_hal_card_pwrctrl_sleep(&sd_card) != AM_HAL_STATUS_SUCCESS)
    {
       printonly("ERROR: Failed to power down the SDIO peripheral\n");
-      return RES_ERROR;
+      result = RES_ERROR;
    }
-   return RES_OK;
+   return result;
 }
 
 DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
 {
    // Validate status and transfer parameters
-   static uint8_t error_count = 0;
    if (!count)
       return RES_PARERR;
    if (sd_disk_status & STA_NOINIT)
       return RES_NOTRDY;
-   if (++error_count > 2)
-      system_reset();
 
    // Power on the SDIO peripheral
    if (am_hal_card_pwrctrl_wakeup(&sd_card) != AM_HAL_STATUS_SUCCESS)
@@ -225,13 +254,14 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
    }
 
    // Call the appropriate synchronous or asynchronous write API
+   DRESULT result = RES_OK;
    if (!sd_card_config.callback)
    {
       uint32_t status = am_hal_sd_card_block_write_sync(&sd_card, sector, count, (uint8_t*)buff);
       if ((status & 0xFFFF) != AM_HAL_STATUS_SUCCESS)
       {
          printonly("ERROR: Failed to call the synchronous write API...Number of bytes written = %d\n", status);
-         return RES_ERROR;
+         result = RES_ERROR;
       }
    }
    else
@@ -241,30 +271,22 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
       if (status != AM_HAL_STATUS_SUCCESS)
       {
          printonly("ERROR: Failed to call the asynchronous write API...Write Status = %d\n", status);
-         NVIC_SetPriority(SDIO_IRQn, STORAGE_INTERRUPT_PRIORITY);
-         return RES_ERROR;
+         result = RES_ERROR;
       }
-
-      // Wait until the asynchronous write is complete
-      for (int i = 0; (i < 1001) && !async_write_complete; ++i)
+      else if (!wait_for_async_transfer(&async_write_complete))
       {
-         am_util_delay_ms(1);
-         if (i == 1000)
-         {
-            printonly("ERROR: Timed out writing to SD card\n");
-            return RES_ERROR;
-         }
+         printonly("ERROR: Timed out writing to SD card\n");
+         result = RES_ERROR;
       }
    }
 
-   // Power down the SDIO peripheral
+   // Always power down the SDIO peripheral
    if (am_hal_card_pwrctrl_sleep(&sd_card) != AM_HAL_STATUS_SUCCESS)
    {
       printonly("ERROR: Failed to power down the SDIO peripheral\n");
-      return RES_ERROR;
+      result = RES_ERROR;
    }
-   error_count = 0;
-   return RES_OK;
+   return result;
 }
 
 DRESULT disk_ioctl(BYTE, BYTE cmd, void *buff)
@@ -284,8 +306,8 @@ DRESULT disk_ioctl(BYTE, BYTE cmd, void *buff)
          *(DWORD*)buff = sd_card_config.sector_count;
          res = RES_OK;
          break;
-      case GET_BLOCK_SIZE:      // Return the block size in units of sectors
-         *(DWORD*)buff = 1;
+      case GET_BLOCK_SIZE:      // Return the erase block size in units of sectors
+         *(DWORD*)buff = sd_card_config.erase_block_sectors;
          res = RES_OK;
          break;
       default:                  // Unknown ioctl
@@ -329,23 +351,75 @@ void am_sdio_isr(void)
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
+static void note_write_failure(void)
+{
+   ++health.write_failures;
+   ++health.consecutive_failures;
+}
+
+static void note_write_success(void)
+{
+   health.consecutive_failures = 0;
+}
+
+static bool ensure_audio_directory(uint32_t activation_number, const char *device_label, uint32_t current_time)
+{
+   // Render the timestamp used for the file name regardless of whether the directory changes
+   datetime_t now;
+   datetime_from_timestamp(current_time, &now);
+   datetime_format_stamp(time_string, sizeof(time_string), &now);
+
+   // Determine if it is time to create a new audio storage directory
+   if (audio_directory_timestamp && ((current_time - audio_directory_timestamp) < NUM_SECONDS_PER_AUDIO_DIRECTORY) &&
+       (current_time >= audio_directory_timestamp))
+      return false;
+
+   // Truncate the time to the start of the directory's coverage window
+   datetime_t bucket = now;
+   bucket.minute = bucket.second = 0;
+   bucket.hour = (uint8_t)((bucket.hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY);
+
+   // Create each level of the directory hierarchy in turn
+   static FILINFO file_info;
+   char date_string[DATETIME_DATE_LEN], hour_string[DATETIME_HOUR_LEN];
+   datetime_format_date(date_string, sizeof(date_string), &bucket);
+   datetime_format_hour(hour_string, sizeof(hour_string), &bucket);
+   snprintf(audio_directory, sizeof(audio_directory), "%s", device_label);
+   if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+      print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+   snprintf(audio_directory, sizeof(audio_directory), "%s/Activation_%04lu", device_label, (unsigned long)activation_number);
+   if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+      print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+   snprintf(audio_directory + strlen(audio_directory), sizeof(audio_directory) - strlen(audio_directory), "/%s", date_string);
+   if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+      print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+   snprintf(audio_directory + strlen(audio_directory), sizeof(audio_directory) - strlen(audio_directory), "/%s", hour_string);
+   if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
+      print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
+   audio_directory_timestamp = datetime_to_timestamp(&bucket);
+   return true;
+}
+
 static void storage_flush_imu_data(void)
 {
    // Flush any unwritten IMU data in the storage buffer to the SD card
-   __disable_irq();
+   const uint8_t *imu_data = NULL;
+   uint32_t imu_data_len = 0;
+   AM_CRITICAL_BEGIN
    if (imu_storage_index)
    {
-      UINT data_written = 0;
-      const uint8_t* imu_data = (uint8_t*)imu_storage_buffer;
-      const uint32_t imu_data_len = sizeof(float) * 3 * imu_storage_index;
+      imu_data = (const uint8_t*)imu_storage_buffer;
+      imu_data_len = sizeof(float) * 3 * imu_storage_index;
       imu_storage_buffer = (imu_storage_buffer == imu_data_buffer) ? &imu_data_buffer[IMU_BUFFER_MAX_SAMPLES] : &imu_data_buffer[0];
       imu_storage_index = 0;
-      __enable_irq();
-      if (imu_file_open)
-         f_write(&imu_file, imu_data, imu_data_len, &data_written);
    }
-   else
-      __enable_irq();
+   AM_CRITICAL_END
+   if (imu_data && imu_file_open)
+   {
+      UINT data_written = 0;
+      if ((f_write(&imu_file, imu_data, imu_data_len, &data_written) != FR_OK) || (data_written != imu_data_len))
+         note_write_failure();
+   }
 }
 
 static bool storage_write_wav_audio(const void *data, uint32_t data_len)
@@ -358,8 +432,24 @@ static bool storage_write_wav_audio(const void *data, uint32_t data_len)
    if (audio_file_open && (f_write(&audio_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len))
    {
       data_size += data_len;
+      note_write_success();
       return true;
    }
+   if (audio_file_open)
+      note_write_failure();
+   return false;
+}
+
+static bool storage_write_audio_raw(const void *data, uint32_t data_len)
+{
+   UINT data_written = 0;
+   if (audio_file_open && (f_write(&audio_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len))
+   {
+      note_write_success();
+      return true;
+   }
+   if (audio_file_open)
+      note_write_failure();
    return false;
 }
 
@@ -367,46 +457,53 @@ static bool storage_write_ogg_opus_audio(const void *data, uint32_t num_samples,
 {
    // Initialize function-local variables
    static const opus_frame_t *result_begin, *result_end;
-   UINT data_written = 0;
+   bool success = true;
 
    // Only continue with storage if an audio file is already open
-   if (audio_file_open)
+   if (!audio_file_open)
+      return false;
+
+   // Encode the audio data into Opus data frames
+   opusenc_encode(data, num_samples, &result_begin, &result_end);
+
+   // Encapsulate each Opus frame into an Ogg page and store
+   for (const opus_frame_t *frame = result_begin; frame != result_end; frame = frame->next)
    {
-      // Encode the audio data into Opus data frames
-      opusenc_encode(data, num_samples, &result_begin, &result_end);
+      const uint8_t is_last = is_last_packet && (frame->next == result_end);
+      ogg_add_packet(&ogg_writer, &ogg_packet, frame->encoded_data, frame->num_encoded_bytes, is_last);
+      if (!ogg_packet.data_len)
+         continue;
 
-      // Encapsulate each Opus frame into an Ogg page and store
-      for (const opus_frame_t *frame = result_begin; frame != result_end; frame = frame->next)
+      // Copy as much of the Ogg packet as will fit into the staging buffer
+      const uint32_t bytes_to_copy = MIN(sizeof(opus_audio_buffer) - opus_audio_buffer_idx, ogg_packet.data_len);
+      const uint32_t bytes_remaining = ogg_packet.data_len - bytes_to_copy;
+      memcpy(opus_audio_buffer + opus_audio_buffer_idx, ogg_packet.data, bytes_to_copy);
+      opus_audio_buffer_idx += bytes_to_copy;
+
+      // Flush the staging buffer to the card once it is full
+      if (bytes_remaining)
       {
-         const uint8_t is_last = is_last_packet && (frame->next == result_end);
-         ogg_add_packet(&ogg_writer, &ogg_packet, frame->encoded_data, frame->num_encoded_bytes, is_last);
-         if (ogg_packet.data_len)
+         // Write any outstanding IMU data at the same time as the audio data
+         storage_handle_imu_data();
+
+         // On failure the buffer index is still reset and the overflow still copied in
+         UINT data_written = 0;
+         if ((f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) &&
+             (data_written == sizeof(opus_audio_buffer)))
          {
-            // Copy the Ogg packet to the storage buffer
-            const uint32_t bytes_to_copy = MIN(sizeof(opus_audio_buffer) - opus_audio_buffer_idx, ogg_packet.data_len);
-            const uint32_t bytes_remaining = ogg_packet.data_len - bytes_to_copy;
-            memcpy(opus_audio_buffer + opus_audio_buffer_idx, ogg_packet.data, bytes_to_copy);
-            opus_audio_buffer_idx += bytes_to_copy;
-
-            // Write storage buffer to SD card if full
-            if (bytes_remaining)
-            {
-               // Write any outstanding IMU data at the same time as the audio data
-               storage_handle_imu_data();
-
-               // Write the audio data
-               if ((f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) && (data_written == sizeof(opus_audio_buffer)))
-               {
-                  memcpy(opus_audio_buffer, ogg_packet.data + bytes_to_copy, bytes_remaining);
-                  opus_audio_buffer_idx = bytes_remaining;
-                  data_size += sizeof(opus_audio_buffer);
-               }
-            }
+            data_size += sizeof(opus_audio_buffer);
+            note_write_success();
          }
+         else
+         {
+            note_write_failure();
+            success = false;
+         }
+         memcpy(opus_audio_buffer, ogg_packet.data + bytes_to_copy, bytes_remaining);
+         opus_audio_buffer_idx = bytes_remaining;
       }
-      return true;
    }
-   return false;
+   return success;
 }
 
 static void storage_close_wav_audio(void)
@@ -414,11 +511,12 @@ static void storage_close_wav_audio(void)
    // Finalize and close the currently open audio file
    if (audio_file_open)
    {
+      const uint32_t payload_size = data_size;
+      const uint32_t riff_size = 36 + payload_size;
       f_lseek(&audio_file, 4);
-      uint32_t field = 36 + data_size;
-      storage_write_wav_audio(&field, 4);
+      storage_write_audio_raw(&riff_size, 4);
       f_lseek(&audio_file, 40);
-      storage_write_wav_audio(&data_size, 4);
+      storage_write_audio_raw(&payload_size, 4);
       f_close(&audio_file);
       audio_file_open = false;
    }
@@ -435,14 +533,24 @@ static void storage_close_ogg_opus_audio(void)
       const uint32_t bytes_remaining = ogg_packet.data_len - bytes_to_copy;
       memcpy(opus_audio_buffer + opus_audio_buffer_idx, ogg_packet.data, bytes_to_copy);
       opus_audio_buffer_idx += bytes_to_copy;
-      if (bytes_remaining && (f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) && (data_written == sizeof(opus_audio_buffer)))
+      if (bytes_remaining)
       {
+         if ((f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) &&
+             (data_written == sizeof(opus_audio_buffer)))
+            data_size += sizeof(opus_audio_buffer);
+         else
+            note_write_failure();
          memcpy(opus_audio_buffer, ogg_packet.data + bytes_to_copy, bytes_remaining);
          opus_audio_buffer_idx = bytes_remaining;
-         data_size += sizeof(opus_audio_buffer);
       }
-      data_size += opus_audio_buffer_idx;
-      f_write(&audio_file, opus_audio_buffer, opus_audio_buffer_idx, &data_written);
+      if (opus_audio_buffer_idx)
+      {
+         data_size += opus_audio_buffer_idx;
+         if ((f_write(&audio_file, opus_audio_buffer, opus_audio_buffer_idx, &data_written) != FR_OK) ||
+             (data_written != opus_audio_buffer_idx))
+            note_write_failure();
+      }
+      opus_audio_buffer_idx = 0;
       f_close(&audio_file);
       audio_file_open = false;
    }
@@ -454,30 +562,9 @@ static bool storage_open_wav_file(uint32_t activation_number, const char *device
    if (audio_file_open)
       storage_close_audio();
 
-   // Determine if time to create a new audio storage directory
-   const time_t timestamp = (time_t)current_time;
-   struct tm *curr_time = gmtime(&timestamp);
-   strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
-   if ((current_time - audio_directory_timestamp) >= NUM_SECONDS_PER_AUDIO_DIRECTORY)
-   {
-      // Generate a new directory name from the current date and time
-      static FILINFO file_info;
-      curr_time->tm_min = curr_time->tm_sec = 0;
-      curr_time->tm_hour = (curr_time->tm_hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY;
-      size_t label_len = strlen(device_label);
-      memset(audio_directory, 0, sizeof(audio_directory));
-      strncpy(audio_directory, device_label, label_len + 1);
-      snprintf(audio_directory + label_len, sizeof(audio_directory) - label_len, "/Activation_%04lu", activation_number);
-      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
-         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F", curr_time);
-      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
-         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F/%H", curr_time);
-      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
-         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      audio_directory_timestamp = (uint32_t)mktime(curr_time);
-   }
+   // Determine if time to create a new audio storage directory, rotating the log if so
+   if (ensure_audio_directory(activation_number, device_label, current_time))
+      storage_setup_logs();
 
    // Open the requested file
    data_size = 0;
@@ -488,25 +575,27 @@ static bool storage_open_wav_file(uint32_t activation_number, const char *device
    // Write the WAV header segment
    if (audio_file_open)
    {
-      uint32_t field = 36, bytes_per_sample = 2;
-      bool success = storage_write_wav_audio("RIFF", 4);
-      success = success && storage_write_wav_audio(&field, 4);
-      success = success && storage_write_wav_audio("WAVE", 4);
-      success = success && storage_write_wav_audio("fmt ", 4);
+      uint32_t field = 36;
+      const uint32_t bytes_per_sample = 2;
+      bool success = storage_write_audio_raw("RIFF", 4);
+      success = success && storage_write_audio_raw(&field, 4);
+      success = success && storage_write_audio_raw("WAVE", 4);
+      success = success && storage_write_audio_raw("fmt ", 4);
       field = 16;
-      success = success && storage_write_wav_audio(&field, 4);
+      success = success && storage_write_audio_raw(&field, 4);
       field = 1;
-      success = success && storage_write_wav_audio(&field, 2);
-      success = success && storage_write_wav_audio(&num_channels, 2);
-      success = success && storage_write_wav_audio(&sample_rate_hz, 4);
+      success = success && storage_write_audio_raw(&field, 2);
+      success = success && storage_write_audio_raw(&num_channels, 2);
+      success = success && storage_write_audio_raw(&sample_rate_hz, 4);
       field = sample_rate_hz * num_channels * bytes_per_sample;
-      success = success && storage_write_wav_audio(&field, 4);
+      success = success && storage_write_audio_raw(&field, 4);
       field = num_channels * bytes_per_sample;
-      success = success && storage_write_wav_audio(&field, 2);
+      success = success && storage_write_audio_raw(&field, 2);
       field = 8 * bytes_per_sample;
-      success = success && storage_write_wav_audio(&field, 2);
-      success = success && storage_write_wav_audio("data", 4);
-      success = success && storage_write_wav_audio(&field, 4);
+      success = success && storage_write_audio_raw(&field, 2);
+      success = success && storage_write_audio_raw("data", 4);
+      field = 0;
+      success = success && storage_write_audio_raw(&field, 4);
       data_size = 0;
       if (!success)
          storage_close_audio();
@@ -521,30 +610,9 @@ static bool storage_open_ogg_opus_file(uint32_t activation_number, const char *d
       storage_close_ogg_opus_audio();
    opus_audio_buffer_idx = 0;
 
-   // Determine if time to create a new audio storage directory
-   const time_t timestamp = (time_t)current_time;
-   struct tm *curr_time = gmtime(&timestamp);
-   strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
-   if ((current_time - audio_directory_timestamp) >= NUM_SECONDS_PER_AUDIO_DIRECTORY)
-   {
-      // Generate a new directory name from the current date and time
-      static FILINFO file_info;
-      curr_time->tm_min = curr_time->tm_sec = 0;
-      curr_time->tm_hour = (curr_time->tm_hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY;
-      size_t label_len = strlen(device_label);
-      memset(audio_directory, 0, sizeof(audio_directory));
-      strncpy(audio_directory, device_label, label_len + 1);
-      snprintf(audio_directory + label_len, sizeof(audio_directory) - label_len, "/Activation_%04lu", activation_number);
-      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
-         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F", curr_time);
-      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
-         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F/%H", curr_time);
-      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
-         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      audio_directory_timestamp = (uint32_t)mktime(curr_time);
-   }
+   // Determine if time to create a new audio storage directory, rotating the log if so
+   if (ensure_audio_directory(activation_number, device_label, current_time))
+      storage_setup_logs();
 
    // Open the requested file
    data_size = 0;
@@ -556,7 +624,7 @@ static bool storage_open_ogg_opus_file(uint32_t activation_number, const char *d
    if (audio_file_open)
    {
       ogg_reset_writer(&ogg_writer, &ogg_packet);
-      if (!storage_write_wav_audio(ogg_packet.data, ogg_packet.data_len))
+      if (!storage_write_audio_raw(ogg_packet.data, ogg_packet.data_len))
          storage_close_ogg_opus_audio();
    }
    return audio_file_open;
@@ -572,9 +640,10 @@ void storage_init(void)
    memset(audio_directory, 0, sizeof(audio_directory));
    async_write_complete = async_read_complete = card_present = false;
    log_open = file_open = imu_file_open = audio_file_open = false;
+   audio_directory_timestamp = opus_audio_buffer_idx = 0;
    imu_storage_buffer = imu_data_buffer;
    imu_data_awaiting_storage = NULL;
-   audio_directory_timestamp = 0;
+   imu_storage_index = 0;
    sd_disk_status = STA_NOINIT;
 
    // Set up the SD Card configuration structure
@@ -588,6 +657,7 @@ void storage_init(void)
       .card_power_ctrl_policy = AM_HAL_CARD_PWR_CTRL_SDHC_OFF,
       .callback = sd_card_event_callback,
       .sector_count = 0,
+      .erase_block_sectors = 1,
    };
 
    // Configure the relevant SDIO pins
@@ -604,13 +674,21 @@ void storage_init(void)
    am_hal_gpio_output_set(PIN_SD_CARD_ENABLE);
 
    // Mount and initialize the file system on the SD card
-   char sd_card_path[4];
-   const MKFS_PARM opts = { .fmt = FM_EXFAT, .n_fat = 0, .align = 0, .n_root = 0, .au_size = 4096 };
-   FRESULT res = f_mount(&file_system, (TCHAR const*)sd_card_path, 1);
-   if ((res == FR_NO_FILESYSTEM) && ((res = f_mkfs((TCHAR const*)sd_card_path, &opts, work_buf, sizeof(work_buf))) != FR_OK))
-      printonly("ERROR: Unable to create a file system on the SD card\n");
+   FRESULT res = f_mount(&file_system, "", 1);
+   if (res == FR_NO_FILESYSTEM)
+   {
+      const MKFS_PARM opts = { .fmt = FM_EXFAT, .n_fat = 0, .align = 0, .n_root = 0, .au_size = 4096 };
+      if (f_mkfs("", &opts, work_buf, sizeof(work_buf)) != FR_OK)
+         printonly("ERROR: Unable to create a file system on the SD card\n");
+      else if ((res = f_mount(&file_system, "", 1)) != FR_OK)
+         printonly("ERROR: Unable to mount the newly created SD card file system\n");
+   }
    else if (res != FR_OK)
       printonly("ERROR: Unable to mount the SD card file system\n");
+
+   // A mount failure means no usable card, regardless of what the presence detect reported
+   if (res != FR_OK)
+      card_present = false;
 }
 
 void storage_deinit(void)
@@ -620,7 +698,10 @@ void storage_deinit(void)
    storage_close_audio();
    storage_close();
    if (log_open)
+   {
+      f_sync(&log_file);
       f_close(&log_file);
+   }
    log_open = file_open = imu_file_open = audio_file_open = false;
    audio_directory_timestamp = 0;
 
@@ -631,6 +712,7 @@ void storage_deinit(void)
       sd_card_host->ops->deinit(sd_card_host->pHandle);
    }
    am_hal_gpio_output_clear(PIN_SD_CARD_ENABLE);
+   sd_disk_status = STA_NOINIT;
    sd_card_host = NULL;
 
    // Disable the SDIO pins
@@ -644,11 +726,113 @@ void storage_deinit(void)
 
 void storage_setup_logs(void)
 {
-   // Ensure that a log file is present on the device
-   if (card_present && !log_open)
-      log_open = (f_open(&log_file, LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) == FR_OK);
+   // Close any log file left open in a previous directory
+   if (log_open)
+   {
+      f_sync(&log_file);
+      f_close(&log_file);
+      log_open = false;
+   }
+
+   // The deployment log lives inside the current timestamped audio directory so that each folder is self-contained
+   if (!card_present || (audio_directory[0] == '\0'))
+      return;
+   static char log_path[FF_MAX_LFN] = { 0 };
+   snprintf(log_path, sizeof(log_path), "%s/%s", audio_directory, LOG_FILE_NAME);
+   log_open = (f_open(&log_file, log_path, FA_OPEN_APPEND | FA_WRITE) == FR_OK);
    if (!log_open)
+   {
       printonly("ERROR: Unable to open SD card log file for writing\n");
+      return;
+   }
+
+   // Flush anything that was logged before a directory existed
+   if (early_log_used)
+   {
+      UINT data_written = 0;
+      if (early_log_overflowed)
+         f_write(&log_file, "[earlier log output was truncated]\n", 35, &data_written);
+      f_write(&log_file, early_log, early_log_used, &data_written);
+      f_sync(&log_file);
+      early_log_used = 0;
+      early_log_overflowed = false;
+   }
+}
+
+bool storage_rotate_log(uint32_t activation_number, const char *device_label, uint32_t current_time)
+{
+   // Establish the directory for the supplied time and move the log into it if it changed
+   if (ensure_audio_directory(activation_number, device_label, current_time) || !log_open)
+   {
+      storage_setup_logs();
+      return true;
+   }
+   return false;
+}
+
+static uint8_t boot_record_checksum(const char *record, uint32_t len)
+{
+   // Simple additive checksum over a boot record's payload
+   uint32_t sum = 0;
+   for (uint32_t i = 0; i < len; ++i)
+      sum += (uint8_t)record[i];
+   return (uint8_t)(sum & 0xFF);
+}
+
+void storage_write_boot_record(const char *reason, uint32_t epoch, uint32_t reset_count, uint32_t detail, uint32_t timestamp)
+{
+   // The boot log is a fixed-size, pre-allocated, circular file of fixed-length records. Each record
+   // is written at a computed offset and carries its own sequence number and checksum, so:
+   //   - a power loss during a write can only damage the one record being written
+   //   - every other record remains independently parseable, in any order
+   //   - repeated reboots overwrite old records instead of growing the file without bound
+   // There is deliberately no header, because a header would itself be a single point of corruption.
+   if (!card_present)
+      return;
+
+   // Assemble the record. It is exactly BOOT_LOG_RECORD_LEN bytes including a trailing newline.
+   char record[BOOT_LOG_RECORD_LEN + 1];
+   const uint32_t sequence = (epoch * 1000u) + reset_count;
+   datetime_t when;
+   datetime_from_timestamp(timestamp, &when);
+   char stamp[DATETIME_STAMP_LEN];
+   datetime_format_stamp(stamp, sizeof(stamp), &when);
+   int written = snprintf(record, sizeof(record), "%08lu %s %-14s %08lX",
+                          (unsigned long)sequence, stamp, reason, (unsigned long)detail);
+   if (written < 0)
+      return;
+   for (uint32_t i = (written < (int)BOOT_LOG_RECORD_LEN) ? (uint32_t)written : BOOT_LOG_RECORD_LEN; i < BOOT_LOG_RECORD_LEN; ++i)
+      record[i] = ' ';
+   record[BOOT_LOG_RECORD_LEN - 4] = ' ';
+   const uint8_t checksum = boot_record_checksum(record, BOOT_LOG_RECORD_LEN - 4);
+   record[BOOT_LOG_RECORD_LEN - 3] = "0123456789ABCDEF"[(checksum >> 4) & 0xF];
+   record[BOOT_LOG_RECORD_LEN - 2] = "0123456789ABCDEF"[checksum & 0xF];
+   record[BOOT_LOG_RECORD_LEN - 1] = '\n';
+
+   // Open the file, pre-allocating it to its full size on first creation so that writing a record
+   // never has to allocate a cluster and update the FAT, which is the part most exposed to a
+   // power loss part way through.
+   FIL boot_file;
+   if (f_open(&boot_file, BOOT_LOG_FILE_NAME, FA_OPEN_ALWAYS | FA_WRITE) != FR_OK)
+      return;
+   if (f_size(&boot_file) < BOOT_LOG_FILE_SIZE)
+   {
+      UINT filled = 0;
+      memset(work_buf, ' ', sizeof(work_buf));
+      f_lseek(&boot_file, 0);
+      for (uint32_t offset = 0; offset < BOOT_LOG_FILE_SIZE; offset += sizeof(work_buf))
+         if ((f_write(&boot_file, work_buf, sizeof(work_buf), &filled) != FR_OK) || (filled != sizeof(work_buf)))
+            break;
+      f_sync(&boot_file);
+   }
+
+   // Write the single record at its slot and flush it before releasing the file
+   UINT data_written = 0;
+   const uint32_t slot = sequence % BOOT_LOG_NUM_RECORDS;
+   if (f_lseek(&boot_file, slot * BOOT_LOG_RECORD_LEN) == FR_OK)
+      f_write(&boot_file, record, BOOT_LOG_RECORD_LEN, &data_written);
+   f_sync(&boot_file);
+   f_close(&boot_file);
 }
 
 bool storage_sd_card_error(void)
@@ -690,33 +874,14 @@ bool storage_open_imu_file(uint32_t activation_number, const char *device_label,
       storage_close_imu();
 
    // Reset the IMU storage buffering details
+   AM_CRITICAL_BEGIN
    imu_storage_index = 0;
    imu_data_awaiting_storage = NULL;
+   AM_CRITICAL_END
 
-   // Determine if time to create a new audio storage directory
-   const time_t timestamp = (time_t)current_time;
-   struct tm *curr_time = gmtime(&timestamp);
-   strftime(time_string, sizeof(time_string), "%F %H-%M-%S", curr_time);
-   if ((current_time - audio_directory_timestamp) >= NUM_SECONDS_PER_AUDIO_DIRECTORY)
-   {
-      // Generate a new directory name from the current date and time
-      static FILINFO file_info;
-      curr_time->tm_min = curr_time->tm_sec = 0;
-      curr_time->tm_hour = (curr_time->tm_hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY;
-      size_t label_len = strlen(device_label);
-      memset(audio_directory, 0, sizeof(audio_directory));
-      strncpy(audio_directory, device_label, label_len + 1);
-      snprintf(audio_directory + label_len, sizeof(audio_directory) - label_len, "/Activation_%04lu", activation_number);
-      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
-         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F", curr_time);
-      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
-         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      strftime(audio_directory + label_len + 16, sizeof(audio_directory) - label_len - 16, "/%F/%H", curr_time);
-      if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
-         print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-      audio_directory_timestamp = (uint32_t)mktime(curr_time);
-   }
+   // Determine if time to create a new audio storage directory, rotating the log if so
+   if (ensure_audio_directory(activation_number, device_label, current_time))
+      storage_setup_logs();
 
    // Open the requested file
    static char file_name[FF_MAX_LFN] = { 0 };
@@ -727,22 +892,23 @@ bool storage_open_imu_file(uint32_t activation_number, const char *device_label,
    UINT data_written = 0;
    return imu_file_open &&
           (f_write(&imu_file, &sample_rate_hz, sizeof(sample_rate_hz), &data_written) == FR_OK) &&
-          (f_write(&imu_file, &timestamp, sizeof(timestamp), &data_written) == FR_OK);
+          (f_write(&imu_file, &current_time, sizeof(current_time), &data_written) == FR_OK);
 }
 
 uint32_t storage_get_current_activation_number(const char *device_label)
 {
    // Search for the most recent activation directory
    FILINFO file_info;
-   bool directory_found = true;
    uint32_t activation_number = 0;
-   char audio_directory[MAX_DEVICE_LABEL_LEN + 24] = { 0 };
-   while (directory_found)
+   char search_directory[MAX_DEVICE_LABEL_LEN + 24] = { 0 };
+   while (activation_number < 9999)
    {
-      snprintf(audio_directory, sizeof(audio_directory), "%s/Activation_%04lu", device_label, ++activation_number);
-      directory_found = (f_stat(audio_directory, &file_info) == FR_OK);
+      snprintf(search_directory, sizeof(search_directory), "%s/Activation_%04lu", device_label, (unsigned long)(activation_number + 1));
+      if (f_stat(search_directory, &file_info) != FR_OK)
+         break;
+      ++activation_number;
    }
-   return activation_number - 1;
+   return activation_number;
 }
 
 bool storage_write(const void *data, uint32_t data_len)
@@ -763,6 +929,63 @@ bool storage_write_audio(const void *data, uint32_t data_len, bool is_last_packe
          storage_write_wav_audio(data, data_len);
 }
 
+bool storage_recover_audio(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time)
+{
+   // First try closing and reopening the audio file in place
+   print("WARNING: Audio write failed (%u consecutive, %u total) - attempting recovery\n", health.consecutive_failures, health.write_failures);
+   for (uint32_t attempt = 0; attempt < STORAGE_MAX_REOPEN_ATTEMPTS; ++attempt)
+   {
+      if (audio_file_open)
+      {
+         f_close(&audio_file);
+         audio_file_open = false;
+      }
+      if (storage_open_audio_file(activation_number, device_label, num_channels, sample_rate_hz, current_time, using_ogg))
+      {
+         ++health.reopen_recoveries;
+         health.consecutive_failures = 0;
+         print("INFO: Recovered by reopening the audio file\n");
+         return true;
+      }
+   }
+
+   // Then try unmounting and remounting the volume
+   for (uint32_t attempt = 0; attempt < STORAGE_MAX_REMOUNT_ATTEMPTS; ++attempt)
+   {
+      storage_close_imu();
+      storage_close();
+      if (log_open)
+      {
+         f_close(&log_file);
+         log_open = false;
+      }
+      audio_file_open = false;
+      f_mount(NULL, "", 0);
+      storage_deinit();
+      storage_init();
+      if (card_present)
+      {
+         audio_directory_timestamp = 0;
+         if (storage_open_audio_file(activation_number, device_label, num_channels, sample_rate_hz, current_time, using_ogg))
+         {
+            ++health.remount_recoveries;
+            health.consecutive_failures = 0;
+            print("INFO: Recovered by remounting the SD card\n");
+            return true;
+         }
+      }
+   }
+
+   // Neither recovery worked
+   print("ERROR: SD card recovery failed - resetting device\n");
+   return false;
+}
+
+void storage_get_health(storage_health_t *health_out)
+{
+   *health_out = health;
+}
+
 void storage_write_log(const char *fmt, ...)
 {
    // Write the requested data to the log file
@@ -773,13 +996,38 @@ void storage_write_log(const char *fmt, ...)
       f_vprintf(&log_file, fmt, args);
       va_end(args);
    }
+   else if (early_log_used < sizeof(early_log))
+   {
+      // No log file yet, so buffer this boot-time output produced before a timestamped directory existed
+      const uint32_t space = (uint32_t)sizeof(early_log) - early_log_used;
+      va_list args;
+      va_start(args, fmt);
+      const int written = vsnprintf(early_log + early_log_used, space, fmt, args);
+      va_end(args);
+      if (written < 0)
+         early_log_overflowed = true;
+      else if ((uint32_t)written >= space)
+      {
+         early_log_used = sizeof(early_log) - 1;
+         early_log_overflowed = true;
+      }
+      else
+         early_log_used += (uint32_t)written;
+   }
+   else
+      early_log_overflowed = true;
 }
 
 void storage_flush_log(void)
 {
    // Flush the log file to ensure that contents are not lost upon power loss
-   if (log_open)
-      f_sync(&log_file);
+   if (log_open && (f_sync(&log_file) != FR_OK))
+   {
+      // A failed sync means the log file object is no longer usable; reopen it in place
+      f_close(&log_file);
+      log_open = false;
+      storage_setup_logs();
+   }
 }
 
 void storage_write_imu_data(float accel_x_mg, float accel_y_mg, float accel_z_mg)
@@ -793,19 +1041,32 @@ void storage_write_imu_data(float accel_x_mg, float accel_y_mg, float accel_z_mg
    if (++imu_storage_index == IMU_BUFFER_MAX_SAMPLES)
    {
       imu_storage_index = 0;
-      imu_data_awaiting_storage = (uint8_t*)imu_storage_buffer;
-      imu_storage_buffer = (imu_storage_buffer == imu_data_buffer) ? &imu_data_buffer[IMU_BUFFER_MAX_SAMPLES] : &imu_data_buffer[0];
+      if (imu_data_awaiting_storage)
+      {
+         // The main loop has not yet written the previous buffer
+         ++health.imu_buffers_dropped;
+      }
+      else
+      {
+         imu_data_awaiting_storage = (uint8_t*)imu_storage_buffer;
+         imu_storage_buffer = (imu_storage_buffer == imu_data_buffer) ? &imu_data_buffer[IMU_BUFFER_MAX_SAMPLES] : &imu_data_buffer[0];
+      }
    }
 }
 
 void storage_handle_imu_data(void)
 {
    // Check if the IMU data buffer is full and needs to be written to storage
-   if (imu_data_awaiting_storage)
+   const uint8_t *pending = (const uint8_t*)imu_data_awaiting_storage;
+   if (pending)
    {
-      UINT data_written = 0;
       if (imu_file_open)
-         f_write(&imu_file, (uint8_t*)imu_data_awaiting_storage, sizeof(float) * 3 * IMU_BUFFER_MAX_SAMPLES, &data_written);
+      {
+         UINT data_written = 0;
+         const uint32_t length = sizeof(float) * 3 * IMU_BUFFER_MAX_SAMPLES;
+         if ((f_write(&imu_file, pending, length, &data_written) != FR_OK) || (data_written != length))
+            note_write_failure();
+      }
       imu_data_awaiting_storage = NULL;
    }
 }

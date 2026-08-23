@@ -17,7 +17,7 @@ static void generate_sine_wave(uint32_t frequency, int16_t *sine_wave)
    float delta_time = 1.0f / AUDIO_SAMPLE_RATE_HZ;
    const uint32_t num_samples = NUM_SINE_WAVE_SAMPLES;
    for (uint32_t i = 0; i < num_samples; ++i)
-      sine_wave[i] = (int16_t)(32767.0 * sin(2.0 * M_PI * delta_time * i * frequency));
+      sine_wave[i] = (int16_t)(32767.0 * sin(2.0 * 3.14159265358979323846 * delta_time * i * frequency));
 }
 
 int main(void)

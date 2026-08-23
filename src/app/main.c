@@ -13,6 +13,57 @@ static volatile bool magnetic_field_verified, device_activated;
 
 extern void active_main(volatile bool*, int32_t);
 extern void pre_active_main(volatile bool*);
+extern uint32_t active_main_get_end_reason(void);
+
+// Render a reset reason code as the short label written into the root boot log
+static const char* reset_reason_name(uint32_t reason)
+{
+   switch (reason)
+   {
+      case RESET_REASON_NONE:                return "POWER-ON";
+      case RESET_REASON_HARD_FAULT:          return "HARD-FAULT";
+      case RESET_REASON_PHASE_COMPLETE:      return "PHASE-DONE";
+      case RESET_REASON_AUDIO_ERROR:         return "AUDIO-ERROR";
+      case RESET_REASON_STORAGE_FAILURE:     return "SD-FAILURE";
+      case RESET_REASON_RTC_STOPPED:         return "RTC-STOPPED";
+      case RESET_REASON_BATTERY_LOW:         return "BATTERY-LOW";
+      case RESET_REASON_MISSING_CONFIG:      return "NO-CONFIG";
+      case RESET_REASON_MAGNET_DEACTIVATED:  return "MAGNET-OFF";
+      case RESET_REASON_ACTIVATED:           return "MAGNET-ON";
+      case RESET_REASON_PERIPHERAL_TIMEOUT:  return "PERIPH-TIMEOUT";
+      default:                               return "UNKNOWN";
+   }
+}
+
+static void log_boot_reason(void)
+{
+   // Record why the device restarted, both in the human-readable deployment log and in the fixed-record root boot log
+   const system_boot_info_t *boot = system_get_boot_info();
+   const am_hal_reset_status_t *hw = &boot->hardware_status;
+   uint32_t hardware_bits = 0;
+   hardware_bits |= hw->bEXTStat      ? (1u << 0)  : 0;
+   hardware_bits |= hw->bPORStat      ? (1u << 1)  : 0;
+   hardware_bits |= hw->bBODStat      ? (1u << 2)  : 0;
+   hardware_bits |= hw->bSWPORStat    ? (1u << 3)  : 0;
+   hardware_bits |= hw->bSWPOIStat    ? (1u << 4)  : 0;
+   hardware_bits |= hw->bDBGRStat     ? (1u << 5)  : 0;
+   hardware_bits |= hw->bWDTStat      ? (1u << 6)  : 0;
+   hardware_bits |= hw->bBOUnregStat  ? (1u << 7)  : 0;
+   hardware_bits |= hw->bBOCOREStat   ? (1u << 8)  : 0;
+   hardware_bits |= hw->bBOMEMStat    ? (1u << 9)  : 0;
+   hardware_bits |= hw->bBOHPMEMStat  ? (1u << 10) : 0;
+   hardware_bits |= hw->bBOLPCOREStat ? (1u << 11) : 0;
+   print("INFO: Restart #%u of power-on epoch %u, reason %s (hardware bits 0x%03X)\n", boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), hardware_bits);
+   if (boot->software_reason == RESET_REASON_HARD_FAULT)
+      print("ERROR: Previous run ended in a hard fault at address 0x%08X\n", boot->fault_address);
+   if (hw->bWDTStat)
+      print("ERROR: Previous run was terminated by the watchdog\n");
+
+   // The detail field carries the fault address for a fault, and the hardware reset bits otherwise
+   const uint32_t detail = (boot->software_reason == RESET_REASON_HARD_FAULT) ? boot->fault_address : hardware_bits;
+   storage_write_boot_record(reset_reason_name(boot->software_reason), boot->boot_epoch,
+                             boot->resets_this_epoch, detail, rtc_get_timestamp());
+}
 
 static void magnet_sensor_validated(bool validated)
 {
@@ -43,7 +94,15 @@ static void handle_magnetic_field(bool store_activated_result, bool store_deacti
    magnet_sensor_register_callback(magnet_sensor_activated);
    magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated);
    while (!magnetic_field_verified)
-      system_enter_deep_sleep_mode();
+   {
+      // The validation callback is delivered from here rather than from the timer interrupt
+      system_feed_watchdog();
+      magnet_sensor_handle_pending_validation();
+      if (!magnetic_field_verified && !magnet_sensor_validation_in_progress())
+         break;
+      if (!magnetic_field_verified)
+         system_enter_deep_sleep_mode();
+   }
    if (store_activated_result && device_activated)
       config_set_activation_status(true);
    else if (store_deactivated_result && !device_activated)
@@ -57,6 +116,10 @@ int main(void)
    static uint8_t device_id[DEVICE_ID_LEN];
    system_read_ID(device_id, sizeof(device_id));
    system_initialize_peripherals();
+
+   // Arm the watchdog for the whole life of the application
+   system_enable_watchdog();
+
    print("\nINFO: System hardware initialized, UID = ");
    for (size_t i = DEVICE_ID_LEN - 1; i > 0; --i)
       print("%02X:", device_id[i]);
@@ -76,20 +139,23 @@ int main(void)
    if (!rtc_is_valid())
       rtc_set_time_from_timestamp(1604083082);
 
+   // Record why the device restarted, now that storage is available to receive it
+   log_boot_reason();
+
    // Reboot after 15 seconds if missing SD card or configuration file
    if (storage_sd_card_error() || !success)
    {
       system_enter_power_off_mode(PIN_MAG_SENSOR_INP, rtc_get_timestamp() + 15, false);
-      system_reset();
+      system_reset_with_reason(RESET_REASON_MISSING_CONFIG);
    }
 
    // Determine if the battery voltage is too low to continue
    bool battery_too_low = false;
-   while (battery_monitor_get_details().millivolts <= config_get_battery_mV_low())
+   while (battery_monitor_is_critically_low(config_get_battery_mV_low()))
    {
       const uint32_t current_timestamp = rtc_get_timestamp();
       const uint32_t vhf_enable_timestamp = config_get_vhf_start_timestamp();
-      print("WARNING: Battery low @ %u...shutting down for 1 hour\n", current_timestamp);
+      print("WARNING: Battery confirmed low @ %u...shutting down for 1 hour\n", current_timestamp);
       const bool vhf_enabled = config_is_device_activated() && vhf_enable_timestamp && (current_timestamp >= vhf_enable_timestamp);
       if (vhf_enabled)
          vhf_activate();
@@ -97,7 +163,7 @@ int main(void)
       battery_too_low = true;
    }
    if (battery_too_low)
-      system_reset();
+      system_reset_with_reason(RESET_REASON_BATTERY_LOW);
 
    // Determine whether the device has been activated
    device_activated = config_is_device_activated();
@@ -122,11 +188,13 @@ int main(void)
                print("INFO: Sleeping until GPS response received\n");
                if (use_magnetic_activation)
                   magnet_sensor_register_callback(magnet_sensor_activated);
+               system_feed_watchdog();
+               magnet_sensor_handle_pending_validation();
                system_enter_deep_sleep_mode();
                if (use_magnetic_activation && !device_activated)
                {
                   config_set_activation_status(false);
-                  system_reset();
+                  system_reset_with_reason(RESET_REASON_MAGNET_DEACTIVATED);
                }
             }
          }
@@ -204,7 +272,11 @@ int main(void)
             {
                print("INFO: Device was magnetically deactivated!\n");
                config_set_activation_status(false);
+               storage_flush_log();
+               system_reset_with_reason(RESET_REASON_MAGNET_DEACTIVATED);
             }
+            storage_flush_log();
+            system_reset_with_reason(active_main_get_end_reason());
          }
          else if (vhf_enable_timestamp && (vhf_enable_timestamp > current_timestamp))
          {
@@ -269,6 +341,7 @@ int main(void)
    }
 
    // Reboot the system and start over from the top
-   system_reset();
+   storage_flush_log();
+   system_reset_with_reason(device_activated ? RESET_REASON_ACTIVATED : RESET_REASON_UNKNOWN);
    return 0;
 }
