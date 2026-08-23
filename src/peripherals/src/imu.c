@@ -846,6 +846,7 @@ void imu_deinit(void)
       }
       am_hal_iom_uninitialize(i2c_handle);
       i2c_handle = NULL;
+      iom_wake_depth = 0;
    }
 }
 

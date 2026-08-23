@@ -103,6 +103,9 @@ static void handle_magnetic_field(bool store_activated_result, bool store_deacti
       if (!magnetic_field_verified)
          system_enter_deep_sleep_mode();
    }
+
+   // Let any confirmation pattern finish before returning
+   led_pattern_wait();
    if (store_activated_result && device_activated)
       config_set_activation_status(true);
    else if (store_deactivated_result && !device_activated)
@@ -133,6 +136,7 @@ int main(void)
       led_indicate_sd_card_error();
    else if (!success)
       led_indicate_missing_config_file();
+   led_pattern_wait();
    leds_enable(config_get_leds_enabled());
 
    // Ensure that the RTC has a usable (but "invalid") time so that it can function for sleeping/wake-up
@@ -281,6 +285,7 @@ int main(void)
                print("INFO: Device was magnetically deactivated!\n");
                config_set_activation_status(false);
                storage_flush_log();
+               led_pattern_wait();
                system_reset_with_reason(RESET_REASON_MAGNET_DEACTIVATED);
             }
             storage_flush_log();

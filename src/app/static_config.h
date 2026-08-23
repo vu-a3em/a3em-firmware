@@ -35,7 +35,8 @@
 #define NUM_HOURS_PER_AUDIO_DIRECTORY               4
 #define AUDIO_BUFFER_MAX_SIZE                       65536
 #define NUM_SECONDS_PER_AUDIO_DIRECTORY             (NUM_HOURS_PER_AUDIO_DIRECTORY * 60 * 60)
-#define SD_CARD_ALLOCATION_UNIT_BYTES               (128 * 1024)
+#define SD_CARD_ALLOCATION_UNIT_BYTES               4096
+#define WAV_STAGING_BUFFER_SIZE                     (256 * 1024)
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define LOG_FILE_NAME                               "a3em.log"
@@ -52,6 +53,7 @@
 #define WATCHDOG_TIMEOUT_SECONDS                    120
 
 #define GPS_TIME_MAX_ATTEMPTS                       60
+#define LED_PATTERN_MAX_WAIT_WAKEUPS                200
 
 
 // Failure Handling and Diagnostics Definitions ------------------------------------------------------------------------
@@ -68,15 +70,18 @@
 // Fixed-size boot log record layout. Records are written at a fixed offset inside a pre-allocated
 // file and each carries its own sequence number and checksum, so a torn write during power loss
 // can damage at most one record and every surviving record remains independently parseable.
+// The first BOOT_LOG_RESERVED_RECORDS slots are written once and never overwritten
 #define BOOT_LOG_RECORD_LEN                         64
-#define BOOT_LOG_NUM_RECORDS                        512
+#define BOOT_LOG_NUM_RECORDS                        4096
+#define BOOT_LOG_RESERVED_RECORDS                   64
 #define BOOT_LOG_FILE_SIZE                          (BOOT_LOG_RECORD_LEN * BOOT_LOG_NUM_RECORDS)
 #define BOOT_LOG_MIN_RECORD_LEN                     56
 
 #ifndef __cplusplus
-_Static_assert((512 % BOOT_LOG_RECORD_LEN) == 0, "BOOT_LOG_RECORD_LEN must divide 512 so that no record straddles a sector boundary");
+_Static_assert((4096 % BOOT_LOG_RECORD_LEN) == 0, "BOOT_LOG_RECORD_LEN must divide 4096 so that no record straddles a sector boundary");
 _Static_assert(BOOT_LOG_RECORD_LEN >= BOOT_LOG_MIN_RECORD_LEN, "BOOT_LOG_RECORD_LEN is too small to hold a record plus its checksum and newline");
 _Static_assert(BOOT_LOG_NUM_RECORDS > 0, "BOOT_LOG_NUM_RECORDS must be positive");
+_Static_assert(BOOT_LOG_RESERVED_RECORDS < BOOT_LOG_NUM_RECORDS, "BOOT_LOG_RESERVED_RECORDS must leave at least one record for the wrapping region");
 #endif
 
 // Software reset reason codes stored in MCUCTRL->SCRATCH0 across a reset
@@ -133,6 +138,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define BATT_ADC_INTERRUPT_PRIORITY                     (AM_IRQ_PRIORITY_DEFAULT - 1)
 #define AUDIO_TIMER_INTERRUPT_PRIORITY                  (AM_IRQ_PRIORITY_DEFAULT + 1)
 #define AUDIO_DMA_TIMER_INTERRUPT_PRIORITY              (AM_IRQ_PRIORITY_DEFAULT - 1)
+#define STATUS_LED_TIMER_INTERRUPT_PRIORITY             (AM_IRQ_PRIORITY_DEFAULT + 1)
 #define EXT_HW_INTERRUPT_PRIORITY                       (AM_IRQ_PRIORITY_DEFAULT)
 
 

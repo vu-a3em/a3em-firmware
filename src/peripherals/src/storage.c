@@ -64,6 +64,9 @@ __attribute__((section(".shared"), aligned(32)))
 static uint8_t opus_audio_buffer[AUDIO_BUFFER_MAX_SIZE];
 __attribute__((section(".shared"), aligned(32)))
 static float imu_data_buffer[2*IMU_BUFFER_MAX_SAMPLES][3];
+__attribute__((section(".shared"), aligned(32)))
+static uint8_t wav_staging_buffer[WAV_STAGING_BUFFER_SIZE];
+static uint32_t wav_staging_used;
 static float (*imu_storage_buffer)[3];
 
 
@@ -422,22 +425,58 @@ static void storage_flush_imu_data(void)
    }
 }
 
-static bool storage_write_wav_audio(const void *data, uint32_t data_len)
+// Push the staged audio to the card as a single transfer
+static bool flush_wav_staging(void)
 {
-   // Write any outstanding IMU data at the same time as the audio data
-   storage_handle_imu_data();
+   const uint32_t length = wav_staging_used;
+   wav_staging_used = 0;
+   if (!length)
+      return true;
+   if (!audio_file_open)
+      return false;
 
-   // Write the requested data to the currently open audio file
+   // Write any outstanding IMU data alongside the audio so the two files are touched together
+   storage_handle_imu_data();
    UINT data_written = 0;
-   if (audio_file_open && (f_write(&audio_file, data, data_len, &data_written) == FR_OK) && (data_written == data_len))
+   if ((f_write(&audio_file, wav_staging_buffer, length, &data_written) == FR_OK) && (data_written == length))
    {
-      data_size += data_len;
       note_write_success();
       return true;
    }
-   if (audio_file_open)
-      note_write_failure();
+   note_write_failure();
    return false;
+}
+
+static bool storage_write_wav_audio(const void *data, uint32_t data_len, bool is_last_packet)
+{
+   // Only continue with storage if an audio file is already open
+   if (!audio_file_open)
+      return false;
+
+   // Accumulate WAV audio and write it out in large batches
+   bool success = true;
+   const uint8_t *source = (const uint8_t*)data;
+   uint32_t remaining = data_len;
+   while (remaining)
+   {
+      const uint32_t space = WAV_STAGING_BUFFER_SIZE - wav_staging_used;
+      const uint32_t chunk = MIN(space, remaining);
+      memcpy(wav_staging_buffer + wav_staging_used, source, chunk);
+      wav_staging_used += chunk;
+      source += chunk;
+      remaining -= chunk;
+      if (wav_staging_used == WAV_STAGING_BUFFER_SIZE)
+         success = flush_wav_staging() && success;
+   }
+
+   // The payload length is accounted as accepted, not as flushed, because the WAV header is patched
+   // at close and the buffer is always flushed before that happens
+   data_size += data_len;
+
+   // Never carry audio across a clip boundary
+   if (is_last_packet)
+      success = flush_wav_staging() && success;
+   return success;
 }
 
 static bool storage_write_audio_raw(const void *data, uint32_t data_len)
@@ -511,6 +550,8 @@ static void storage_close_wav_audio(void)
    // Finalize and close the currently open audio file
    if (audio_file_open)
    {
+      // Flush before patching the header, so the file position and the recorded length agree
+      flush_wav_staging();
       const uint32_t payload_size = data_size;
       const uint32_t riff_size = 36 + payload_size;
       f_lseek(&audio_file, 4);
@@ -567,7 +608,7 @@ static bool storage_open_wav_file(uint32_t activation_number, const char *device
       storage_setup_logs();
 
    // Open the requested file
-   data_size = 0;
+   data_size = wav_staging_used = 0;
    static char file_name[FF_MAX_LFN] = { 0 };
    snprintf(file_name, sizeof(file_name), "%s/%s.wav", audio_directory, time_string);
    audio_file_open = (f_open(&audio_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
@@ -640,7 +681,7 @@ void storage_init(void)
    memset(audio_directory, 0, sizeof(audio_directory));
    async_write_complete = async_read_complete = card_present = false;
    log_open = file_open = imu_file_open = audio_file_open = false;
-   audio_directory_timestamp = opus_audio_buffer_idx = 0;
+   audio_directory_timestamp = opus_audio_buffer_idx = wav_staging_used = 0;
    imu_storage_buffer = imu_data_buffer;
    imu_data_awaiting_storage = NULL;
    imu_storage_index = 0;
@@ -828,7 +869,11 @@ void storage_write_boot_record(const char *reason, uint32_t epoch, uint32_t rese
 
    // Write the single record at its slot and flush it before releasing the file
    UINT data_written = 0;
-   const uint32_t slot = sequence % BOOT_LOG_NUM_RECORDS;
+   uint32_t slot;
+   if (sequence < BOOT_LOG_RESERVED_RECORDS)
+      slot = sequence;
+   else
+      slot = BOOT_LOG_RESERVED_RECORDS + ((sequence - BOOT_LOG_RESERVED_RECORDS) % (BOOT_LOG_NUM_RECORDS - BOOT_LOG_RESERVED_RECORDS));
    if (f_lseek(&boot_file, slot * BOOT_LOG_RECORD_LEN) == FR_OK)
       f_write(&boot_file, record, BOOT_LOG_RECORD_LEN, &data_written);
    f_sync(&boot_file);
@@ -926,7 +971,7 @@ bool storage_write_audio(const void *data, uint32_t data_len, bool is_last_packe
    // Call the appropriate audio writing function
    return using_ogg ?
          storage_write_ogg_opus_audio(data, data_len / sizeof(int16_t), is_last_packet) :
-         storage_write_wav_audio(data, data_len);
+         storage_write_wav_audio(data, data_len, is_last_packet);
 }
 
 bool storage_recover_audio(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time)

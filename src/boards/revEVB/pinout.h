@@ -84,6 +84,8 @@
 #define TIMER_NUMBER_MAG_DETECT                     02
 #define TIMER_NUMBER_MAG_SAMPLING                   04
 #define TIMER_NUMBER_STATUS_LED                     05
+#define TIMER_STATUS_LED_CLOCK                      AM_HAL_TIMER_CLOCK_XT
+#define TIMER_STATUS_LED_TICK_RATE                  32768
 #define TIMER_NUMBER_AUDIO_DMA                      06
 #define TIMER_AUDIO_DMA_CLOCK                       AM_HAL_TIMER_CLOCK_XT_DIV16
 #define TIMER_AUDIO_DMA_TICK_RATE                   (32768 / 16)

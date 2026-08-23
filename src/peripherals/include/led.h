@@ -8,7 +8,7 @@
 
 // Peripheral Type Definitions -----------------------------------------------------------------------------------------
 
-typedef enum { LED_RED, LED_GREEN, LED_ALL } led_color_t;
+typedef enum { LED_RED, LED_GREEN, LED_ALL, LED_NONE } led_color_t;
 
 
 // Public API Functions ------------------------------------------------------------------------------------------------
@@ -20,6 +20,9 @@ bool leds_are_enabled(void);
 void led_on(led_color_t color);
 void led_off(led_color_t color);
 void led_toggle(led_color_t color);
+bool led_pattern_active(void);
+void led_pattern_wait(void);
+void led_pattern_cancel(void);
 void led_indicate_clip_begin(void);
 void led_indicate_clip_progress(void);
 void led_indicate_clip_end(void);
