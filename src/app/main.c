@@ -142,6 +142,10 @@ int main(void)
    // Record why the device restarted, now that storage is available to receive it
    log_boot_reason();
 
+   // Release the I2C slave used to talk to the GPS tracker board when no tracker is configured
+   if (!config_gps_available())
+      tracker_deinit();
+
    // Reboot after 15 seconds if missing SD card or configuration file
    if (storage_sd_card_error() || !success)
    {
@@ -170,11 +174,13 @@ int main(void)
    if (device_activated)
    {
       // Check for RTC errors and attempt to correct them to allow the deployment to continue
+      uint32_t gps_time_attempts = 0;
       while (!rtc_is_valid())
       {
-         if (config_gps_available())
+         if (config_gps_available() && (gps_time_attempts < GPS_TIME_MAX_ATTEMPTS))
          {
             // Wait until a valid GPS time has been received
+            ++gps_time_attempts;
             print("INFO: Obtaining current time from GPS...\n");
             uint32_t utc_time = tracker_get_current_time();
             if (utc_time)
@@ -201,6 +207,8 @@ int main(void)
          else
          {
             // Log this error and set the RTC to the last known timestamp
+            if (config_gps_available())
+               print("ERROR: No GPS time after %u attempts - falling back to the last known timestamp\n", gps_time_attempts);
             uint32_t last_known_timestamp = mram_get_last_known_timestamp();
             if (last_known_timestamp)
                rtc_set_time_from_timestamp(last_known_timestamp);
@@ -232,7 +240,7 @@ int main(void)
             print("INFO: Deployment starts in %u seconds\n", config_get_deployment_start_time() - current_timestamp);
             system_enter_power_off_mode(use_magnetic_activation ? PIN_MAG_SENSOR_INP : 0, config_get_deployment_start_time(), use_magnetic_activation);
             current_timestamp = rtc_get_timestamp();
-            if (current_timestamp < config_get_deployment_start_time())
+            if (use_magnetic_activation && (current_timestamp < config_get_deployment_start_time()))
                handle_magnetic_field(false, true);
          }
       }

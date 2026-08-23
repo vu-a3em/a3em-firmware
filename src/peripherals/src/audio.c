@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include "audio.h"
+#include "battery.h"
 #include "comparator.h"
 #include "led.h"
 #include "logging.h"
@@ -540,12 +541,17 @@ bool audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
    am_hal_timer_disable(TIMER_NUMBER_AUDIO_DMA);
    system_enable_interrupts(true);
 
-   // Reuse the DC offset from a previous calibration if one has been stored
+   // Reuse the DC offset from a previous calibration if it was measured at a comparable die temperature
    const int32_t cached_dc_offset = mram_get_audadc_dc_offset();
-   if ((cached_dc_offset >= DC_OFFSET_MIN_VALID) && (cached_dc_offset <= DC_OFFSET_MAX_VALID))
+   const float cached_celsius = mram_get_audadc_dc_offset_celsius();
+   const battery_result_t thermal = battery_monitor_get_details();
+   const float temperature_delta = thermal.valid ? (thermal.celcius - cached_celsius) : 0.0f;
+   const bool cached_offset_usable = (cached_dc_offset >= DC_OFFSET_MIN_VALID) && (cached_dc_offset <= DC_OFFSET_MAX_VALID) && thermal.valid &&
+                                     (temperature_delta > -DC_OFFSET_RECAL_DELTA_C) && (temperature_delta < DC_OFFSET_RECAL_DELTA_C);
+   if (cached_offset_usable)
    {
       dc_offset = (uint32_t)cached_dc_offset;
-      print("INFO: Reusing stored analog microphone DC offset: %u\n", dc_offset);
+      print("INFO: Reusing stored analog microphone DC offset: %u (calibrated at %0.1f C, now %0.1f C)\n", dc_offset, cached_celsius, thermal.celcius);
    }
    else
    {
@@ -587,7 +593,7 @@ bool audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
 
       // Only persist a converged, plausible calibration
       if ((dc_calculated >= 4) && (dc_offset >= DC_OFFSET_MIN_VALID) && (dc_offset <= DC_OFFSET_MAX_VALID))
-         mram_store_audadc_dc_offset((int32_t)dc_offset);
+         mram_store_audadc_dc_offset((int32_t)dc_offset, thermal.valid ? thermal.celcius : 0.0f);
    }
 
    // Optionally connect the audio input to a comparator
@@ -781,9 +787,27 @@ int16_t* audio_read_data_direct(void)
       {
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
+         uint64_t raw_total = 0;
          buffer = (int16_t*)data;
          for (uint32_t i = 0; i < num_samples_per_dma; ++i)
-            buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
+         {
+            const uint32_t raw = data[i] >> 16UL;
+            raw_total += raw;
+            buffer[i] = (int16_t)(raw - dc_offset);
+         }
+
+         // Nudge the offset toward the measured mean of this buffer
+         if (num_samples_per_dma)
+         {
+            const uint32_t measured = (uint32_t)(raw_total / num_samples_per_dma);
+            if ((measured >= DC_OFFSET_MIN_VALID) && (measured <= DC_OFFSET_MAX_VALID))
+            {
+               if (measured > dc_offset)
+                  dc_offset += MIN(measured - dc_offset, (uint32_t)DC_OFFSET_TRACK_MAX_STEP);
+               else if (measured < dc_offset)
+                  dc_offset -= MIN(dc_offset - measured, (uint32_t)DC_OFFSET_TRACK_MAX_STEP);
+            }
+         }
       }
       dma_complete = false;
       if (dma_buffers_pending)
@@ -795,5 +819,5 @@ int16_t* audio_read_data_direct(void)
 
 uint32_t audio_num_seconds_per_dma(void)
 {
-   return num_samples_per_dma / sampling_rate_hz;
+   return sampling_rate_hz ? (num_samples_per_dma / sampling_rate_hz) : 0;
 }

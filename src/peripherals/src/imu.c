@@ -12,15 +12,27 @@
 
 static void *i2c_handle = NULL;
 static stmdev_ctx_t imu_context;
+static uint32_t fifo_overrun_count, iom_wake_depth;
 static imu_data_ready_callback_t data_ready_callback;
 static motion_change_callback_t motion_change_callback;
 static lis2du12_fifo_md_t fifo_mode;
 static lis2du12_md_t imu_mode;
-static uint32_t fifo_overrun_count;
 static uint8_t skip_first_result;
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
+
+static void imu_iom_wake(void)
+{
+   if (i2c_handle && (iom_wake_depth++ == 0))
+      configASSERT0(am_hal_iom_power_ctrl(i2c_handle, AM_HAL_SYSCTRL_WAKE, true));
+}
+
+static void imu_iom_sleep(void)
+{
+   if (i2c_handle && (iom_wake_depth > 0) && (--iom_wake_depth == 0))
+      configASSERT0(am_hal_iom_power_ctrl(i2c_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true));
+}
 
 static int32_t platform_read(void *handle, uint8_t reg_number, uint8_t *read_buffer, uint16_t buffer_length)
 {
@@ -62,6 +74,7 @@ static int32_t platform_write(void *handle, uint8_t reg_number, const uint8_t *w
 
 static void imu_isr(void *args)
 {
+   imu_iom_wake();
    if (motion_change_callback)
    {
       static lis2du12_all_sources_t status;
@@ -76,6 +89,7 @@ static void imu_isr(void *args)
       if (fifo_status.fifo_fth)
          imu_drain_fifo();
    }
+   imu_iom_sleep();
 }
 
 
@@ -780,6 +794,10 @@ void imu_init(void)
    // Disable the I3C bus interface
    configASSERT0(lis2du12_bus_mode_set(&imu_context, LIS2DU12_I3C_DISABLE));
 
+   // Put the IMU into its lowest-power state
+   imu_mode.odr = LIS2DU12_OFF;
+   configASSERT0(lis2du12_mode_set(&imu_context, &imu_mode));
+
    // Set up incoming interrupts from the IMU
    uint32_t imu_interrupt_pin = PIN_IMU_INTERRUPT;
    configASSERT0(am_hal_gpio_pinconfig(PIN_IMU_INTERRUPT, am_hal_gpio_pincfg_input));
@@ -789,6 +807,10 @@ void imu_init(void)
    configASSERT0(lis2du12_interrupt_mode_set(&imu_context, &int_mode));
    NVIC_SetPriority(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_IMU_INTERRUPT), IMU_DATA_INTERRUPT_PRIORITY);
    NVIC_EnableIRQ(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_IMU_INTERRUPT));
+
+   // Leave the I2C master powered down now that configuration is complete
+   configASSERT0(am_hal_iom_power_ctrl(i2c_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true));
+   iom_wake_depth = 0;
 }
 
 void imu_deinit(void)
@@ -796,6 +818,7 @@ void imu_deinit(void)
    // Disable all interrupts and put the device into power-down mode
    if (i2c_handle)
    {
+      imu_iom_wake();
       lis2du12_int_mode_t int_mode = { .enable = PROPERTY_DISABLE, .active_low = PROPERTY_DISABLE, .drdy_latched = 1, .base_sig = LIS2DU12_INT_LEVEL };
       lis2du12_interrupt_mode_set(&imu_context, &int_mode);
       if (data_ready_callback)
@@ -829,6 +852,7 @@ void imu_deinit(void)
 void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, uint32_t data_rate_hz, lis2du12_bw_t bandwidth, imu_data_ready_callback_t callback)
 {
    // Enable or disable the output of raw data
+   imu_iom_wake();
    if (enable)
    {
       // Determine the data rate constant closest to the desired output data rate
@@ -895,11 +919,13 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
       // Clear the user-supplied data ready callback
       data_ready_callback = NULL;
    }
+   imu_iom_sleep();
 }
 
 void imu_enable_motion_change_detection(bool enable, motion_change_callback_t callback)
 {
    // Enable or disable to output of motion change notifications
+   imu_iom_wake();
    if (enable)
    {
       // Set the criteria for motion detection:
@@ -949,12 +975,15 @@ void imu_enable_motion_change_detection(bool enable, motion_change_callback_t ca
       // Clear the user-supplied motion change callback
       motion_change_callback = NULL;
    }
+   imu_iom_sleep();
 }
 
 void imu_read_accel_data(float *accel_x_mg, float *accel_y_mg, float *accel_z_mg)
 {
    static lis2du12_data_t data;
+   imu_iom_wake();
    lis2du12_data_get(&imu_context, &imu_mode, &data);
+   imu_iom_sleep();
    *accel_x_mg = data.xl.mg[0];
    *accel_y_mg = data.xl.mg[1];
    *accel_z_mg = data.xl.mg[2];
@@ -972,6 +1001,7 @@ void imu_drain_fifo(void)
       return;
 
    // Determine how many words are waiting
+   imu_iom_wake();
    uint8_t fifo_level = 0;
    lis2du12_fifo_status_t fifo_status;
    lis2du12_fifo_status_get(&imu_context, &fifo_status);
@@ -1021,4 +1051,5 @@ void imu_drain_fifo(void)
       }
       index += words;
    }
+   imu_iom_sleep();
 }

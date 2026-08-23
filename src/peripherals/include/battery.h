@@ -9,7 +9,7 @@
 // Peripheral Type Definitions -----------------------------------------------------------------------------------------
 
 // Number of conversions taken per measurement
-#define BATTERY_NUM_SAMPLES              5
+#define BATTERY_NUM_SAMPLES              6
 #define BATTERY_CONVERSION_MAX_WAITS     32
 
 // Number of consecutive low readings that have to repeat before the device acts on it, and the voltage

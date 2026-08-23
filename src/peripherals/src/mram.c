@@ -24,6 +24,7 @@ typedef struct __attribute__((packed, aligned(16))) {
       struct {
          int32_t audadc_dc_offset;
          uint32_t audadc_dc_offset_tag;
+         int32_t audadc_dc_offset_decicelsius;
       };
    };
    union {
@@ -122,12 +123,20 @@ uint32_t mram_get_last_known_timestamp(void)
    return persistent_data.last_known_timestamp;
 }
 
-bool mram_store_audadc_dc_offset(int32_t dc_offset)
+bool mram_store_audadc_dc_offset(int32_t dc_offset, float celsius)
 {
-   // Store the AUDADC DC offset value to persistent memory along with its validity marker
+   // Store the AUDADC DC offset value to persistent memory along with its validity marker and the
+   // temperature it was measured at, so that a later boot can decide whether it is still usable
    persistent_data.audadc_dc_offset = dc_offset;
    persistent_data.audadc_dc_offset_tag = MRAM_DC_OFFSET_VALID_TAG;
+   persistent_data.audadc_dc_offset_decicelsius = (int32_t)(celsius * 10.0f);
    return program_block(offsetof(persistent_data_t, audadc_dc_offset_addr), persistent_data.audadc_dc_offset_addr);
+}
+
+float mram_get_audadc_dc_offset_celsius(void)
+{
+   // Temperature the stored offset was calibrated at, or 0 if there is no valid calibration
+   return (persistent_data.audadc_dc_offset_tag == MRAM_DC_OFFSET_VALID_TAG) ? ((float)persistent_data.audadc_dc_offset_decicelsius / 10.0f) : 0.0f;
 }
 
 int32_t mram_get_audadc_dc_offset(void)

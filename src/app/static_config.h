@@ -35,15 +35,23 @@
 #define NUM_HOURS_PER_AUDIO_DIRECTORY               4
 #define AUDIO_BUFFER_MAX_SIZE                       65536
 #define NUM_SECONDS_PER_AUDIO_DIRECTORY             (NUM_HOURS_PER_AUDIO_DIRECTORY * 60 * 60)
+#define SD_CARD_ALLOCATION_UNIT_BYTES               (128 * 1024)
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define LOG_FILE_NAME                               "a3em.log"
 #define BOOT_LOG_FILE_NAME                          "boot.log"
 
 
+// Diagnostics Definitions ---------------------------------------------------------------------------------------------
+
+#define ENABLE_CACHE_MONITOR                        1
+
+
 // Watchdog Definitions ------------------------------------------------------------------------------------------------
 
 #define WATCHDOG_TIMEOUT_SECONDS                    120
+
+#define GPS_TIME_MAX_ATTEMPTS                       60
 
 
 // Failure Handling and Diagnostics Definitions ------------------------------------------------------------------------
@@ -63,6 +71,13 @@
 #define BOOT_LOG_RECORD_LEN                         64
 #define BOOT_LOG_NUM_RECORDS                        512
 #define BOOT_LOG_FILE_SIZE                          (BOOT_LOG_RECORD_LEN * BOOT_LOG_NUM_RECORDS)
+#define BOOT_LOG_MIN_RECORD_LEN                     56
+
+#ifndef __cplusplus
+_Static_assert((512 % BOOT_LOG_RECORD_LEN) == 0, "BOOT_LOG_RECORD_LEN must divide 512 so that no record straddles a sector boundary");
+_Static_assert(BOOT_LOG_RECORD_LEN >= BOOT_LOG_MIN_RECORD_LEN, "BOOT_LOG_RECORD_LEN is too small to hold a record plus its checksum and newline");
+_Static_assert(BOOT_LOG_NUM_RECORDS > 0, "BOOT_LOG_NUM_RECORDS must be positive");
+#endif
 
 // Software reset reason codes stored in MCUCTRL->SCRATCH0 across a reset
 #define RESET_REASON_NONE                           0x00
@@ -136,13 +151,11 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define AUDIO_MIN_CLIP_LENGTH_SECONDS                   1
 #define AUDIO_MAX_CLIP_LENGTH_SECONDS                   3600
 
-// Margin applied around the expected AUDADC DMA completion time. While the DMA-complete (DCMP)
-// interrupt is still unproven the backstop timer fires this far BEFORE the expected completion and
-// opens a short FIFO-threshold window, so a missed DCMP costs no samples. Once DCMP has proven
-// reliable for AUDIO_DMA_DCMP_CONFIDENCE consecutive buffers the backstop moves to just AFTER the
-// expected completion and the device settles at roughly one wake-up per buffer.
 #define AUDIO_DMA_BACKSTOP_MARGIN_MS                    8
 #define AUDIO_DMA_DCMP_CONFIDENCE                       16
+
+#define DC_OFFSET_RECAL_DELTA_C                         10.0f
+#define DC_OFFSET_TRACK_MAX_STEP                        2
 
 #define AUDIO_PRE_DEPLOYMENT_CLIP_LENGTH_SECONDS        60
 #define AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ             16000
@@ -170,7 +183,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define IMU_DEFAULT_SAMPLING_RATE_HZ                    25
 #define IMU_BUFFER_MAX_SAMPLES                          ((AUDIO_BUFFER_MAX_SAMPLES / 80) + 100)
 
-#define IMU_FIFO_WATERMARK                              32
+#define IMU_FIFO_WATERMARK                              96
 #define IMU_FIFO_MAX_LEVEL                              128
 #define IMU_FIFO_BURST_ENTRIES                          16
 

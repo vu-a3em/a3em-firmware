@@ -203,12 +203,12 @@ void magnet_sensor_enable_for_wakeup(void)
    disable_pin_config.GP.cfg_b.uFuncSel = PIN_MAG_SENSOR_DIS_FUNCTION;
    configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_DIS, disable_pin_config));
 
-   // Initialize the magnetic field sampling timer using a low-power, always-on LFRC (nominally 900Hz)
+   // Initialize the magnetic field sampling timer from the 32 kHz crystal
    am_hal_timer_config_t field_sampling_timer_config;
    am_hal_timer_default_config_set(&field_sampling_timer_config);
    field_sampling_timer_config.eFunction = AM_HAL_TIMER_FN_PWM;
-   field_sampling_timer_config.eInputClock = AM_HAL_TIMER_CLOCK_LFRC;
-   field_sampling_timer_config.ui32Compare0 = (uint32_t)(SENSOR_DEEP_SLEEP_TIME_MS * 900 / 1000);
+   field_sampling_timer_config.eInputClock = AM_HAL_TIMER_CLOCK_XT;
+   field_sampling_timer_config.ui32Compare0 = (uint32_t)(((uint64_t)SENSOR_DEEP_SLEEP_TIME_MS * 32768u) / 1000u);
    field_sampling_timer_config.ui32Compare1 = 1;
    am_hal_timer_config(TIMER_NUMBER_MAG_SAMPLING, &field_sampling_timer_config);
    am_hal_timer_output_config(PIN_MAG_SENSOR_DIS, 2 * TIMER_NUMBER_MAG_SAMPLING);

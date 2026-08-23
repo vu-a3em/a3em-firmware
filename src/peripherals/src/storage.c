@@ -14,7 +14,7 @@
 
 #define EARLY_LOG_MAX_BYTES     4096
 
-#define ASYNC_SPIN_ITERATIONS   400      // 400 x 10 us = 4 ms of fine-grained polling
+#define ASYNC_SPIN_ITERATIONS   20       // 20 x 10 us = 200 us of fine-grained polling
 #define ASYNC_SLEEP_ITERATIONS  2000     // Then sleep-wait, bounded, woken by the SDIO interrupt
 
 typedef struct
@@ -677,7 +677,7 @@ void storage_init(void)
    FRESULT res = f_mount(&file_system, "", 1);
    if (res == FR_NO_FILESYSTEM)
    {
-      const MKFS_PARM opts = { .fmt = FM_EXFAT, .n_fat = 0, .align = 0, .n_root = 0, .au_size = 4096 };
+      const MKFS_PARM opts = { .fmt = FM_EXFAT, .n_fat = 0, .align = 0, .n_root = 0, .au_size = SD_CARD_ALLOCATION_UNIT_BYTES };
       if (f_mkfs("", &opts, work_buf, sizeof(work_buf)) != FR_OK)
          printonly("ERROR: Unable to create a file system on the SD card\n");
       else if ((res = f_mount(&file_system, "", 1)) != FR_OK)

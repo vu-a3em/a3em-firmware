@@ -30,6 +30,9 @@ void system_enable_interrupts(bool enabled);
 void system_enter_deep_sleep_mode(void);
 void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_timestamp, bool reinit_on_wakeup);
 void system_set_sram_active(bool active_during_deep_sleep);
+void system_release_sram_retention(void);
+void system_accumulate_cache_stats(void);
+bool system_get_cache_stats(uint64_t *accesses, uint64_t *hits, float *hit_rate_percent);
 void system_read_ID(uint8_t *id, uint32_t id_length);
 void system_delay(uint32_t delay_us);
 

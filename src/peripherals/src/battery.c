@@ -9,10 +9,11 @@
 #define BATTERY_ADC_SLOT 0
 #define TEMPERATURE_ADC_SLOT 7
 
-static volatile uint32_t battery_voltage_code, temperature_code;
+static bool battery_low_latched, tempco_available;
+static am_hal_adc_sample_t temperature_samples_raw[BATTERY_NUM_SAMPLES];
+static volatile uint32_t battery_voltage_code, temperature_code, temperature_samples_raw_count;
 static volatile bool conversion_complete;
 static uint32_t consecutive_low_readings;
-static bool battery_low_latched;
 static void *adc_handle;
 
 
@@ -35,7 +36,11 @@ void am_adc_isr(void)
       if (sample.ui32Slot == BATTERY_ADC_SLOT)
          battery_voltage_code = AM_HAL_ADC_FIFO_SAMPLE(sample.ui32Sample);
       else if (sample.ui32Slot == TEMPERATURE_ADC_SLOT)
+      {
          temperature_code = AM_HAL_ADC_FIFO_SAMPLE(sample.ui32Sample);
+         if (temperature_samples_raw_count < BATTERY_NUM_SAMPLES)
+            temperature_samples_raw[temperature_samples_raw_count++] = sample;
+      }
    }
 
    // Set the conversion complete flag
@@ -81,7 +86,7 @@ void battery_monitor_init(void)
       .bEnabled = true,
       .bWindowCompare = false,
       .eChannel = AM_HAL_ADC_SLOT_CHSEL_TEMP,
-      .ePrecisionMode = AM_HAL_ADC_SLOT_10BIT,
+      .ePrecisionMode = AM_HAL_ADC_SLOT_12BIT,
       .ui32TrkCyc = 32,
       .eMeasToAvg = AM_HAL_ADC_SLOT_AVG_1
    };
@@ -108,6 +113,11 @@ void battery_monitor_init(void)
          am_hal_adc_configure_slot(adc_handle, slot, &temperature_slot_config);
       else
          am_hal_adc_configure_slot(adc_handle, slot, &unused_slot_config);
+
+   // Enable the TempCo power reduction optimization
+   tempco_available = (am_hal_pwrctrl_tempco_init(adc_handle, TEMPERATURE_ADC_SLOT) == AM_HAL_STATUS_SUCCESS);
+   if (!tempco_available)
+      print("WARNING: TempCo power optimization unavailable on this device\n");
 
    // Put the ADC into Deep Sleep mode
    configASSERT0(am_hal_adc_power_control(adc_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true));
@@ -159,6 +169,7 @@ battery_result_t battery_monitor_get_details(void)
 
    // Take several independent measurements and use the median
    uint32_t voltage_samples[BATTERY_NUM_SAMPLES] = { 0 }, temperature_samples[BATTERY_NUM_SAMPLES] = { 0 }, num_valid = 0;
+   temperature_samples_raw_count = 0;
    for (uint32_t i = 0; i < BATTERY_NUM_SAMPLES; ++i)
    {
       // Trigger an ADC measurement
@@ -213,9 +224,13 @@ battery_result_t battery_monitor_get_details(void)
    const uint32_t median_voltage_code = voltage_samples[num_valid / 2];
    const uint32_t median_temperature_code = temperature_samples[num_valid / 2];
 
+   // Hand the raw temperature samples to the TempCo trim handler
+   if (tempco_available && (temperature_samples_raw_count >= AM_HAL_TEMPCO_NUMSAMPLES))
+      am_hal_pwrctrl_tempco_sample_handler(temperature_samples_raw_count, temperature_samples_raw);
+
    // Calculate and return the battery voltage and temperature
    result.valid = true;
-   float temperature_codes[3] = { (float)median_temperature_code * AM_HAL_ADC_VREF / 1024.0f, 0.0f, -123.456f };
+   float temperature_codes[3] = { (float)median_temperature_code * AM_HAL_ADC_VREF / 4096.0f, 0.0f, -123.456f };
    result.millivolts = (uint32_t)(((uint64_t)median_voltage_code * AM_HAL_ADC_VREFMV * (VOLTAGE_DIVIDER_UPPER + VOLTAGE_DIVIDER_LOWER)) / (4096ull * VOLTAGE_DIVIDER_LOWER));
    if (am_hal_adc_control(adc_handle, AM_HAL_ADC_REQ_TEMP_CELSIUS_GET, temperature_codes) == AM_HAL_STATUS_SUCCESS)
       result.celcius = temperature_codes[1];

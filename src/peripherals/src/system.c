@@ -29,6 +29,10 @@ static const char *first_hal_failure_file;
 static uint32_t first_hal_failure_line, first_hal_failure_status;
 static bool watchdog_running, sram_active_in_deep_sleep;
 
+#if ENABLE_CACHE_MONITOR
+static uint64_t cache_total_accesses, cache_total_hits;
+#endif
+
 
 // Ambiq Interrupt Service Routines and MCU Functions ------------------------------------------------------------------
 
@@ -163,11 +167,10 @@ const char* system_get_first_hal_failure(uint32_t *line, uint32_t *status)
 
 static void system_initialize_unused_pins(void)
 {
-   // Initialize all unused pins as pulled up and disabled
+   // Initialize all unused pins as fully disabled
    const uint32_t unused_pins[] = UNUSED_PINS;
-   const am_hal_gpio_pincfg_t unused_pin_config = AM_HAL_GPIO_PINCFG_PULLEDUP_DISABLED;
    for (uint32_t i = 0; i < (sizeof(unused_pins) / sizeof(unused_pins[0])); ++i)
-      am_hal_gpio_pinconfig(unused_pins[i], unused_pin_config);
+      am_hal_gpio_pinconfig(unused_pins[i], am_hal_gpio_pincfg_disabled);
 }
 
 static void system_capture_boot_info(void)
@@ -269,6 +272,12 @@ void setup_hardware(void)
    configASSERT0(am_hal_cachectrl_config(&cache_config));
    configASSERT0(am_hal_cachectrl_enable());
 
+#if ENABLE_CACHE_MONITOR
+   // Turn on the cache hit/miss counters so the chosen cache size can be judged from measurement rather than argument
+   configASSERT0(am_hal_cachectrl_control(AM_HAL_CACHECTRL_CONTROL_MONITOR_ENABLE, NULL));
+   configASSERT0(am_hal_cachectrl_control(AM_HAL_CACHECTRL_CONTROL_STATISTICS_RESET, NULL));
+#endif
+
    // Initialize all unused GPIO pins to a known state
    system_initialize_unused_pins();
 
@@ -350,7 +359,7 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
    print("WARNING: Powering off. Will awake on: [ %s%s]...\n", wake_on_magnet ? "Magnet " : "", wake_on_timestamp ? "Timestamp " : "");
    storage_flush_log();
    system_disable_watchdog();
-   system_set_sram_active(false);
+   system_release_sram_retention();
    system_deinitialize_peripherals();
 
    // Power down the crypto module followed by all peripherals
@@ -469,4 +478,45 @@ void system_set_sram_active(bool active_during_deep_sleep)
       configASSERT0(am_hal_pwrctrl_sram_config(&sram_mem_config));
       sram_active_in_deep_sleep = active_during_deep_sleep;
    }
+}
+
+void system_release_sram_retention(void)
+{
+   // Stop retaining shared SRAM entirely for an intentional long sleep
+   am_hal_pwrctrl_sram_memcfg_t sram_mem_config;
+   am_hal_pwrctrl_sram_config_get(&sram_mem_config);
+   sram_mem_config.eActiveWithMCU = AM_HAL_PWRCTRL_SRAM_NONE;
+   sram_mem_config.eSRAMRetain = AM_HAL_PWRCTRL_SRAM_NONE;
+   configASSERT0(am_hal_pwrctrl_sram_config(&sram_mem_config));
+   sram_active_in_deep_sleep = false;
+}
+
+void system_accumulate_cache_stats(void)
+{
+#if ENABLE_CACHE_MONITOR
+   uint32_t accesses = 0, hits = 0;
+   AM_CRITICAL_BEGIN
+   accesses = CPU->IMON0;
+   hits = CPU->IMON2;
+   CPU->CACHECTRL = CPU_CACHECTRL_RESETSTAT_Msk;
+   am_hal_sysctrl_sysbus_write_flush();
+   AM_CRITICAL_END
+   cache_total_accesses += accesses;
+   cache_total_hits += hits;
+#endif
+}
+
+bool system_get_cache_stats(uint64_t *accesses, uint64_t *hits, float *hit_rate_percent)
+{
+#if ENABLE_CACHE_MONITOR
+   system_accumulate_cache_stats();
+   *accesses = cache_total_accesses;
+   *hits = cache_total_hits;
+   *hit_rate_percent = cache_total_accesses ? ((100.0f * (float)cache_total_hits) / (float)cache_total_accesses) : 0.0f;
+   return true;
+#else
+   *accesses = *hits = 0;
+   *hit_rate_percent = 0.0f;
+   return false;
+#endif
 }

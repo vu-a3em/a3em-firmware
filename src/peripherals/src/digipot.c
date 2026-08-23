@@ -14,6 +14,18 @@ static uint32_t i2c_scratch;
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
+static void digipot_iom_wake(void)
+{
+   if (i2c_handle)
+      configASSERT0(am_hal_iom_power_ctrl(i2c_handle, AM_HAL_SYSCTRL_WAKE, true));
+}
+
+static void digipot_iom_sleep(void)
+{
+   if (i2c_handle)
+      configASSERT0(am_hal_iom_power_ctrl(i2c_handle, AM_HAL_SYSCTRL_DEEPSLEEP, true));
+}
+
 static int32_t i2c_read(void *handle, uint8_t reg_number, uint8_t *read_buffer)
 {
    i2c_scratch = 0;
@@ -86,6 +98,9 @@ void digipot_init(void)
    // Ensure that the chip is not in shutdown mode
    const uint8_t active_mode = 0x40;
    i2c_write(i2c_handle, REG_ADDRESS_ACR, &active_mode);
+
+   // Leave the interface powered down until a threshold actually needs writing
+   digipot_iom_sleep();
 }
 
 void digipot_deinit(void)
@@ -94,6 +109,7 @@ void digipot_deinit(void)
    if (i2c_handle)
    {
       // Put the chip into shutdown mode
+      digipot_iom_wake();
       const uint8_t shutdown_mode = 0x0;
       i2c_write(i2c_handle, REG_ADDRESS_ACR, &shutdown_mode);
 
@@ -115,7 +131,9 @@ float digipot_get_percent_output(void)
 {
    // Read the current output percent from the wiper register
    uint8_t wiper_value = 0;
+   digipot_iom_wake();
    i2c_read(i2c_handle, REG_ADDRESS_WR, &wiper_value);
+   digipot_iom_sleep();
    return (float)wiper_value / 255.0f;
 }
 
@@ -123,5 +141,7 @@ void digipot_set_percent_output(float percent)
 {
    // Write the desired output percent into the wiper register
    uint8_t wiper_value = (uint8_t)(255 * percent);
+   digipot_iom_wake();
    i2c_write(i2c_handle, REG_ADDRESS_WR, &wiper_value);
+   digipot_iom_sleep();
 }

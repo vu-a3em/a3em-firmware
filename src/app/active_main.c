@@ -18,7 +18,8 @@
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
 static volatile uint32_t num_clips_stored, audio_samples_per_dma;
-static volatile bool *device_active, phase_ended, audio_timer_triggered, in_motion, new_imu_stream, validation_time;
+static volatile bool *device_active, phase_ended, audio_timer_triggered;
+static volatile bool in_motion, new_imu_stream, validation_time, motion_change_pending;
 static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds, imu_sampling_rate_hz, activation_number;
 static uint32_t end_of_phase_reason = RESET_REASON_PHASE_COMPLETE;
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
@@ -106,21 +107,32 @@ static void validate_device_settings(uint32_t current_timestamp)
          "   Location: [%0.6f, %0.6f, %0.2f]\n"
          "   LEDs Active: %s\n"
          "   VHF Active: %s\n"
-         "   Audio Buffers: %u captured, %u dropped, %u recovered (DCMP %s)\n"
-         "   Storage: %u write failures, %u reopens, %u remounts, %u IMU buffers dropped\n"
-         "   IMU FIFO overruns: %u\n"
-         "   HAL failures: %u\n",
+         "   Audio Buffers: %u captured (DCMP %s)\n",
          current_timestamp, battery_details.millivolts, battery_details.celcius,
          last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False",
-         audio_stats.buffers_captured, audio_stats.buffers_dropped, audio_stats.missed_completions,
-         audio_stats.dcmp_trusted ? "trusted" : "unproven",
-         storage_health.write_failures, storage_health.reopen_recoveries, storage_health.remount_recoveries,
-         storage_health.imu_buffers_dropped, imu_get_fifo_overrun_count(), system_get_hal_failure_count());
-   if (system_get_hal_failure_count())
+         audio_stats.buffers_captured, audio_stats.dcmp_trusted ? "trusted" : "unproven");
+
+   // Report the instruction cache hit rate, which is what decides the cache sizing question
+   uint64_t cache_accesses = 0, cache_hits = 0;
+   float cache_hit_rate = 0.0f;
+   if (system_get_cache_stats(&cache_accesses, &cache_hits, &cache_hit_rate))
+      print("   I-Cache: %0.2f%% hit rate over %llu accesses\n", cache_hit_rate, cache_accesses);
+
+   // Only report the health counters when something has actually gone wrong
+   const uint32_t imu_overruns = imu_get_fifo_overrun_count(), hal_failures = system_get_hal_failure_count();
+   if (audio_stats.buffers_dropped || audio_stats.missed_completions || storage_health.write_failures || storage_health.imu_buffers_dropped || imu_overruns || hal_failures)
    {
-      uint32_t line = 0, status = 0;
-      const char *file = system_get_first_hal_failure(&line, &status);
-      print("   First HAL failure: %s:%u status %u\n", file ? file : "unknown", line, status);
+      print("   DEGRADED: %u audio buffers dropped, %u DMA completions recovered\n"
+            "   DEGRADED: %u write failures, %u reopens, %u remounts, %u IMU buffers dropped, %u IMU FIFO overruns\n",
+            audio_stats.buffers_dropped, audio_stats.missed_completions,
+            storage_health.write_failures, storage_health.reopen_recoveries,
+            storage_health.remount_recoveries, storage_health.imu_buffers_dropped, imu_overruns);
+      if (hal_failures)
+      {
+         uint32_t line = 0, status = 0;
+         const char *file = system_get_first_hal_failure(&line, &status);
+         print("   DEGRADED: %u HAL failures, first at %s:%u status %u\n", hal_failures, file ? file : "unknown", line, status);
+      }
    }
    storage_flush_log();
 
@@ -145,6 +157,9 @@ static void service_background_work(void)
    system_feed_watchdog();
    magnet_sensor_handle_pending_validation();
 
+   // Fold the cache counters into their 64-bit totals before the 32-bit hardware ones can wrap
+   system_accumulate_cache_stats();
+
    // Apply a GPS update from the main loop rather than from the tracker interrupt
    tracker_gps_data_t gps;
    if (tracker_get_pending_gps_data(&gps))
@@ -157,6 +172,16 @@ static void service_background_work(void)
          mram_set_last_known_timestamp(gps.utc_timestamp);
          rtc_set_time_from_timestamp(gps.utc_timestamp);
       }
+   }
+
+   // Apply a pending motion-state change recorded by the IMU interrupt
+   if (motion_change_pending)
+   {
+      motion_change_pending = false;
+      const bool subscribe = in_motion;
+      if (subscribe)
+         new_imu_stream = true;
+      imu_enable_raw_data_output(subscribe, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
    }
 
    // Treat a passed validation deadline as equivalent to the RTC interrupt firing
@@ -182,14 +207,10 @@ void am_rtc_isr(void)
 
 void imu_motion_change_callback(bool new_in_motion)
 {
-   // Only handle callback firing if this is actually a change in motion
    if (new_in_motion != in_motion)
    {
-      // Subscribe or unsubscribe from IMU data based on the current motion status
       in_motion = new_in_motion;
-      if (in_motion)
-         new_imu_stream = true;
-      imu_enable_raw_data_output(in_motion, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+      motion_change_pending = true;
    }
 }
 
@@ -354,8 +375,9 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          {
             while (!audio_timer_triggered && !phase_ended && !validation_time && *device_active)
             {
-               system_feed_watchdog();
-               system_enter_deep_sleep_mode();
+               service_background_work();
+               if (!audio_timer_triggered && !phase_ended && !validation_time && *device_active)
+                  system_enter_deep_sleep_mode();
             }
             continue;
          }
@@ -371,8 +393,9 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
                am_hal_timer_clear(TIMER_NUMBER_AUDIO_PROCESSING);
                while (!audio_timer_triggered && !phase_ended && !validation_time && *device_active)
                {
-                  system_feed_watchdog();
-                  system_enter_deep_sleep_mode();
+                  service_background_work();
+                  if (!audio_timer_triggered && !phase_ended && !validation_time && *device_active)
+                     system_enter_deep_sleep_mode();
                }
                continue;
             }
@@ -601,7 +624,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       tracker_register_data_callback(tracker_data_available);
 
    // Enable IMU detection and recording functionality
-   in_motion = new_imu_stream = record_imu_with_audio = false;
+   in_motion = new_imu_stream = record_imu_with_audio = motion_change_pending = false;
    imu_degrees_of_freedom = config_get_imu_degrees_of_freedom(phase_index);
    imu_sampling_rate_hz = config_get_imu_sampling_rate_hz(phase_index);
    switch (config_get_imu_recording_mode(phase_index))
