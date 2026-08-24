@@ -35,6 +35,7 @@ void storage_close(void);
 
 // Audio and IMU capture file functionality
 bool storage_open_audio_file(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time, bool use_ogg);
+bool storage_open_named_wav_file(const char *file_path, uint32_t num_channels, uint32_t sample_rate_hz);
 bool storage_open_imu_file(uint32_t activation_number, const char *device_label, uint32_t current_time, uint32_t sample_rate_hz);
 bool storage_write_audio(const void *data, uint32_t data_len, bool is_last_packet);
 void storage_write_imu_data(float accel_x_mg, float accel_y_mg, float accel_z_mg);
@@ -45,6 +46,7 @@ void storage_close_imu(void);
 // Storage recovery functionality
 bool storage_recover_audio(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time);
 void storage_get_health(storage_health_t *health);
+uint32_t storage_get_free_space_mb(void);
 
 // Deployment log file functionality
 void storage_setup_logs(void);

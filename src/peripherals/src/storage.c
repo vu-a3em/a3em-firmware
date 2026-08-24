@@ -49,6 +49,9 @@ static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx;
 // caller having to carry them around for the length of a deployment
 static char dev_fw_version[32], dev_hw_revision[8], dev_build_datetime[40], dev_uid[24];
 static bool dev_info_captured;
+
+// Defined below, next to the other WAV writing
+static bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz);
 static uint8_t work_buf[FF_MAX_SS];
 static volatile bool async_write_complete, async_read_complete, card_present;
 static volatile uint8_t *imu_data_awaiting_storage;
@@ -620,35 +623,7 @@ static bool storage_open_wav_file(uint32_t activation_number, const char *device
    snprintf(file_name, sizeof(file_name), "%s/%s.wav", audio_directory, time_string);
    audio_file_open = (f_open(&audio_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
 
-   // Write the WAV header segment
-   if (audio_file_open)
-   {
-      uint32_t field = 36;
-      const uint32_t bytes_per_sample = 2;
-      bool success = storage_write_audio_raw("RIFF", 4);
-      success = success && storage_write_audio_raw(&field, 4);
-      success = success && storage_write_audio_raw("WAVE", 4);
-      success = success && storage_write_audio_raw("fmt ", 4);
-      field = 16;
-      success = success && storage_write_audio_raw(&field, 4);
-      field = 1;
-      success = success && storage_write_audio_raw(&field, 2);
-      success = success && storage_write_audio_raw(&num_channels, 2);
-      success = success && storage_write_audio_raw(&sample_rate_hz, 4);
-      field = sample_rate_hz * num_channels * bytes_per_sample;
-      success = success && storage_write_audio_raw(&field, 4);
-      field = num_channels * bytes_per_sample;
-      success = success && storage_write_audio_raw(&field, 2);
-      field = 8 * bytes_per_sample;
-      success = success && storage_write_audio_raw(&field, 2);
-      success = success && storage_write_audio_raw("data", 4);
-      field = 0;
-      success = success && storage_write_audio_raw(&field, 4);
-      data_size = 0;
-      if (!success)
-         storage_close_audio();
-   }
-   return audio_file_open;
+   return storage_write_wav_header(num_channels, sample_rate_hz);
 }
 
 static bool storage_open_ogg_opus_file(uint32_t activation_number, const char *device_label, uint32_t current_time)
@@ -827,6 +802,32 @@ static uint8_t boot_record_checksum(const char *record, uint32_t len)
    return (uint8_t)(sum & 0xFF);
 }
 
+bool storage_open_named_wav_file(const char *file_path, uint32_t num_channels, uint32_t sample_rate_hz)
+{
+   // Open a WAV at an explicit path rather than in the timestamped deployment tree.
+   // Used for the self-test clip, which belongs at the card root where it can be found
+   // and listened to without hunting through directories.
+   if (audio_file_open)
+      storage_close_audio();
+   using_ogg = false;
+   data_size = wav_staging_used = 0;
+   audio_file_open = (f_open(&audio_file, file_path, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+   return storage_write_wav_header(num_channels, sample_rate_hz);
+}
+
+uint32_t storage_get_free_space_mb(void)
+{
+   // Remaining space on the card, in megabytes. Logging this periodically turns "the
+   // card filled on 12 May" into a statement of fact rather than an inference from file
+   // sizes, and it is the best available calibration signal for the storage forecast.
+   FATFS *fs = NULL;
+   DWORD free_clusters = 0;
+   if (!card_present || (f_getfree("", &free_clusters, &fs) != FR_OK) || !fs)
+      return 0;
+   const uint64_t free_sectors = (uint64_t)free_clusters * fs->csize;
+   return (uint32_t)((free_sectors * FF_MAX_SS) / (1024u * 1024u));
+}
+
 bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime,
                                const char *device_uid, uint32_t activation_number, uint32_t timestamp,
                                uint32_t battery_mv, const char *last_deactivation_reason)
@@ -954,6 +955,41 @@ bool storage_open(const char *file_path, bool writeable)
    // Open the requested file
    file_open = (f_open(&current_file, file_path, writeable ? (FA_CREATE_ALWAYS | FA_WRITE) : FA_READ) == FR_OK);
    return file_open;
+}
+
+static bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz)
+{
+   // Both size fields are placeholders until storage_close_wav_audio() patches them, so
+   // a clip interrupted before it closes keeps zeros here with its audio intact behind
+   // them. Readers use that as the signature of a recording worth recovering.
+   if (audio_file_open)
+   {
+      uint32_t field = 36;
+      const uint32_t bytes_per_sample = 2;
+      bool success = storage_write_audio_raw("RIFF", 4);
+      success = success && storage_write_audio_raw(&field, 4);
+      success = success && storage_write_audio_raw("WAVE", 4);
+      success = success && storage_write_audio_raw("fmt ", 4);
+      field = 16;
+      success = success && storage_write_audio_raw(&field, 4);
+      field = 1;
+      success = success && storage_write_audio_raw(&field, 2);
+      success = success && storage_write_audio_raw(&num_channels, 2);
+      success = success && storage_write_audio_raw(&sample_rate_hz, 4);
+      field = sample_rate_hz * num_channels * bytes_per_sample;
+      success = success && storage_write_audio_raw(&field, 4);
+      field = num_channels * bytes_per_sample;
+      success = success && storage_write_audio_raw(&field, 2);
+      field = 8 * bytes_per_sample;
+      success = success && storage_write_audio_raw(&field, 2);
+      success = success && storage_write_audio_raw("data", 4);
+      field = 0;
+      success = success && storage_write_audio_raw(&field, 4);
+      data_size = 0;
+      if (!success)
+         storage_close_audio();
+   }
+   return audio_file_open;
 }
 
 bool storage_open_audio_file(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time, bool use_ogg)
