@@ -338,7 +338,10 @@ bool fetch_runtime_configuration(void)
       deployment_phases[i].silence_threshold = 0.0;
       deployment_phases[i].imu_recording_mode = AUDIO;
       deployment_phases[i].imu_sampling_rate = IMU_DEFAULT_SAMPLING_RATE_HZ;
-      deployment_phases[i].imu_trigger_threshold = 0.25;
+      // Zero selects the sensor's historical fixed sensitivity. The value is now in
+      // absolute milli-g, so the old 0.25 -- which meant a quarter of full scale --
+      // would mean a quarter of a milli-g here, below even one step of resolution.
+      deployment_phases[i].imu_trigger_threshold = 0.0;
       deployment_phases[i].max_audio_clips = 0;
       deployment_phases[i].max_clips_time_scale = HOURS;
       deployment_phases[i].num_audio_trigger_times = 0;

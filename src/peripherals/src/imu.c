@@ -824,7 +824,7 @@ void imu_deinit(void)
       if (data_ready_callback)
          imu_enable_raw_data_output(false, 0, 0, 0, NULL);
       if (motion_change_callback)
-         imu_enable_motion_change_detection(false, NULL);
+         imu_enable_motion_change_detection(false, 0.0f, NULL);
    }
 
    // Disable all IMU-based interrupts
@@ -923,7 +923,7 @@ void imu_enable_raw_data_output(bool enable, lis2du12_fs_t measurement_range, ui
    imu_iom_sleep();
 }
 
-void imu_enable_motion_change_detection(bool enable, motion_change_callback_t callback)
+void imu_enable_motion_change_detection(bool enable, float threshold_mg, motion_change_callback_t callback)
 {
    // Enable or disable to output of motion change notifications
    imu_iom_wake();
@@ -931,9 +931,24 @@ void imu_enable_motion_change_detection(bool enable, motion_change_callback_t ca
    {
       // Set the criteria for motion detection:
       //   [80.0 ms (0x01 * 1 / ODR_XL), 9.85 s (MAX(16, 0x01 * 16) / ODR_XL)]
+      //
+      // The threshold arrives in absolute milli-g and is converted to the 8-bit range
+      // that lis2du12_wake_up_mode_set() expects, which it then splits between the
+      // 6-bit WAKE_UP_THS field and the WAKE_THS_W weight selector. Clamped to at least
+      // one step, since a threshold of zero would fire continuously.
       lis2du12_wkup_md_t motion_mode;
       motion_mode.duration = 0x01;
-      motion_mode.threshold = 0x02;
+      if (threshold_mg > 0.0f)
+      {
+         int32_t steps = (int32_t)((threshold_mg / IMU_MOTION_THRESHOLD_STEP_MG) + 0.5f);
+         if (steps < 1)
+            steps = 1;
+         else if (steps > IMU_MOTION_THRESHOLD_STEPS)
+            steps = IMU_MOTION_THRESHOLD_STEPS;
+         motion_mode.threshold = (uint8_t)steps;
+      }
+      else
+         motion_mode.threshold = 0x02;   // preserve the historical default
       motion_mode.x_en = motion_mode.y_en = motion_mode.z_en = 1;
       motion_mode.sleep.en = 1;
       motion_mode.sleep.odr = LIS2DU12_SLEEP_AT_1Hz6;

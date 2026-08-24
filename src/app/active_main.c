@@ -644,8 +644,8 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    switch (config_get_imu_recording_mode(phase_index))
    {
       case ACTIVITY:
-         // TODO: Use this: float motion_trigger_threshold = config_get_imu_trigger_threshold_level(phase_index);
-         imu_enable_motion_change_detection(true, imu_motion_change_callback);
+         imu_enable_motion_change_detection(true, config_get_imu_trigger_threshold_level(phase_index),
+                                            imu_motion_change_callback);
          break;
       case AUDIO:
          record_imu_with_audio = true;
