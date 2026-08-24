@@ -45,12 +45,7 @@ static uint32_t seconds_until_next_scheduled_recording(uint32_t num_schedules, s
 
 static void report_microphone_health(void)
 {
-   // Report the state of the microphone signal path for the window just recorded.
-   //
-   // Emitted once per audio directory, which gives a temporal view across the whole
-   // deployment rather than a single verdict at startup -- so a microphone that dies in
-   // week three is visible, and roughly datable, from the log alone. Covers analog and
-   // digital identically, since the statistics come from the shared read path.
+   // Report the state of the microphone signal path for the window just recorded
    if (!audio_health_available())
       return;
 
@@ -214,10 +209,7 @@ static void service_background_work(void)
       last_lon = gps.lon;
       if (gps.utc_timestamp)
       {
-         // Record the correction before applying it. Everything recorded up to this
-         // instant carries the old clock error; everything after is true UTC. Without
-         // this the dashboard cannot tell which recordings need correcting and which
-         // are already right, and has to assume a single offset for the whole card.
+         // Record the correction before applying it; everything after is true UTC
          const uint32_t before_sync = rtc_get_timestamp();
          mram_set_last_known_timestamp(gps.utc_timestamp);
          rtc_set_time_from_timestamp(gps.utc_timestamp);

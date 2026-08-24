@@ -1,6 +1,5 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
-#include <stdio.h>
 #include "datetime.h"
 #include "diskio.h"
 #include "imu.h"
@@ -43,25 +42,17 @@ static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
 static FIL current_file, log_file, imu_file, audio_file;
 static char time_string[DATETIME_STAMP_LEN], audio_directory[MAX_DEVICE_LABEL_LEN + 40];
-static char dev_fw_version[32], dev_hw_revision[8], dev_build_datetime[40], dev_uid[24];
-static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open, dev_info_captured;
-static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx;
-
-// Defined below, next to the other WAV writing
-static bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz);
-static uint8_t work_buf[FF_MAX_SS];
+static char dev_fw_version[32], dev_hw_revision[8], dev_build_datetime[40], dev_uid[24], early_log[EARLY_LOG_MAX_BYTES];
+static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open, dev_info_captured, early_log_overflowed;
+static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx, early_log_used;
 static volatile bool async_write_complete, async_read_complete, card_present;
 static volatile uint8_t *imu_data_awaiting_storage;
 static volatile uint32_t imu_storage_index;
 static volatile DSTATUS sd_disk_status;
-static storage_health_t health;
-static ogg_writer_t ogg_writer;
+static uint8_t work_buf[FF_MAX_SS];
 static ogg_data_packet_t ogg_packet;
-
-// Holds log output produced before the first timestamped directory exists
-static char early_log[EARLY_LOG_MAX_BYTES];
-static uint32_t early_log_used;
-static bool early_log_overflowed;
+static ogg_writer_t ogg_writer;
+static storage_health_t health;
 
 // The Opus staging buffer and the IMU double buffer live in the shared SRAM group
 __attribute__((section(".shared"), aligned(32)))
@@ -75,8 +66,6 @@ static float (*imu_storage_buffer)[3];
 
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
-
-// Mutex functions are only used if FF_FS_REENTRANT == 1 in ffconf.h
 
 static volatile uint32_t ff_mutexes[2] = { 0 };
 
@@ -595,6 +584,39 @@ static void storage_close_ogg_opus_audio(void)
    }
 }
 
+static bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz)
+{
+   // Both size fields are placeholders until storage_close_wav_audio() patches them
+   if (audio_file_open)
+   {
+      uint32_t field = 36;
+      const uint32_t bytes_per_sample = 2;
+      bool success = storage_write_audio_raw("RIFF", 4);
+      success = success && storage_write_audio_raw(&field, 4);
+      success = success && storage_write_audio_raw("WAVE", 4);
+      success = success && storage_write_audio_raw("fmt ", 4);
+      field = 16;
+      success = success && storage_write_audio_raw(&field, 4);
+      field = 1;
+      success = success && storage_write_audio_raw(&field, 2);
+      success = success && storage_write_audio_raw(&num_channels, 2);
+      success = success && storage_write_audio_raw(&sample_rate_hz, 4);
+      field = sample_rate_hz * num_channels * bytes_per_sample;
+      success = success && storage_write_audio_raw(&field, 4);
+      field = num_channels * bytes_per_sample;
+      success = success && storage_write_audio_raw(&field, 2);
+      field = 8 * bytes_per_sample;
+      success = success && storage_write_audio_raw(&field, 2);
+      success = success && storage_write_audio_raw("data", 4);
+      field = 0;
+      success = success && storage_write_audio_raw(&field, 4);
+      data_size = 0;
+      if (!success)
+         storage_close_audio();
+   }
+   return audio_file_open;
+}
+
 static bool storage_open_wav_file(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time)
 {
    // Close an already-opened audio file
@@ -792,9 +814,7 @@ static uint8_t boot_record_checksum(const char *record, uint32_t len)
 
 bool storage_open_named_wav_file(const char *file_path, uint32_t num_channels, uint32_t sample_rate_hz)
 {
-   // Open a WAV at an explicit path rather than in the timestamped deployment tree.
-   // Used for the self-test clip, which belongs at the card root where it can be found
-   // and listened to without hunting through directories.
+   // Open a WAV at an explicit path rather than in the timestamped deployment tree
    if (audio_file_open)
       storage_close_audio();
    using_ogg = false;
@@ -805,9 +825,7 @@ bool storage_open_named_wav_file(const char *file_path, uint32_t num_channels, u
 
 uint32_t storage_get_free_space_mb(void)
 {
-   // Remaining space on the card, in megabytes. Logging this periodically turns "the
-   // card filled on 12 May" into a statement of fact rather than an inference from file
-   // sizes, and it is the best available calibration signal for the storage forecast.
+   // Remaining space on the card in megabytes
    FATFS *fs = NULL;
    DWORD free_clusters = 0;
    if (!card_present || (f_getfree("", &free_clusters, &fs) != FR_OK) || !fs)
@@ -863,7 +881,7 @@ void storage_write_boot_record(const char *reason, uint32_t epoch, uint32_t rese
    if (!card_present)
       return;
 
-   // Assemble the record. It is exactly BOOT_LOG_RECORD_LEN bytes including a trailing newline.
+   // Assemble the record of exactly BOOT_LOG_RECORD_LEN bytes including a trailing newline
    char record[BOOT_LOG_RECORD_LEN + 1];
    const uint32_t sequence = (epoch * 1000u) + reset_count;
    datetime_t when;
@@ -884,7 +902,7 @@ void storage_write_boot_record(const char *reason, uint32_t epoch, uint32_t rese
 
    // Open the file, pre-allocating it to its full size on first creation so that writing a record
    // never has to allocate a cluster and update the FAT, which is the part most exposed to a
-   // power loss part way through.
+   // power loss part way through
    FIL boot_file;
    if (f_open(&boot_file, BOOT_LOG_FILE_NAME, FA_OPEN_ALWAYS | FA_WRITE) != FR_OK)
       return;
@@ -933,41 +951,6 @@ bool storage_open(const char *file_path, bool writeable)
    // Open the requested file
    file_open = (f_open(&current_file, file_path, writeable ? (FA_CREATE_ALWAYS | FA_WRITE) : FA_READ) == FR_OK);
    return file_open;
-}
-
-static bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz)
-{
-   // Both size fields are placeholders until storage_close_wav_audio() patches them, so
-   // a clip interrupted before it closes keeps zeros here with its audio intact behind
-   // them. Readers use that as the signature of a recording worth recovering.
-   if (audio_file_open)
-   {
-      uint32_t field = 36;
-      const uint32_t bytes_per_sample = 2;
-      bool success = storage_write_audio_raw("RIFF", 4);
-      success = success && storage_write_audio_raw(&field, 4);
-      success = success && storage_write_audio_raw("WAVE", 4);
-      success = success && storage_write_audio_raw("fmt ", 4);
-      field = 16;
-      success = success && storage_write_audio_raw(&field, 4);
-      field = 1;
-      success = success && storage_write_audio_raw(&field, 2);
-      success = success && storage_write_audio_raw(&num_channels, 2);
-      success = success && storage_write_audio_raw(&sample_rate_hz, 4);
-      field = sample_rate_hz * num_channels * bytes_per_sample;
-      success = success && storage_write_audio_raw(&field, 4);
-      field = num_channels * bytes_per_sample;
-      success = success && storage_write_audio_raw(&field, 2);
-      field = 8 * bytes_per_sample;
-      success = success && storage_write_audio_raw(&field, 2);
-      success = success && storage_write_audio_raw("data", 4);
-      field = 0;
-      success = success && storage_write_audio_raw(&field, 4);
-      data_size = 0;
-      if (!success)
-         storage_close_audio();
-   }
-   return audio_file_open;
 }
 
 bool storage_open_audio_file(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time, bool use_ogg)
@@ -1167,11 +1150,8 @@ void storage_write_imu_data(float accel_x_mg, float accel_y_mg, float accel_z_mg
    if (++imu_storage_index == IMU_BUFFER_MAX_SAMPLES)
    {
       imu_storage_index = 0;
-      if (imu_data_awaiting_storage)
-      {
-         // The main loop has not yet written the previous buffer
+      if (imu_data_awaiting_storage)  // The main loop has not yet written the previous buffer
          ++health.imu_buffers_dropped;
-      }
       else
       {
          imu_data_awaiting_storage = (uint8_t*)imu_storage_buffer;

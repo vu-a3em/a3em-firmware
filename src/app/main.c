@@ -5,7 +5,6 @@
 #include "magnet.h"
 #include "mram.h"
 #include "rtc.h"
-#include "self_test.h"
 #include "storage.h"
 #include "system.h"
 #include "tracker.h"
@@ -355,10 +354,8 @@ int main(void)
       log_event("ACTIVATED", "activation=%u", config_get_activation_number() + 1);
       config_increase_activation_number();
 
-      // Verify the hardware before the deployment begins. This runs exactly once per
-      // activation -- the device resets afterwards and re-enters through the activated
-      // path, so placing it here avoids repeating on every magnet wake.
-      run_self_test();
+      // Verify the hardware before the deployment begins exactly once per activation
+      system_run_self_test();
       if (config_set_rtc_at_magnet_detect())
       {
          print("INFO: Setting RTC to the deployment start time: %u\n", config_get_deployment_start_time());

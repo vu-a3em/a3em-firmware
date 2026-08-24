@@ -19,6 +19,14 @@ typedef struct
    bool was_power_on;
 } system_boot_info_t;
 
+typedef enum {
+   SELF_TEST_PASS = 0,
+   SELF_TEST_FAIL_MICROPHONE = 1,
+   SELF_TEST_FAIL_STORAGE = 2,
+   SELF_TEST_FAIL_IMU = 3,
+   SELF_TEST_FAIL_POWER_OR_CLOCK = 4
+} self_test_result_t;
+
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
@@ -41,6 +49,7 @@ void system_reset(void);
 void system_reset_with_reason(uint32_t reason);
 
 // Boot diagnostics functionality
+self_test_result_t system_run_self_test(void);
 const system_boot_info_t* system_get_boot_info(void);
 const char* reset_reason_name(uint32_t reason);
 uint32_t system_get_hal_failure_count(void);

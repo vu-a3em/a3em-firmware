@@ -16,6 +16,7 @@
 // Common Header Inclusions --------------------------------------------------------------------------------------------
 
 #ifndef __cplusplus
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "am_bsp.h"
@@ -109,10 +110,6 @@ _Static_assert(BOOT_LOG_RESERVED_RECORDS < BOOT_LOG_NUM_RECORDS, "BOOT_LOG_RESER
 #define MAX(a, b)                                   (((a) < (b)) ? (b) : (a))
 #endif
 
-// Records a HAL call that returned an unexpected status. Deliberately non-fatal: a failed pin
-// configuration should be visible in the logs, not a reason to brick a deployed device. The first
-// failure and a running count are surfaced through system_get_hal_failure_count() and logged with
-// the periodic device details.
 extern void system_note_hal_failure(const char *file, uint32_t line, uint32_t status);
 
 #ifdef AM_DEBUG_PRINTF
@@ -130,25 +127,18 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 // Self-Test Definitions -----------------------------------------------------------------------------------------------
 
-// Run once per magnetic activation, before any deployment recording begins. Verifies
-// the failures that are invisible once a unit is sealed and in the field.
+// Run once per magnetic activation, before any deployment recording begins
 #define SELF_TEST_RESULTS_FILE_NAME                 "_a3em.test.results"
 #define SELF_TEST_CLIP_FILE_NAME                    "_a3em.test.wav"
 #define SELF_TEST_STORAGE_FILE_NAME                 "_a3em.test.tmp"
 
-// Length of the microphone window. Long enough to tap the enclosure several times and
-// watch the LED respond, short enough not to delay every activation noticeably.
+// Length of the microphone window, long enough to tap the enclosure several times and watch the LED respond
 #define SELF_TEST_AUDIO_SECONDS                     20
 #define SELF_TEST_AUDIO_SAMPLE_RATE_HZ              16000
-
-// Peak sample above which the green LED lights during the live level monitor. Set well
-// clear of the noise floor so an untouched unit sits dark and a tap is unmistakable.
 #define SELF_TEST_LIVE_LEVEL_THRESHOLD              600
 
-// Round-tripped through the filesystem to prove the card is seated and writable.
 #define SELF_TEST_STORAGE_BYTES                     4096
 
-// A stationary device reads one g in some direction whatever its orientation.
 #define SELF_TEST_IMU_MIN_MG                        700.0f
 #define SELF_TEST_IMU_MAX_MG                        1300.0f
 
@@ -184,18 +174,10 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 // Nominal DC bias of a healthy analog microphone path, in raw AUDADC counts. A working
 // path settles near mid-scale; a disconnected or shorted microphone sits at a rail.
-//
-// PROVISIONAL: chosen so that the one reference deployment available (which measured
-// 32320) passes comfortably. Narrow this once several known-good units have been
-// measured -- a tolerance this wide will pass some genuinely marginal paths.
 #define MIC_DC_OFFSET_NOMINAL                           32768
 #define MIC_DC_OFFSET_TOLERANCE                         4000
 
-// Microphone health thresholds. The silence floor is in int16 LSBs: a real microphone in
-// a genuinely quiet place still shows a few, so anything at or below this is a path that
-// is not producing signal rather than a quiet night.
 #define AUDIO_HEALTH_SILENCE_FLOOR                      4
-// Every sample participates in min/max; only the sum and sum-of-squares are subsampled.
 #define AUDIO_HEALTH_RMS_STRIDE                         1
 
 #define AUDIO_NUM_CHANNELS                              1
