@@ -209,8 +209,15 @@ static void service_background_work(void)
       last_lon = gps.lon;
       if (gps.utc_timestamp)
       {
+         // Record the correction before applying it. Everything recorded up to this
+         // instant carries the old clock error; everything after is true UTC. Without
+         // this the dashboard cannot tell which recordings need correcting and which
+         // are already right, and has to assume a single offset for the whole card.
+         const uint32_t before_sync = rtc_get_timestamp();
          mram_set_last_known_timestamp(gps.utc_timestamp);
          rtc_set_time_from_timestamp(gps.utc_timestamp);
+         if (before_sync != gps.utc_timestamp)
+            log_event("CLOCK_SYNC", "source=GPS,before=%u,after=%u", before_sync, gps.utc_timestamp);
       }
    }
 

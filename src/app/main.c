@@ -194,9 +194,12 @@ int main(void)
             uint32_t utc_time = tracker_get_current_time();
             if (utc_time)
             {
+               const uint32_t before_sync = rtc_get_timestamp();
                print("INFO: GPS time obtained: %u\n", utc_time);
                mram_set_last_known_timestamp(utc_time);
                rtc_set_time_from_timestamp(utc_time);
+               if (before_sync != utc_time)
+                  log_event("CLOCK_SYNC", "source=GPS,before=%u,after=%u", before_sync, utc_time);
             }
             else
             {
