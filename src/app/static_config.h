@@ -152,6 +152,13 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 // Audio Sampling Definitions ------------------------------------------------------------------------------------------
 
+// Microphone health thresholds. The silence floor is in int16 LSBs: a real microphone in
+// a genuinely quiet place still shows a few, so anything at or below this is a path that
+// is not producing signal rather than a quiet night.
+#define AUDIO_HEALTH_SILENCE_FLOOR                      4
+// Every sample participates in min/max; only the sum and sum-of-squares are subsampled.
+#define AUDIO_HEALTH_RMS_STRIDE                         1
+
 #define AUDIO_NUM_CHANNELS                              1
 #define AUDIO_MIC_BIAS_VOLTAGE                          0.0f
 #define AUDIO_DEFAULT_SAMPLING_RATE_HZ                  16000

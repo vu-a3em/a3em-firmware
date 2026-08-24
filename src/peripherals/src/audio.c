@@ -745,6 +745,100 @@ bool audio_error_encountered(void)
    return dma_error;
 }
 
+// Microphone Health Monitoring ----------------------------------------------------------------------------------------
+
+static int16_t health_min_sample, health_max_sample;
+static int64_t health_sum, health_sum_squares;
+static uint32_t health_num_samples, health_num_rms_samples, health_stride_phase;
+
+static void audio_health_accumulate(const int16_t *samples, uint32_t num_samples)
+{
+   // Accumulate over every sample the device reads. Deliberately placed on the single
+   // path both microphone types share, so digital and analog are covered identically
+   // and nothing can bypass it.
+   //
+   // Cost is a handful of integer operations per sample -- a few hundred microseconds
+   // per DMA buffer, against a buffer that represents seconds of audio.
+   if (!health_num_samples)
+   {
+      health_min_sample = INT16_MAX;
+      health_max_sample = INT16_MIN;
+   }
+   // Every sample participates in min/max, and therefore in constant-output detection.
+   // These are two comparisons each and must not be subsampled: peaks are rare by
+   // definition, and a flat subset would misreport a working microphone as dead.
+   for (uint32_t i = 0; i < num_samples; ++i)
+   {
+      const int16_t sample = samples[i];
+      if (sample < health_min_sample)
+         health_min_sample = sample;
+      if (sample > health_max_sample)
+         health_max_sample = sample;
+   }
+   health_num_samples += num_samples;
+
+   // The sum and sum-of-squares carry the only multiply, so they are the only part
+   // worth subsampling. The start offset rotates between buffers so that successive
+   // buffers examine different phases -- a fixed offset would sample periodically and
+   // alias against periodic signal content.
+   const uint32_t stride = AUDIO_HEALTH_RMS_STRIDE;
+   for (uint32_t i = (stride > 1) ? (health_stride_phase % stride) : 0; i < num_samples; i += stride)
+   {
+      const int16_t sample = samples[i];
+      health_sum += sample;
+      health_sum_squares += (int64_t)sample * (int64_t)sample;
+      ++health_num_rms_samples;
+   }
+   ++health_stride_phase;
+}
+
+void audio_health_reset(void)
+{
+   health_min_sample = INT16_MAX;
+   health_max_sample = INT16_MIN;
+   health_sum = health_sum_squares = 0;
+   health_num_samples = health_num_rms_samples = 0;
+}
+
+bool audio_health_available(void)
+{
+   return health_num_samples > 0;
+}
+
+audio_health_t audio_health_get(void)
+{
+   audio_health_t health = { 0 };
+   if (!health_num_samples)
+      return health;
+
+   health.num_samples = health_num_samples;
+   health.min_sample = health_min_sample;
+   health.max_sample = health_max_sample;
+   // Mean and RMS come from the subsampled population, min/max from all of it
+   const int64_t rms_count = health_num_rms_samples ? (int64_t)health_num_rms_samples : 1;
+   health.mean = (int32_t)(health_sum / rms_count);
+   health.rms = (uint32_t)sqrtf((float)(health_sum_squares / rms_count));
+   const int32_t neg_excursion = (health_min_sample < 0) ? -(int32_t)health_min_sample : 0;
+   health.peak = (uint32_t)MAX((int32_t)health_max_sample, neg_excursion);
+
+   // A signal path that is dead, unpowered, or disconnected produces the same value
+   // forever. This is unambiguous -- a real microphone in a genuinely silent
+   // environment still shows at least a few LSBs of noise -- so it will not fire on a
+   // quiet night, only on a broken microphone.
+   health.constant_output = (health_min_sample == health_max_sample);
+
+   // Distinct from constant output: the path moves, but never beyond the noise floor.
+   // Reported rather than judged, since a sealed enclosure in a quiet place is
+   // legitimately near-silent.
+   health.silent = (health.peak <= AUDIO_HEALTH_SILENCE_FLOOR);
+   return health;
+}
+
+int32_t audio_get_dc_offset(void)
+{
+   return (int32_t)dc_offset;
+}
+
 bool audio_read_data(int16_t *buffer)
 {
    // Only read data if a DMA audio conversion is complete
@@ -763,6 +857,9 @@ bool audio_read_data(int16_t *buffer)
          for (uint32_t i = 0; i < num_samples_per_dma; ++i)
             buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
       }
+      // Health first, then filtering. A high-pass would turn a dead microphone's
+      // constant output into silence, hiding exactly the fault the check exists for.
+      audio_health_accumulate(buffer, num_samples_per_dma);
       // Band-limit after calibration, so the filter sees the same samples that would
       // otherwise have been written. State carries across buffers, which is what keeps
       // the response continuous over a clip rather than restarting at every DMA block.
@@ -814,6 +911,7 @@ int16_t* audio_read_data_direct(void)
             }
          }
       }
+      audio_health_accumulate(buffer, num_samples_per_dma);
       audio_filter_apply(buffer, num_samples_per_dma);
       dma_complete = false;
       if (dma_buffers_pending)

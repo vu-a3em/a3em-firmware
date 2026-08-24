@@ -50,6 +50,7 @@ void storage_get_health(storage_health_t *health);
 void storage_setup_logs(void);
 bool storage_rotate_log(uint32_t activation_number, const char *device_label, uint32_t current_time);
 void storage_write_log(const char *fmt, ...);
+void storage_write_event(const char *code, const char *fmt, ...);
 void storage_flush_log(void);
 
 // Fixed-record boot log functionality

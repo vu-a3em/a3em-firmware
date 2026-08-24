@@ -1116,6 +1116,27 @@ void storage_write_log(const char *fmt, ...)
       early_log_overflowed = true;
 }
 
+void storage_write_event(const char *code, const char *fmt, ...)
+{
+   // Emit a machine-readable event line alongside the human-readable log.
+   //
+   //    EVT|<CODE>|key=value,key=value
+   //
+   // The dashboard has to parse this log, and matching on English phrasing means a
+   // reworded message silently breaks it. Codes and keys here are stable; the prose
+   // above them is free to change. The timestamp comes from the standard line prefix
+   // rather than being repeated in the payload.
+   if (log_open)
+   {
+      storage_write_log("EVT|%s|", code);
+      va_list args;
+      va_start(args, fmt);
+      f_vprintf(&log_file, fmt, args);
+      va_end(args);
+      storage_write_log("\n");
+   }
+}
+
 void storage_flush_log(void)
 {
    // Flush the log file to ensure that contents are not lost upon power loss

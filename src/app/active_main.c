@@ -43,6 +43,32 @@ static uint32_t seconds_until_next_scheduled_recording(uint32_t num_schedules, s
    return num_schedules ? (86400 - current_seconds_of_day + schedule[0].start_time) : 0;
 }
 
+static void report_microphone_health(void)
+{
+   // Report the state of the microphone signal path for the window just recorded.
+   //
+   // Emitted once per audio directory, which gives a temporal view across the whole
+   // deployment rather than a single verdict at startup -- so a microphone that dies in
+   // week three is visible, and roughly datable, from the log alone. Covers analog and
+   // digital identically, since the statistics come from the shared read path.
+   if (!audio_health_available())
+      return;
+
+   const audio_health_t health = audio_health_get();
+   const char *verdict = "PASS";
+   if (health.constant_output)
+      verdict = "FAIL_CONSTANT";
+   else if (health.silent)
+      verdict = "WARN_SILENT";
+
+   log_event("MIC_HEALTH", "result=%s,rms=%u,peak=%u,min=%d,max=%d,mean=%d,samples=%u,dc_offset=%d",
+             verdict, health.rms, health.peak, (int)health.min_sample, (int)health.max_sample,
+             (int)health.mean, health.num_samples, (int)audio_get_dc_offset());
+
+   // Start a fresh window so each report describes only its own directory
+   audio_health_reset();
+}
+
 static void validate_device_settings(uint32_t current_timestamp)
 {
    // Check if the battery voltage is too low to continue
@@ -141,8 +167,12 @@ static void validate_device_settings(uint32_t current_timestamp)
    // the device booted. storage_rotate_log() reports whether the directory changed and
    // is a no-op when it has not.
    if (storage_rotate_log(activation_number, device_label, current_timestamp))
+   {
+      // A new directory means a new recording window; summarise the one that just closed.
+      report_microphone_health();
       storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts,
                                   reset_reason_name(system_get_boot_info()->software_reason));
+   }
 
    storage_flush_log();
 
