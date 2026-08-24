@@ -26,6 +26,13 @@
 
 // Common Application Definitions --------------------------------------------------------------------------------------
 
+// Set by the Makefile as "<version>+<githash>[-dirty]". The fallback exists so that a
+// build outside the Makefile still compiles, and reports plainly that it cannot say what
+// it is rather than claiming a version it does not have.
+#ifndef _FW_VERSION
+#define _FW_VERSION                                 "unknown"
+#endif
+
 #define DEVICE_ID_LEN                               6
 #define MAX_DEVICE_LABEL_LEN                        31
 #define MAX_AUDIO_TRIGGER_TIMES                     12

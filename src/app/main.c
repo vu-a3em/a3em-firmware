@@ -53,6 +53,9 @@ static void log_boot_reason(void)
    hardware_bits |= hw->bBOMEMStat    ? (1u << 9)  : 0;
    hardware_bits |= hw->bBOHPMEMStat  ? (1u << 10) : 0;
    hardware_bits |= hw->bBOLPCOREStat ? (1u << 11) : 0;
+   // Stamped into every log so a retrieved card says which build produced it. Without
+   // this, reconciling odd data against a firmware change means guessing from dates.
+   print("INFO: A3EM firmware %s, built %s\n", _FW_VERSION, _DATETIME);
    print("INFO: Restart #%u of power-on epoch %u, reason %s (hardware bits 0x%03X)\n", boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), hardware_bits);
    if (boot->software_reason == RESET_REASON_HARD_FAULT)
       print("ERROR: Previous run ended in a hard fault at address 0x%08X\n", boot->fault_address);
