@@ -367,39 +367,42 @@ static void note_write_success(void)
 
 static bool ensure_audio_directory(uint32_t activation_number, const char *device_label, uint32_t current_time)
 {
-   // Render the timestamp used for the file name regardless of whether the directory changes
-   datetime_t now;
-   datetime_from_timestamp(current_time, &now);
-   datetime_format_stamp(time_string, sizeof(time_string), &now);
+   // File and directory names are UTC Unix timestamps rather than rendered dates.
+   //
+   // The device sets its clock from the CONFIGURED deployment start when the magnet
+   // activates it, so unless activation happens exactly on schedule -- which it rarely
+   // does -- every name on the card is offset from reality by however early or late the
+   // unit was switched on. A rendered date is then close enough to look authoritative
+   // and wrong enough to mislead. An epoch asserts nothing about local time, and the
+   // dashboard applies the measured offset when displaying or renaming.
+   snprintf(time_string, sizeof(time_string), "%010lu", (unsigned long)current_time);
 
    // Determine if it is time to create a new audio storage directory
    if (audio_directory_timestamp && ((current_time - audio_directory_timestamp) < NUM_SECONDS_PER_AUDIO_DIRECTORY) &&
        (current_time >= audio_directory_timestamp))
       return false;
 
-   // Truncate the time to the start of the directory's coverage window
-   datetime_t bucket = now;
-   bucket.minute = bucket.second = 0;
-   bucket.hour = (uint8_t)((bucket.hour / NUM_HOURS_PER_AUDIO_DIRECTORY) * NUM_HOURS_PER_AUDIO_DIRECTORY);
+   // Bucket boundaries fall on exact multiples of their period, so truncation replaces
+   // the datetime round trip this used to perform. Keeping the buckets aligned is what
+   // lets the guard above be a simple range check.
+   const uint32_t hour_bucket = (current_time / NUM_SECONDS_PER_AUDIO_DIRECTORY) * NUM_SECONDS_PER_AUDIO_DIRECTORY;
+   const uint32_t day_bucket = (current_time / 86400u) * 86400u;
 
    // Create each level of the directory hierarchy in turn
    static FILINFO file_info;
-   char date_string[DATETIME_DATE_LEN], hour_string[DATETIME_HOUR_LEN];
-   datetime_format_date(date_string, sizeof(date_string), &bucket);
-   datetime_format_hour(hour_string, sizeof(hour_string), &bucket);
    snprintf(audio_directory, sizeof(audio_directory), "%s", device_label);
    if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
       print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
    snprintf(audio_directory, sizeof(audio_directory), "%s/Activation_%04lu", device_label, (unsigned long)activation_number);
    if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
       print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-   snprintf(audio_directory + strlen(audio_directory), sizeof(audio_directory) - strlen(audio_directory), "/%s", date_string);
+   snprintf(audio_directory + strlen(audio_directory), sizeof(audio_directory) - strlen(audio_directory), "/%010lu", (unsigned long)day_bucket);
    if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
       print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-   snprintf(audio_directory + strlen(audio_directory), sizeof(audio_directory) - strlen(audio_directory), "/%s", hour_string);
+   snprintf(audio_directory + strlen(audio_directory), sizeof(audio_directory) - strlen(audio_directory), "/%010lu", (unsigned long)hour_bucket);
    if ((f_stat(audio_directory, &file_info) != FR_OK) && (f_mkdir(audio_directory) != FR_OK))
       print("ERROR: Unable to create audio storage directory: %s\n", audio_directory);
-   audio_directory_timestamp = datetime_to_timestamp(&bucket);
+   audio_directory_timestamp = hour_bucket;
    return true;
 }
 
