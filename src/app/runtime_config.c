@@ -152,6 +152,112 @@ static time_scale_t parse_time_scale(const char *value)
       return MINUTES;
 }
 
+uint32_t config_time_scale_seconds(time_scale_t scale)
+{
+   // Shared by the configuration echo and the audio scheduling logic, which each had
+   // their own copy of this mapping.
+   switch (scale)
+   {
+      case SECONDS:  return 1;
+      case MINUTES:  return 60;
+      case HOURS:    return 3600;
+      case DAYS:     return 86400;
+      default:       return 1;
+   }
+}
+
+static const char* audio_mode_name(audio_recording_mode_t mode)
+{
+   switch (mode)
+   {
+      case AMPLITUDE:  return "AMPLITUDE";
+      case SCHEDULED:  return "SCHEDULED";
+      case INTERVAL:   return "INTERVAL";
+      default:         return "CONTINUOUS";
+   }
+}
+
+static const char* imu_mode_name(imu_recording_mode_t mode)
+{
+   switch (mode)
+   {
+      case ACTIVITY:   return "ACTIVITY";
+      case AUDIO:      return "AUDIO";
+      default:         return "NONE";
+   }
+}
+
+static const char* audio_filter_type_name(audio_filter_type_t type)
+{
+   switch (type)
+   {
+      case FILTER_LOW_PASS:   return "LOW";
+      case FILTER_BAND_PASS:  return "BAND";
+      case FILTER_HIGH_PASS:  return "HIGH";
+      default:                return "NONE";
+   }
+}
+
+static void log_effective_configuration(void)
+{
+   // Record the settings the device will ACTUALLY run, after every override and clamp
+   // has been applied.
+   //
+   // Several config values are silently rewritten during parsing: Opus forces the
+   // sampling rate to 48 kHz, the maximum frequency is clamped below Nyquist, and a
+   // phase without explicit times inherits the whole deployment window. Until now
+   // there was no way to tell from a returned card what the device believed it was
+   // doing, which makes an entire class of configuration bug invisible after the fact.
+   print("INFO: Effective configuration:\n");
+   print("   Device Label: %s\n", device_label);
+   print("   UTC Offset (s): %d\n", (int)utc_offset);
+   print("   Deployment: %u to %u\n", deployment_time.start_time, deployment_time.end_time);
+   print("   Microphone: %s @ %d.%02d dB\n", (microphone_type == MIC_ANALOG) ? "ANALOG" : "DIGITAL",
+         (int)microphone_amplification_db,
+         (int)((microphone_amplification_db - (int)microphone_amplification_db) * 100.0f));
+   print("   Magnet Activation: %s (validation %u ms, lockout %u s)\n",
+         awake_on_magnet ? "True" : "False", magnetic_field_validation_length_ms,
+         deactivation_forbidden_length_seconds);
+   print("   LEDs: %s (%u s)\n", leds_enabled ? "True" : "False", leds_active_seconds);
+   print("   Battery Cutoff (mV): %u\n", battery_level_low);
+   print("   VHF: %s (start %u)\n", vhf_enabled ? "ENABLED" : "NEVER", vhf_start_timestamp);
+   print("   Phases: %d\n", (int)num_deployment_phases);
+   for (int32_t i = 0; i < num_deployment_phases; ++i)
+   {
+      const deployment_phase_t *phase = &deployment_phases[i];
+      print("   [Phase %d] %u to %u\n", (int)(i + 1), phase->phase_time.start_time, phase->phase_time.end_time);
+      print("      Audio: %s, %u Hz, %u s clips%s\n", audio_mode_name(phase->audio_recording_mode),
+            phase->audio_sampling_rate, phase->audio_clip_length,
+            phase->extend_clip_if_continuous_audio ? ", extend on continuous" : "");
+      if (phase->use_opus_encoding)
+         print("      Encoding: OPUS @ %d bps\n", (int)phase->opus_encoding_bitrate);
+      else
+         print("      Encoding: WAV\n");
+      if (phase->audio_recording_mode == AMPLITUDE)
+         print("      Trigger: %d/1000 of full scale, max %u clips per %u s\n",
+               (int)(phase->audio_trigger_threshold * 1000.0f), phase->max_audio_clips,
+               config_time_scale_seconds(phase->max_clips_time_scale));
+      else if (phase->audio_recording_mode == INTERVAL)
+         print("      Interval: every %u s\n",
+               phase->audio_trigger_interval * config_time_scale_seconds(phase->audio_trigger_interval_time_scale));
+      else if (phase->audio_recording_mode == SCHEDULED)
+      {
+         print("      Listening windows: %u\n", phase->num_audio_trigger_times);
+         for (uint32_t w = 0; w < phase->num_audio_trigger_times; ++w)
+            print("         %u-%u\n", phase->audio_trigger_times[w].start_time,
+                  phase->audio_trigger_times[w].end_time);
+      }
+      print("      Filter: %s %u-%u Hz\n", audio_filter_type_name(phase->audio_filter_type),
+            phase->audio_filter_range.min_frequency, phase->audio_filter_range.max_frequency);
+      print("      Frequencies: %u-%u Hz, silence threshold %d/1000\n",
+            phase->frequencies_of_interest.min_frequency, phase->frequencies_of_interest.max_frequency,
+            (int)(phase->silence_threshold * 1000.0f));
+      print("      IMU: %s, %u Hz, %u DoF, motion threshold %d mg\n", imu_mode_name(phase->imu_recording_mode),
+            phase->imu_sampling_rate, phase->imu_degrees_of_freedom,
+            (int)phase->imu_trigger_threshold);
+   }
+}
+
 static audio_filter_type_t parse_audio_filter_type(const char *value)
 {
    if (memcmp(value, "LOW", sizeof("LOW")) == 0)
@@ -467,6 +573,9 @@ bool fetch_runtime_configuration(void)
       if (!mram_set_activated(false, 0))
          print("ERROR: Unable to clear the stored activation flag\n");
    }
+
+   // Echo what the device will actually run, after every override and clamp
+   log_effective_configuration();
 
    // Return whether configuration parsing was successful
    return success;

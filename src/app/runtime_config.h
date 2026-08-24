@@ -51,6 +51,7 @@ float config_get_mic_amplification_db(void);
 uint32_t config_get_start_time(int32_t phase_index);
 uint32_t config_get_end_time(int32_t phase_index);
 audio_recording_mode_t config_get_audio_recording_mode(int32_t phase_index);
+uint32_t config_time_scale_seconds(time_scale_t scale);
 bool config_get_max_audio_clips(int32_t phase_index, uint32_t *max_clips, time_scale_t *unit_time);
 float config_get_audio_trigger_threshold(int32_t phase_index);
 uint32_t config_get_audio_trigger_schedule(int32_t phase_index, start_end_time_t **schedule);
