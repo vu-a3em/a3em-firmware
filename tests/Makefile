@@ -185,6 +185,8 @@ SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/ConvolutionFunct
 SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/FullyConnectedFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/NNSupportFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/CMSIS/ARM/Source/TransposeFunctions/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
+SRC += arm_biquad_cascade_df1_f32.c
+SRC += arm_biquad_cascade_df1_init_f32.c
 SRC += arm_q15_to_float.c
 SRC += arm_hanning_f32.c
 SRC += arm_cmplx_mag_f32.c
@@ -268,6 +270,7 @@ SRC += mram.c
 SRC += datetime.c
 SRC += rtc.c
 SRC += runtime_config.c
+SRC += self_test.c
 SRC += storage.c
 SRC += system.c
 SRC += tracker.c
@@ -275,6 +278,7 @@ SRC += vhf.c
 
 SRC += fft.c
 SRC += mfcc.c
+SRC += audio_filter.c
 SRC += silence.c
 
 # Uncomment these lines to debug AmbiqSDK files

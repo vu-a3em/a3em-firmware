@@ -17,7 +17,8 @@ void data_ready_callback(float accel_x_mg, float accel_y_mg, float accel_z_mg)
 void test_motion_change_detection(void)
 {
    // Enable motion change detection then go to sleep forever
-   imu_enable_motion_change_detection(true, motion_change_callback);
+   // 0 selects the sensor's default sensitivity, as an unconfigured device would
+   imu_enable_motion_change_detection(true, 0.0f, motion_change_callback);
    while (true)
       system_enter_deep_sleep_mode();
 }
