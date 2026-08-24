@@ -597,6 +597,18 @@ bool audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
          mram_store_audadc_dc_offset((int32_t)dc_offset, thermal.valid ? thermal.celcius : 0.0f);
    }
 
+   // A healthy analog path settles near mid-scale; a disconnected or shorted microphone
+   // sits at a rail. This is the only automatic check that the microphone survived
+   // assembly, and broken wiring has already cost a deployment. The measurement was
+   // always taken -- only the verdict is new.
+   const int32_t dc_deviation = abs((int32_t)dc_offset - MIC_DC_OFFSET_NOMINAL);
+   const bool dc_offset_ok = (dc_deviation <= MIC_DC_OFFSET_TOLERANCE);
+   log_event("MIC_CHECK", "type=ANALOG,dc_offset=%u,nominal=%d,tolerance=%d,result=%s",
+             dc_offset, MIC_DC_OFFSET_NOMINAL, MIC_DC_OFFSET_TOLERANCE, dc_offset_ok ? "PASS" : "FAIL");
+
+   // Reset the running health statistics so the first reporting window starts clean
+   audio_health_reset();
+
    // Optionally connect the audio input to a comparator
    if (trigger == COMPARATOR_THRESHOLD)
       comparator_init(false, 0, trigger_threshold_percent, true);
@@ -857,12 +869,7 @@ bool audio_read_data(int16_t *buffer)
          for (uint32_t i = 0; i < num_samples_per_dma; ++i)
             buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
       }
-      // Health first, then filtering. A high-pass would turn a dead microphone's
-      // constant output into silence, hiding exactly the fault the check exists for.
       audio_health_accumulate(buffer, num_samples_per_dma);
-      // Band-limit after calibration, so the filter sees the same samples that would
-      // otherwise have been written. State carries across buffers, which is what keeps
-      // the response continuous over a clip rather than restarting at every DMA block.
       audio_filter_apply(buffer, num_samples_per_dma);
       dma_complete = false;
       if (dma_buffers_pending)

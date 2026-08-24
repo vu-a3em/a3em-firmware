@@ -43,12 +43,9 @@ static am_hal_card_host_t *sd_card_host = NULL;
 static am_device_card_config_t sd_card_config;
 static FIL current_file, log_file, imu_file, audio_file;
 static char time_string[DATETIME_STAMP_LEN], audio_directory[MAX_DEVICE_LABEL_LEN + 40];
-static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open;
-static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx;
-// Identity fields captured at boot so the device file can be rewritten later without the
-// caller having to carry them around for the length of a deployment
 static char dev_fw_version[32], dev_hw_revision[8], dev_build_datetime[40], dev_uid[24];
-static bool dev_info_captured;
+static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open, dev_info_captured;
+static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx;
 
 // Defined below, next to the other WAV writing
 static bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate_hz);
@@ -374,14 +371,7 @@ static void note_write_success(void)
 
 static bool ensure_audio_directory(uint32_t activation_number, const char *device_label, uint32_t current_time)
 {
-   // File and directory names are UTC Unix timestamps rather than rendered dates.
-   //
-   // The device sets its clock from the CONFIGURED deployment start when the magnet
-   // activates it, so unless activation happens exactly on schedule -- which it rarely
-   // does -- every name on the card is offset from reality by however early or late the
-   // unit was switched on. A rendered date is then close enough to look authoritative
-   // and wrong enough to mislead. An epoch asserts nothing about local time, and the
-   // dashboard applies the measured offset when displaying or renaming.
+   // File and directory names are UTC Unix timestamps rather than rendered dates
    snprintf(time_string, sizeof(time_string), "%010lu", (unsigned long)current_time);
 
    // Determine if it is time to create a new audio storage directory
@@ -389,9 +379,7 @@ static bool ensure_audio_directory(uint32_t activation_number, const char *devic
        (current_time >= audio_directory_timestamp))
       return false;
 
-   // Bucket boundaries fall on exact multiples of their period, so truncation replaces
-   // the datetime round trip this used to perform. Keeping the buckets aligned is what
-   // lets the guard above be a simple range check.
+   // Bucket boundaries fall on exact multiples of their period
    const uint32_t hour_bucket = (current_time / NUM_SECONDS_PER_AUDIO_DIRECTORY) * NUM_SECONDS_PER_AUDIO_DIRECTORY;
    const uint32_t day_bucket = (current_time / 86400u) * 86400u;
 
@@ -832,14 +820,7 @@ bool storage_write_device_info(const char *fw_version, const char *hw_revision, 
                                const char *device_uid, uint32_t activation_number, uint32_t timestamp,
                                uint32_t battery_mv, const char *last_deactivation_reason)
 {
-   // A small machine-readable file at the card root, overwritten on every boot.
-   //
-   // The dashboard reads it to identify the device by hardware UID, select the matching
-   // firmware capability profile, and show last-known state -- none of which should
-   // require parsing a multi-megabyte log. Its absence is also meaningful: a card
-   // carrying recordings but no device file was written by firmware older than this.
-   //
-   // Same KEY = "value" grammar as the configuration file, so the same parser reads it.
+   // A small machine-readable file at the card root, overwritten on every boot
    snprintf(dev_fw_version, sizeof(dev_fw_version), "%s", fw_version);
    snprintf(dev_hw_revision, sizeof(dev_hw_revision), "%s", hw_revision);
    snprintf(dev_build_datetime, sizeof(dev_build_datetime), "%s", build_datetime);
@@ -864,10 +845,7 @@ bool storage_write_device_info(const char *fw_version, const char *hw_revision, 
 bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp,
                                  uint32_t battery_mv, const char *last_deactivation_reason)
 {
-   // Rewrite the device file with current values, reusing the identity fields captured
-   // at boot. Called on audio directory rollover so the last-known timestamp and battery
-   // stay within a few hours of reality across a months-long deployment, rather than
-   // reflecting the moment the device booted.
+   // Rewrite the device file with current values, reusing the identity fields captured at boot
    if (!dev_info_captured)
       return false;
    return storage_write_device_info(dev_fw_version, dev_hw_revision, dev_build_datetime, dev_uid,
@@ -1154,14 +1132,7 @@ void storage_write_log(const char *fmt, ...)
 
 void storage_write_event(const char *code, const char *fmt, ...)
 {
-   // Emit a machine-readable event line alongside the human-readable log.
-   //
-   //    EVT|<CODE>|key=value,key=value
-   //
-   // The dashboard has to parse this log, and matching on English phrasing means a
-   // reworded message silently breaks it. Codes and keys here are stable; the prose
-   // above them is free to change. The timestamp comes from the standard line prefix
-   // rather than being repeated in the payload.
+   // Emit a machine-readable event line alongside the human-readable log: EVT|<CODE>|key=value,key=value
    if (log_open)
    {
       storage_write_log("EVT|%s|", code);

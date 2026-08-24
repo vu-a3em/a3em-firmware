@@ -26,12 +26,8 @@
 
 // Common Application Definitions --------------------------------------------------------------------------------------
 
-// Set by the Makefile as "<version>+<githash>[-dirty]". The fallback exists so that a
-// build outside the Makefile still compiles, and reports plainly that it cannot say what
-// it is rather than claiming a version it does not have.
-#ifndef _FW_VERSION
-#define _FW_VERSION                                 "unknown"
-#endif
+#define _STRINGIFY_INNER(x)                         #x
+#define _STRINGIFY(x)                               _STRINGIFY_INNER(x)
 
 #define DEVICE_ID_LEN                               6
 #define MAX_DEVICE_LABEL_LEN                        31
@@ -250,6 +246,10 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define IMU_FIFO_WATERMARK                              96
 #define IMU_FIFO_MAX_LEVEL                              128
 #define IMU_FIFO_BURST_ENTRIES                          16
+
+#define IMU_MOTION_FULL_SCALE_MG                        2000.0f
+#define IMU_MOTION_THRESHOLD_STEPS                      255
+#define IMU_MOTION_THRESHOLD_STEP_MG                    (IMU_MOTION_FULL_SCALE_MG / IMU_MOTION_THRESHOLD_STEPS)
 
 
 // Magnetic Sensing Definitions ----------------------------------------------------------------------------------------

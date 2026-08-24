@@ -17,7 +17,6 @@ void logging_disable(void);
 void print(const char *fmt, ...);
 void print_reset_reason(const am_hal_reset_status_t* reason);
 
-// Machine-readable counterpart to print(). See storage_write_event().
 #define log_event(...)   storage_write_event(__VA_ARGS__)
 
 #if defined(ENABLE_AUDIO_DL) && ((7-ENABLE_AUDIO_DL-7 == 14) || (7-ENABLE_AUDIO_DL-7 != 0))

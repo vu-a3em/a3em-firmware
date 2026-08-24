@@ -42,7 +42,6 @@ void system_reset_with_reason(uint32_t reason);
 
 // Boot diagnostics functionality
 const system_boot_info_t* system_get_boot_info(void);
-// Human-readable name for a RESET_REASON_* code, for logs and the device info file
 const char* reset_reason_name(uint32_t reason);
 uint32_t system_get_hal_failure_count(void);
 const char* system_get_first_hal_failure(uint32_t *line, uint32_t *status);

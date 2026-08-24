@@ -8,11 +8,6 @@
 #include "self_test.h"
 #include "storage.h"
 #include "system.h"
-
-// _HW_REVISION arrives from the Makefile as a bare token, so it needs two levels of
-// expansion to become a string literal.
-#define _STRINGIFY_INNER(x)  #x
-#define _STRINGIFY(x)        _STRINGIFY_INNER(x)
 #include "tracker.h"
 #include "vhf.h"
 
@@ -22,7 +17,6 @@ extern void active_main(volatile bool*, int32_t);
 extern void pre_active_main(volatile bool*);
 extern uint32_t active_main_get_end_reason(void);
 
-// Render a reset reason code as the short label written into the root boot log
 static void log_boot_reason(void)
 {
    // Record why the device restarted, both in the human-readable deployment log and in the fixed-record root boot log
@@ -41,10 +35,11 @@ static void log_boot_reason(void)
    hardware_bits |= hw->bBOMEMStat    ? (1u << 9)  : 0;
    hardware_bits |= hw->bBOHPMEMStat  ? (1u << 10) : 0;
    hardware_bits |= hw->bBOLPCOREStat ? (1u << 11) : 0;
-   // Stamped into every log so a retrieved card says which build produced it. Without
-   // this, reconciling odd data against a firmware change means guessing from dates.
    print("INFO: A3EM firmware %s, built %s\n", _FW_VERSION, _DATETIME);
    print("INFO: Restart #%u of power-on epoch %u, reason %s (hardware bits 0x%03X)\n", boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), hardware_bits);
+   log_event("BOOT", "fw=%s,hw=%s,built=%s,resets=%u,epoch=%u,last_stop=%s",
+             _FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, boot->resets_this_epoch,
+             boot->boot_epoch, reset_reason_name(boot->software_reason));
    if (boot->software_reason == RESET_REASON_HARD_FAULT)
       print("ERROR: Previous run ended in a hard fault at address 0x%08X\n", boot->fault_address);
    if (hw->bWDTStat)
@@ -122,9 +117,10 @@ int main(void)
    // Retrieve the runtime configuration from storage
    bool success = fetch_runtime_configuration();
    print("INFO: Fetching runtime configuration...%s\n", success ? "SUCCESS" : "FAILURE");
+   log_event("CONFIG", "result=%s,phases=%d", success ? "OK" : "FAIL",
+             (int)config_get_num_deployment_phases());
 
-   // Record device identity and last-known state where the dashboard can read it without
-   // parsing a multi-megabyte log. Rewritten on every boot, so it is always current.
+   // Record device identity and last-known state on every boot to keep current
    if (!storage_sd_card_error())
    {
       char device_uid[(3 * DEVICE_ID_LEN) + 1] = { 0 };
@@ -170,6 +166,8 @@ int main(void)
       const uint32_t current_timestamp = rtc_get_timestamp();
       const uint32_t vhf_enable_timestamp = config_get_vhf_start_timestamp();
       print("WARNING: Battery confirmed low @ %u...shutting down for 1 hour\n", current_timestamp);
+      log_event("BATTERY_LOW", "batt_mv=%u,cutoff_mv=%u",
+                battery_monitor_get_details().millivolts, config_get_battery_mV_low());
       const bool vhf_enabled = config_is_device_activated() && vhf_enable_timestamp && (current_timestamp >= vhf_enable_timestamp);
       if (vhf_enabled)
          vhf_activate();
@@ -212,6 +210,7 @@ int main(void)
                system_enter_deep_sleep_mode();
                if (use_magnetic_activation && !device_activated)
                {
+                  log_event("DEACTIVATED", "reason=MAGNET");
                   config_set_activation_status(false);
                   system_reset_with_reason(RESET_REASON_MAGNET_DEACTIVATED);
                }
@@ -292,6 +291,7 @@ int main(void)
             if (use_magnetic_activation && !device_activated)
             {
                print("INFO: Device was magnetically deactivated!\n");
+               log_event("DEACTIVATED", "reason=MAGNET");
                config_set_activation_status(false);
                storage_flush_log();
                led_pattern_wait();

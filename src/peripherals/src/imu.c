@@ -929,13 +929,7 @@ void imu_enable_motion_change_detection(bool enable, float threshold_mg, motion_
    imu_iom_wake();
    if (enable)
    {
-      // Set the criteria for motion detection:
-      //   [80.0 ms (0x01 * 1 / ODR_XL), 9.85 s (MAX(16, 0x01 * 16) / ODR_XL)]
-      //
-      // The threshold arrives in absolute milli-g and is converted to the 8-bit range
-      // that lis2du12_wake_up_mode_set() expects, which it then splits between the
-      // 6-bit WAKE_UP_THS field and the WAKE_THS_W weight selector. Clamped to at least
-      // one step, since a threshold of zero would fire continuously.
+      // Set the criteria for motion detection: [80.0 ms (0x01 * 1 / ODR_XL), 9.85 s (MAX(16, 0x01 * 16) / ODR_XL)]
       lis2du12_wkup_md_t motion_mode;
       motion_mode.duration = 0x01;
       if (threshold_mg > 0.0f)

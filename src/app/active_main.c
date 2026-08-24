@@ -77,6 +77,7 @@ static void validate_device_settings(uint32_t current_timestamp)
    if (phase_ended)
    {
       print("WARNING: Battery confirmed low at %u mV - ending phase\n", battery_details.millivolts);
+      log_event("BATTERY_LOW", "batt_mv=%u,cutoff_mv=%u", battery_details.millivolts, config_get_battery_mV_low());
       end_of_phase_reason = RESET_REASON_BATTERY_LOW;
    }
 
@@ -139,6 +140,15 @@ static void validate_device_settings(uint32_t current_timestamp)
          last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False",
          audio_stats.buffers_captured, audio_stats.dcmp_trusted ? "trusted" : "unproven");
 
+   log_event("TELEM", "batt_mv=%u,temp_c=%0.2f,lat=%0.6f,lon=%0.6f,alt=%0.2f,"
+                      "leds=%u,vhf=%u,sd_free_mb=%u,sd_write_fail=%u,sd_reopen=%u,sd_remount=%u,"
+                      "imu_dropped=%u,audio_dropped=%u",
+             battery_details.millivolts, battery_details.celcius, last_lat, last_lon, last_height,
+             leds_are_enabled() ? 1u : 0u, vhf_activated() ? 1u : 0u,
+             storage_get_free_space_mb(), storage_health.write_failures,
+             storage_health.reopen_recoveries, storage_health.remount_recoveries,
+             storage_health.imu_buffers_dropped, audio_stats.buffers_dropped);
+
    // Report the instruction cache hit rate, which is what decides the cache sizing question
    uint64_t cache_accesses = 0, cache_hits = 0;
    float cache_hit_rate = 0.0f;
@@ -161,19 +171,14 @@ static void validate_device_settings(uint32_t current_timestamp)
          print("   DEGRADED: %u HAL failures, first at %s:%u status %u\n", hal_failures, file ? file : "unknown", line, status);
       }
    }
-   // Rolling into a new audio directory means the device file's last-known state is
-   // four hours stale. Rewriting it there keeps the timestamp and battery within a few
-   // hours of reality across a months-long deployment, rather than reporting the moment
-   // the device booted. storage_rotate_log() reports whether the directory changed and
-   // is a no-op when it has not.
+
+   // Check if time to roll into a new audio directory
    if (storage_rotate_log(activation_number, device_label, current_timestamp))
    {
-      // A new directory means a new recording window; summarise the one that just closed.
+      // A new directory means a new recording window; summarise the one that just closed
       report_microphone_health();
-      storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts,
-                                  reset_reason_name(system_get_boot_info()->software_reason));
+      storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts, reset_reason_name(system_get_boot_info()->software_reason));
    }
-
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time
@@ -540,12 +545,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
       if (validation_time)
          validate_device_settings(current_time);
 
-      // Determine if time to start listening for a new audio clip.
-      //
-      // A max_clips of zero means UNLIMITED. It previously meant "never arm the trigger",
-      // because num_clips_stored starts at zero and 0 < 0 is false -- so an amplitude
-      // deployment configured with a zero cap recorded nothing at all for its entire
-      // duration, with no error to show for it.
+      // Determine if time to start listening for a new audio clip
       if (!awaiting_trigger && !audio_clip_in_progress && (!max_clips || (num_clips_stored < max_clips)))
       {
          audio_begin_reading();
@@ -645,15 +645,19 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    phase_end_timestamp = config_get_end_time(phase_index);
    validate_device_settings(rtc_get_timestamp());
 
-   // Set up band-limiting of the recorded audio. Separate from silence detection below:
-   // this alters what is stored, that only decides whether to store it at all.
+   log_event("PHASE_START", "phase=%d", (int)(phase_index + 1));
+
+   // Set up band-limiting of the recorded audio
    const uint32_t audio_sampling_rate_hz = config_get_audio_sampling_rate_hz(phase_index);
    const audio_filter_type_t filter_type = config_get_audio_filter_type(phase_index);
    const frequency_range_t filter_range = config_get_audio_filter_range(phase_index);
-   audio_filter_initialize(filter_type, audio_sampling_rate_hz,
-                           filter_range.min_frequency, filter_range.max_frequency);
+   audio_filter_initialize(filter_type, audio_sampling_rate_hz, filter_range.min_frequency, filter_range.max_frequency);
    if (audio_filter_enabled())
+   {
       print("INFO: Audio band-limited to [%u, %u] Hz\n", filter_range.min_frequency, filter_range.max_frequency);
+      log_event("AUDIO_FILTER", "type=%d,low_hz=%u,high_hz=%u",
+                (int)filter_type, filter_range.min_frequency, filter_range.max_frequency);
+   }
 
    // Set up the silence detection filter if enabled
    use_silence_filter = config_get_silence_filter_threshold(phase_index) > 0.0f;
@@ -691,8 +695,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    switch (config_get_imu_recording_mode(phase_index))
    {
       case ACTIVITY:
-         imu_enable_motion_change_detection(true, config_get_imu_trigger_threshold_level(phase_index),
-                                            imu_motion_change_callback);
+         imu_enable_motion_change_detection(true, config_get_imu_trigger_threshold_level(phase_index), imu_motion_change_callback);
          break;
       case AUDIO:
          record_imu_with_audio = true;
