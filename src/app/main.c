@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "battery.h"
 #include "led.h"
 #include "logging.h"
@@ -6,6 +7,11 @@
 #include "rtc.h"
 #include "storage.h"
 #include "system.h"
+
+// _HW_REVISION arrives from the Makefile as a bare token, so it needs two levels of
+// expansion to become a string literal.
+#define _STRINGIFY_INNER(x)  #x
+#define _STRINGIFY(x)        _STRINGIFY_INNER(x)
 #include "tracker.h"
 #include "vhf.h"
 
@@ -16,25 +22,6 @@ extern void pre_active_main(volatile bool*);
 extern uint32_t active_main_get_end_reason(void);
 
 // Render a reset reason code as the short label written into the root boot log
-static const char* reset_reason_name(uint32_t reason)
-{
-   switch (reason)
-   {
-      case RESET_REASON_NONE:                return "POWER-ON";
-      case RESET_REASON_HARD_FAULT:          return "HARD-FAULT";
-      case RESET_REASON_PHASE_COMPLETE:      return "PHASE-DONE";
-      case RESET_REASON_AUDIO_ERROR:         return "AUDIO-ERROR";
-      case RESET_REASON_STORAGE_FAILURE:     return "SD-FAILURE";
-      case RESET_REASON_RTC_STOPPED:         return "RTC-STOPPED";
-      case RESET_REASON_BATTERY_LOW:         return "BATTERY-LOW";
-      case RESET_REASON_MISSING_CONFIG:      return "NO-CONFIG";
-      case RESET_REASON_MAGNET_DEACTIVATED:  return "MAGNET-OFF";
-      case RESET_REASON_ACTIVATED:           return "MAGNET-ON";
-      case RESET_REASON_PERIPHERAL_TIMEOUT:  return "PERIPH-TIMEOUT";
-      default:                               return "UNKNOWN";
-   }
-}
-
 static void log_boot_reason(void)
 {
    // Record why the device restarted, both in the human-readable deployment log and in the fixed-record root boot log
@@ -134,6 +121,21 @@ int main(void)
    // Retrieve the runtime configuration from storage
    bool success = fetch_runtime_configuration();
    print("INFO: Fetching runtime configuration...%s\n", success ? "SUCCESS" : "FAILURE");
+
+   // Record device identity and last-known state where the dashboard can read it without
+   // parsing a multi-megabyte log. Rewritten on every boot, so it is always current.
+   if (!storage_sd_card_error())
+   {
+      char device_uid[(3 * DEVICE_ID_LEN) + 1] = { 0 };
+      for (size_t i = 0; i < DEVICE_ID_LEN; ++i)
+         snprintf(device_uid + (3 * i), sizeof(device_uid) - (3 * i),
+                  (i == (DEVICE_ID_LEN - 1)) ? "%02X" : "%02X:", device_id[DEVICE_ID_LEN - 1 - i]);
+      const system_boot_info_t *boot_info = system_get_boot_info();
+      storage_write_device_info(_FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, device_uid,
+                                config_get_activation_number(), rtc_get_timestamp(),
+                                battery_monitor_get_details().millivolts,
+                                reset_reason_name(boot_info->software_reason));
+   }
    const bool use_magnetic_activation = config_awake_on_magnet();
    if (storage_sd_card_error())
       led_indicate_sd_card_error();

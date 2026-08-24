@@ -134,6 +134,15 @@ static void validate_device_settings(uint32_t current_timestamp)
          print("   DEGRADED: %u HAL failures, first at %s:%u status %u\n", hal_failures, file ? file : "unknown", line, status);
       }
    }
+   // Rolling into a new audio directory means the device file's last-known state is
+   // four hours stale. Rewriting it there keeps the timestamp and battery within a few
+   // hours of reality across a months-long deployment, rather than reporting the moment
+   // the device booted. storage_rotate_log() reports whether the directory changed and
+   // is a no-op when it has not.
+   if (storage_rotate_log(activation_number, device_label, current_timestamp))
+      storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts,
+                                  reset_reason_name(system_get_boot_info()->software_reason));
+
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time

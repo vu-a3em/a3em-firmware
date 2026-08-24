@@ -46,6 +46,7 @@
 #define WAV_STAGING_BUFFER_SIZE                     (256 * 1024)
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
+#define DEVICE_INFO_FILE_NAME                       "_a3em.dev"
 #define LOG_FILE_NAME                               "a3em.log"
 #define BOOT_LOG_FILE_NAME                          "boot.log"
 

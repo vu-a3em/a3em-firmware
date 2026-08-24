@@ -45,6 +45,10 @@ static FIL current_file, log_file, imu_file, audio_file;
 static char time_string[DATETIME_STAMP_LEN], audio_directory[MAX_DEVICE_LABEL_LEN + 40];
 static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open;
 static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx;
+// Identity fields captured at boot so the device file can be rewritten later without the
+// caller having to carry them around for the length of a deployment
+static char dev_fw_version[32], dev_hw_revision[8], dev_build_datetime[40], dev_uid[24];
+static bool dev_info_captured;
 static uint8_t work_buf[FF_MAX_SS];
 static volatile bool async_write_complete, async_read_complete, card_present;
 static volatile uint8_t *imu_data_awaiting_storage;
@@ -821,6 +825,52 @@ static uint8_t boot_record_checksum(const char *record, uint32_t len)
    for (uint32_t i = 0; i < len; ++i)
       sum += (uint8_t)record[i];
    return (uint8_t)(sum & 0xFF);
+}
+
+bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime,
+                               const char *device_uid, uint32_t activation_number, uint32_t timestamp,
+                               uint32_t battery_mv, const char *last_deactivation_reason)
+{
+   // A small machine-readable file at the card root, overwritten on every boot.
+   //
+   // The dashboard reads it to identify the device by hardware UID, select the matching
+   // firmware capability profile, and show last-known state -- none of which should
+   // require parsing a multi-megabyte log. Its absence is also meaningful: a card
+   // carrying recordings but no device file was written by firmware older than this.
+   //
+   // Same KEY = "value" grammar as the configuration file, so the same parser reads it.
+   snprintf(dev_fw_version, sizeof(dev_fw_version), "%s", fw_version);
+   snprintf(dev_hw_revision, sizeof(dev_hw_revision), "%s", hw_revision);
+   snprintf(dev_build_datetime, sizeof(dev_build_datetime), "%s", build_datetime);
+   snprintf(dev_uid, sizeof(dev_uid), "%s", device_uid);
+   dev_info_captured = true;
+
+   FIL info_file;
+   if (!card_present || (f_open(&info_file, DEVICE_INFO_FILE_NAME, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK))
+      return false;
+   f_printf(&info_file, "FW_VERSION = \"%s\"\n", fw_version);
+   f_printf(&info_file, "HW_REVISION = \"%s\"\n", hw_revision);
+   f_printf(&info_file, "BUILD_DATETIME = \"%s\"\n", build_datetime);
+   f_printf(&info_file, "DEVICE_UID = \"%s\"\n", device_uid);
+   f_printf(&info_file, "ACTIVATION_NUMBER = \"%u\"\n", activation_number);
+   f_printf(&info_file, "LAST_TIMESTAMP = \"%u\"\n", timestamp);
+   f_printf(&info_file, "LAST_BATTERY_MV = \"%u\"\n", battery_mv);
+   f_printf(&info_file, "LAST_DEACTIVATION_REASON = \"%s\"\n", last_deactivation_reason);
+   f_close(&info_file);
+   return true;
+}
+
+bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp,
+                                 uint32_t battery_mv, const char *last_deactivation_reason)
+{
+   // Rewrite the device file with current values, reusing the identity fields captured
+   // at boot. Called on audio directory rollover so the last-known timestamp and battery
+   // stay within a few hours of reality across a months-long deployment, rather than
+   // reflecting the moment the device booted.
+   if (!dev_info_captured)
+      return false;
+   return storage_write_device_info(dev_fw_version, dev_hw_revision, dev_build_datetime, dev_uid,
+                                    activation_number, timestamp, battery_mv, last_deactivation_reason);
 }
 
 void storage_write_boot_record(const char *reason, uint32_t epoch, uint32_t reset_count, uint32_t detail, uint32_t timestamp)

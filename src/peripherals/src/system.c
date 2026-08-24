@@ -288,6 +288,25 @@ void setup_hardware(void)
    print_reset_reason(&boot_info.hardware_status);
 }
 
+const char* reset_reason_name(uint32_t reason)
+{
+   switch (reason)
+   {
+      case RESET_REASON_NONE:                return "POWER-ON";
+      case RESET_REASON_HARD_FAULT:          return "HARD-FAULT";
+      case RESET_REASON_PHASE_COMPLETE:      return "PHASE-DONE";
+      case RESET_REASON_AUDIO_ERROR:         return "AUDIO-ERROR";
+      case RESET_REASON_STORAGE_FAILURE:     return "SD-FAILURE";
+      case RESET_REASON_RTC_STOPPED:         return "RTC-STOPPED";
+      case RESET_REASON_BATTERY_LOW:         return "BATTERY-LOW";
+      case RESET_REASON_MISSING_CONFIG:      return "NO-CONFIG";
+      case RESET_REASON_MAGNET_DEACTIVATED:  return "MAGNET-OFF";
+      case RESET_REASON_ACTIVATED:           return "MAGNET-ON";
+      case RESET_REASON_PERIPHERAL_TIMEOUT:  return "PERIPH-TIMEOUT";
+      default:                               return "UNKNOWN";
+   }
+}
+
 const system_boot_info_t* system_get_boot_info(void)
 {
    return &boot_info;
