@@ -493,8 +493,13 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
       if (validation_time)
          validate_device_settings(current_time);
 
-      // Determine if time to start listening for a new audio clip
-      if (!awaiting_trigger && !audio_clip_in_progress && (num_clips_stored < max_clips))
+      // Determine if time to start listening for a new audio clip.
+      //
+      // A max_clips of zero means UNLIMITED. It previously meant "never arm the trigger",
+      // because num_clips_stored starts at zero and 0 < 0 is false -- so an amplitude
+      // deployment configured with a zero cap recorded nothing at all for its entire
+      // duration, with no error to show for it.
+      if (!awaiting_trigger && !audio_clip_in_progress && (!max_clips || (num_clips_stored < max_clips)))
       {
          audio_begin_reading();
          awaiting_trigger = true;
