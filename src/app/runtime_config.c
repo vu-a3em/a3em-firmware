@@ -19,7 +19,8 @@ typedef struct {
    uint32_t audio_clip_length, imu_sampling_rate, num_audio_trigger_times;
    time_scale_t max_clips_time_scale, audio_trigger_interval_time_scale;
    start_end_time_t phase_time, audio_trigger_times[MAX_AUDIO_TRIGGER_TIMES];
-   frequency_range_t frequencies_of_interest;
+   frequency_range_t frequencies_of_interest, audio_filter_range;
+   audio_filter_type_t audio_filter_type;
    uint8_t imu_degrees_of_freedom;
    int32_t opus_encoding_bitrate;
 } deployment_phase_t;
@@ -149,6 +150,18 @@ static time_scale_t parse_time_scale(const char *value)
       return DAYS;
    else
       return MINUTES;
+}
+
+static audio_filter_type_t parse_audio_filter_type(const char *value)
+{
+   if (memcmp(value, "LOW", sizeof("LOW")) == 0)
+      return FILTER_LOW_PASS;
+   else if (memcmp(value, "BAND", sizeof("BAND")) == 0)
+      return FILTER_BAND_PASS;
+   else if (memcmp(value, "HIGH", sizeof("HIGH")) == 0)
+      return FILTER_HIGH_PASS;
+   else
+      return FILTER_NONE;
 }
 
 static void parse_line(char *line, int32_t line_length)
@@ -283,6 +296,12 @@ static void parse_line(char *line, int32_t line_length)
    }
    else if (memcmp(key, "AUDIO_CLIP_LENGTH_SECONDS", sizeof("AUDIO_CLIP_LENGTH_SECONDS")-1) == 0)
       deployment_phases[phase].audio_clip_length = parse_uint(value);
+   else if (memcmp(key, "FILTER_TYPE", sizeof("FILTER_TYPE")-1) == 0)
+      deployment_phases[phase].audio_filter_type = parse_audio_filter_type(value);
+   else if (memcmp(key, "FILTER_LOW_FREQUENCY", sizeof("FILTER_LOW_FREQUENCY")-1) == 0)
+      deployment_phases[phase].audio_filter_range.min_frequency = parse_uint(value);
+   else if (memcmp(key, "FILTER_HIGH_FREQUENCY", sizeof("FILTER_HIGH_FREQUENCY")-1) == 0)
+      deployment_phases[phase].audio_filter_range.max_frequency = parse_uint(value);
    else if (memcmp(key, "IMU_RECORDING_MODE", sizeof("IMU_RECORDING_MODE")-1) == 0)
       deployment_phases[phase].imu_recording_mode = parse_imu_recording_mode(value);
    else if (memcmp(key, "IMU_DEGREES_OF_FREEDOM", sizeof("IMU_DEGREES_OF_FREEDOM")-1) == 0)
@@ -345,6 +364,9 @@ bool fetch_runtime_configuration(void)
       deployment_phases[i].max_audio_clips = 0;
       deployment_phases[i].max_clips_time_scale = HOURS;
       deployment_phases[i].num_audio_trigger_times = 0;
+      deployment_phases[i].audio_filter_type = FILTER_NONE;
+      deployment_phases[i].audio_filter_range.min_frequency = 0;
+      deployment_phases[i].audio_filter_range.max_frequency = 0;
       deployment_phases[i].frequencies_of_interest.min_frequency = 0;
       deployment_phases[i].frequencies_of_interest.max_frequency = 0;
    }
@@ -677,6 +699,16 @@ uint32_t config_get_imu_sampling_rate_hz(int32_t phase_index)
 float config_get_silence_filter_threshold(int32_t phase_index)
 {
    return deployment_phases[phase_index].silence_threshold;
+}
+
+audio_filter_type_t config_get_audio_filter_type(int32_t phase_index)
+{
+   return deployment_phases[phase_index].audio_filter_type;
+}
+
+frequency_range_t config_get_audio_filter_range(int32_t phase_index)
+{
+   return deployment_phases[phase_index].audio_filter_range;
 }
 
 frequency_range_t config_get_frequencies_of_interest(int32_t phase_index)

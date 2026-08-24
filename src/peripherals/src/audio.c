@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include "audio.h"
+#include "audio_filter.h"
 #include "battery.h"
 #include "comparator.h"
 #include "led.h"
@@ -762,6 +763,10 @@ bool audio_read_data(int16_t *buffer)
          for (uint32_t i = 0; i < num_samples_per_dma; ++i)
             buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
       }
+      // Band-limit after calibration, so the filter sees the same samples that would
+      // otherwise have been written. State carries across buffers, which is what keeps
+      // the response continuous over a clip rather than restarting at every DMA block.
+      audio_filter_apply(buffer, num_samples_per_dma);
       dma_complete = false;
       if (dma_buffers_pending)
          --dma_buffers_pending;
@@ -809,6 +814,7 @@ int16_t* audio_read_data_direct(void)
             }
          }
       }
+      audio_filter_apply(buffer, num_samples_per_dma);
       dma_complete = false;
       if (dma_buffers_pending)
          --dma_buffers_pending;
