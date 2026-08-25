@@ -116,7 +116,7 @@ int main(void)
    // Retrieve the runtime configuration from storage
    bool success = fetch_runtime_configuration();
    print("INFO: Fetching runtime configuration...%s\n", success ? "SUCCESS" : "FAILURE");
-   log_event("CONFIG", "result=%s,phases=%d", success ? "OK" : "FAIL",
+   log_event("CONFIG", "result=%s,phases=%d", !success ? "FAIL" : (config_was_corrected() ? "CORRECTED" : "OK"),
              (int)config_get_num_deployment_phases());
 
    // Record device identity and last-known state on every boot to keep current

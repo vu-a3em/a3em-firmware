@@ -21,6 +21,7 @@ typedef enum { SECONDS, MINUTES, HOURS, DAYS } time_scale_t;
 // Public API Functions ------------------------------------------------------------------------------------------------
 
 bool fetch_runtime_configuration(void);
+bool config_was_corrected(void);
 uint32_t config_get_activation_number(void);
 void config_increase_activation_number(void);
 void config_get_device_label(char *label, uint32_t max_size);

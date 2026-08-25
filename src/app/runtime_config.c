@@ -31,8 +31,8 @@ typedef struct {
 static char device_label[1 + MAX_DEVICE_LABEL_LEN];
 static uint32_t leds_active_seconds, vhf_start_timestamp, battery_level_low;
 static uint32_t magnetic_field_validation_length_ms, deactivation_forbidden_length_seconds, current_activation_number;
-static bool set_rtc_at_magnet_detect, vhf_enabled, leds_enabled, device_activated, gps_available, awake_on_magnet, config_malformed;
-static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES];
+static bool set_rtc_at_magnet_detect, vhf_enabled, leds_enabled, device_activated, gps_available, awake_on_magnet, config_corrected;
+static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES], discarded_phase;
 static int32_t num_deployment_phases, utc_offset, utc_offset_hour;
 static float microphone_amplification_db;
 static start_end_time_t deployment_time;
@@ -41,10 +41,10 @@ static audio_mic_type_t microphone_type;
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
-static void note_malformed(const char *detail)
+static void note_correction(const char *detail)
 {
-   config_malformed = true;
-   print("ERROR: Configuration file problem: %s\n", detail);
+   config_corrected = true;
+   print("WARNING: Configuration file problem: %s\n", detail);
 }
 
 static float parse_float(const char *value)
@@ -246,6 +246,92 @@ static audio_filter_type_t parse_audio_filter_type(const char *value)
       return FILTER_NONE;
 }
 
+static bool parse_phase_setting(const char *key, char *value, deployment_phase_t *phase)
+{
+   // Apply a phase-scoped setting to the given phase, returning whether the key names a phase setting at all
+   if (memcmp(key, "PHASE_START_TIME", sizeof("PHASE_START_TIME")-1) == 0)
+      phase->phase_time.start_time = parse_uint(value);
+   else if (memcmp(key, "PHASE_END_TIME", sizeof("PHASE_END_TIME")-1) == 0)
+      phase->phase_time.end_time = parse_uint(value);
+   else if (memcmp(key, "AUDIO_RECORDING_MODE", sizeof("AUDIO_RECORDING_MODE")-1) == 0)
+      phase->audio_recording_mode = parse_audio_recording_mode(value);
+   else if (memcmp(key, "AUDIO_EXTEND_CLIP", sizeof("AUDIO_EXTEND_CLIP")-1) == 0)
+      phase->extend_clip_if_continuous_audio = (memcmp(value, "True", sizeof("True")-1) == 0);
+   else if (memcmp(key, "AUDIO_MAX_CLIPS_NUMBER", sizeof("AUDIO_MAX_CLIPS_NUMBER")-1) == 0)
+      phase->max_audio_clips = parse_uint(value);
+   else if (memcmp(key, "AUDIO_MAX_CLIPS_TIME_SCALE", sizeof("AUDIO_MAX_CLIPS_TIME_SCALE")-1) == 0)
+      phase->max_clips_time_scale = parse_time_scale(value);
+   else if (memcmp(key, "AUDIO_TRIGGER_THRESHOLD", sizeof("AUDIO_TRIGGER_THRESHOLD")-1) == 0)
+      phase->audio_trigger_threshold = parse_float(value);
+   else if (memcmp(key, "AUDIO_TRIGGER_INTERVAL_TIME_SCALE", sizeof("AUDIO_TRIGGER_INTERVAL_TIME_SCALE")-1) == 0)
+      phase->audio_trigger_interval_time_scale = parse_time_scale(value);
+   else if (memcmp(key, "AUDIO_TRIGGER_INTERVAL", sizeof("AUDIO_TRIGGER_INTERVAL")-1) == 0)
+      phase->audio_trigger_interval = parse_uint(value);
+   else if (memcmp(key, "AUDIO_TRIGGER_SCHEDULE", sizeof("AUDIO_TRIGGER_SCHEDULE")-1) == 0)
+   {
+      // Refuse to overflow the schedule array
+      if (phase->num_audio_trigger_times >= MAX_AUDIO_TRIGGER_TIMES)
+      {
+         note_correction("more AUDIO_TRIGGER_SCHEDULE entries than the firmware supports - ignoring the extras");
+         return true;
+      }
+
+      // Locate the start/end separator
+      char *end_time = value;
+      const char *value_end = value + strlen(value);
+      while ((end_time < value_end) && (*end_time != '-'))
+         ++end_time;
+      if (end_time >= value_end)
+      {
+         note_correction("AUDIO_TRIGGER_SCHEDULE entry is missing its '-' separator - ignoring the entry");
+         return true;
+      }
+      *end_time = 0;
+      ++end_time;
+
+      // Parse the start and end times into the next available schedule entry
+      const uint32_t index = phase->num_audio_trigger_times;
+      phase->audio_trigger_times[index].start_time = parse_uint(value);
+      phase->audio_trigger_times[index].end_time = parse_uint(end_time);
+      ++phase->num_audio_trigger_times;
+   }
+   else if (memcmp(key, "AUDIO_SAMPLING_RATE_HZ", sizeof("AUDIO_SAMPLING_RATE_HZ")-1) == 0)
+   {
+      phase->audio_sampling_rate = parse_uint(value);
+      if (!phase->frequencies_of_interest.max_frequency)
+         phase->frequencies_of_interest.max_frequency = phase->audio_sampling_rate / 2;
+   }
+   else if (memcmp(key, "AUDIO_CLIP_LENGTH_SECONDS", sizeof("AUDIO_CLIP_LENGTH_SECONDS")-1) == 0)
+      phase->audio_clip_length = parse_uint(value);
+   else if (memcmp(key, "FILTER_TYPE", sizeof("FILTER_TYPE")-1) == 0)
+      phase->audio_filter_type = parse_audio_filter_type(value);
+   else if (memcmp(key, "FILTER_LOW_FREQUENCY", sizeof("FILTER_LOW_FREQUENCY")-1) == 0)
+      phase->audio_filter_range.min_frequency = parse_uint(value);
+   else if (memcmp(key, "FILTER_HIGH_FREQUENCY", sizeof("FILTER_HIGH_FREQUENCY")-1) == 0)
+      phase->audio_filter_range.max_frequency = parse_uint(value);
+   else if (memcmp(key, "IMU_RECORDING_MODE", sizeof("IMU_RECORDING_MODE")-1) == 0)
+      phase->imu_recording_mode = parse_imu_recording_mode(value);
+   else if (memcmp(key, "IMU_DEGREES_OF_FREEDOM", sizeof("IMU_DEGREES_OF_FREEDOM")-1) == 0)
+      phase->imu_degrees_of_freedom = (uint8_t)parse_uint(value);
+   else if (memcmp(key, "IMU_TRIGGER_THRESHOLD", sizeof("IMU_TRIGGER_THRESHOLD")-1) == 0)
+      phase->imu_trigger_threshold = parse_float(value);
+   else if (memcmp(key, "IMU_SAMPLING_RATE_HZ", sizeof("IMU_SAMPLING_RATE_HZ")-1) == 0)
+      phase->imu_sampling_rate = parse_uint(value);
+   else if (memcmp(key, "SILENCE_THRESHOLD", sizeof("SILENCE_THRESHOLD")-1) == 0)
+      phase->silence_threshold = parse_float(value);
+   else if (memcmp(key, "MIN_FREQUENCY", sizeof("MIN_FREQUENCY")-1) == 0)
+      phase->frequencies_of_interest.min_frequency = parse_uint(value);
+   else if (memcmp(key, "MAX_FREQUENCY", sizeof("MAX_FREQUENCY")-1) == 0)
+      phase->frequencies_of_interest.max_frequency = parse_uint(value);
+   else if (memcmp(key, "USE_OPUS", sizeof("USE_OPUS")-1) == 0)
+      phase->use_opus_encoding = (memcmp(value, "True", sizeof("True")-1) == 0);
+   else if (memcmp(key, "OPUS_BITRATE", sizeof("OPUS_BITRATE")-1) == 0)
+      phase->opus_encoding_bitrate = parse_int(value);
+   else
+      return false;
+   return true;
+}
+
 static void parse_line(char *line, int32_t line_length)
 {
    // Return if not a valid line
@@ -268,7 +354,7 @@ static void parse_line(char *line, int32_t line_length)
    {
       if ((num_deployment_phases + 1) >= MAX_NUM_DEPLOYMENT_PHASES)
       {
-         note_malformed("more [PHASE] sections than the firmware supports");
+         note_correction("more [PHASE] sections than the firmware supports - ignoring the extras");
          return;
       }
       ++num_deployment_phases;
@@ -286,7 +372,7 @@ static void parse_line(char *line, int32_t line_length)
    {
       const size_t value_len = strlen(value);
       if (value_len > MAX_DEVICE_LABEL_LEN)
-         note_malformed("DEVICE_LABEL is longer than the firmware supports and has been truncated");
+         note_correction("DEVICE_LABEL is longer than the firmware supports and has been truncated");
       memset(device_label, 0, sizeof(device_label));
       memcpy(device_label, value, MIN(value_len, (size_t)MAX_DEVICE_LABEL_LEN));
    }
@@ -322,86 +408,8 @@ static void parse_line(char *line, int32_t line_length)
       vhf_enabled = (memcmp(value, "NEVER", sizeof("NEVER")) != 0);
    else if (memcmp(key, "VHF_RADIO_START_TIME", sizeof("VHF_RADIO_START_TIME")-1) == 0)
       vhf_start_timestamp = parse_uint(value);
-   else if (!phase_valid)
-      note_malformed("phase setting appeared outside of a valid [PHASE] section");
-   else if (memcmp(key, "PHASE_START_TIME", sizeof("PHASE_START_TIME")-1) == 0)
-      deployment_phases[phase].phase_time.start_time = parse_uint(value);
-   else if (memcmp(key, "PHASE_END_TIME", sizeof("PHASE_END_TIME")-1) == 0)
-      deployment_phases[phase].phase_time.end_time = parse_uint(value);
-   else if (memcmp(key, "AUDIO_RECORDING_MODE", sizeof("AUDIO_RECORDING_MODE")-1) == 0)
-      deployment_phases[phase].audio_recording_mode = parse_audio_recording_mode(value);
-   else if (memcmp(key, "AUDIO_EXTEND_CLIP", sizeof("AUDIO_EXTEND_CLIP")-1) == 0)
-      deployment_phases[phase].extend_clip_if_continuous_audio = (memcmp(value, "True", sizeof("True")-1) == 0);
-   else if (memcmp(key, "AUDIO_MAX_CLIPS_NUMBER", sizeof("AUDIO_MAX_CLIPS_NUMBER")-1) == 0)
-      deployment_phases[phase].max_audio_clips = parse_uint(value);
-   else if (memcmp(key, "AUDIO_MAX_CLIPS_TIME_SCALE", sizeof("AUDIO_MAX_CLIPS_TIME_SCALE")-1) == 0)
-      deployment_phases[phase].max_clips_time_scale = parse_time_scale(value);
-   else if (memcmp(key, "AUDIO_TRIGGER_THRESHOLD", sizeof("AUDIO_TRIGGER_THRESHOLD")-1) == 0)
-      deployment_phases[phase].audio_trigger_threshold = parse_float(value);
-   else if (memcmp(key, "AUDIO_TRIGGER_INTERVAL_TIME_SCALE", sizeof("AUDIO_TRIGGER_INTERVAL_TIME_SCALE")-1) == 0)
-      deployment_phases[phase].audio_trigger_interval_time_scale = parse_time_scale(value);
-   else if (memcmp(key, "AUDIO_TRIGGER_INTERVAL", sizeof("AUDIO_TRIGGER_INTERVAL")-1) == 0)
-      deployment_phases[phase].audio_trigger_interval = parse_uint(value);
-   else if (memcmp(key, "AUDIO_TRIGGER_SCHEDULE", sizeof("AUDIO_TRIGGER_SCHEDULE")-1) == 0)
-   {
-      // Refuse to overflow the schedule array
-      if (deployment_phases[phase].num_audio_trigger_times >= MAX_AUDIO_TRIGGER_TIMES)
-      {
-         note_malformed("more AUDIO_TRIGGER_SCHEDULE entries than the firmware supports");
-         return;
-      }
-
-      // Locate the start/end separator
-      char *end_time = value;
-      const char *value_end = value + strlen(value);
-      while ((end_time < value_end) && (*end_time != '-'))
-         ++end_time;
-      if (end_time >= value_end)
-      {
-         note_malformed("AUDIO_TRIGGER_SCHEDULE entry is missing its '-' separator");
-         return;
-      }
-      *end_time = 0;
-      ++end_time;
-
-      // Parse the start and end times into the next available schedule entry
-      const uint32_t index = deployment_phases[phase].num_audio_trigger_times;
-      deployment_phases[phase].audio_trigger_times[index].start_time = parse_uint(value);
-      deployment_phases[phase].audio_trigger_times[index].end_time = parse_uint(end_time);
-      ++deployment_phases[phase].num_audio_trigger_times;
-   }
-   else if (memcmp(key, "AUDIO_SAMPLING_RATE_HZ", sizeof("AUDIO_SAMPLING_RATE_HZ")-1) == 0)
-   {
-      deployment_phases[phase].audio_sampling_rate = parse_uint(value);
-      if (!deployment_phases[phase].frequencies_of_interest.max_frequency)
-         deployment_phases[phase].frequencies_of_interest.max_frequency = deployment_phases[phase].audio_sampling_rate / 2;
-   }
-   else if (memcmp(key, "AUDIO_CLIP_LENGTH_SECONDS", sizeof("AUDIO_CLIP_LENGTH_SECONDS")-1) == 0)
-      deployment_phases[phase].audio_clip_length = parse_uint(value);
-   else if (memcmp(key, "FILTER_TYPE", sizeof("FILTER_TYPE")-1) == 0)
-      deployment_phases[phase].audio_filter_type = parse_audio_filter_type(value);
-   else if (memcmp(key, "FILTER_LOW_FREQUENCY", sizeof("FILTER_LOW_FREQUENCY")-1) == 0)
-      deployment_phases[phase].audio_filter_range.min_frequency = parse_uint(value);
-   else if (memcmp(key, "FILTER_HIGH_FREQUENCY", sizeof("FILTER_HIGH_FREQUENCY")-1) == 0)
-      deployment_phases[phase].audio_filter_range.max_frequency = parse_uint(value);
-   else if (memcmp(key, "IMU_RECORDING_MODE", sizeof("IMU_RECORDING_MODE")-1) == 0)
-      deployment_phases[phase].imu_recording_mode = parse_imu_recording_mode(value);
-   else if (memcmp(key, "IMU_DEGREES_OF_FREEDOM", sizeof("IMU_DEGREES_OF_FREEDOM")-1) == 0)
-      deployment_phases[phase].imu_degrees_of_freedom = (uint8_t)parse_uint(value);
-   else if (memcmp(key, "IMU_TRIGGER_THRESHOLD", sizeof("IMU_TRIGGER_THRESHOLD")-1) == 0)
-      deployment_phases[phase].imu_trigger_threshold = parse_float(value);
-   else if (memcmp(key, "IMU_SAMPLING_RATE_HZ", sizeof("IMU_SAMPLING_RATE_HZ")-1) == 0)
-      deployment_phases[phase].imu_sampling_rate = parse_uint(value);
-   else if (memcmp(key, "SILENCE_THRESHOLD", sizeof("SILENCE_THRESHOLD")-1) == 0)
-      deployment_phases[phase].silence_threshold = parse_float(value);
-   else if (memcmp(key, "MIN_FREQUENCY", sizeof("MIN_FREQUENCY")-1) == 0)
-      deployment_phases[phase].frequencies_of_interest.min_frequency = parse_uint(value);
-   else if (memcmp(key, "MAX_FREQUENCY", sizeof("MAX_FREQUENCY")-1) == 0)
-      deployment_phases[phase].frequencies_of_interest.max_frequency = parse_uint(value);
-   else if (memcmp(key, "USE_OPUS", sizeof("USE_OPUS")-1) == 0)
-      deployment_phases[phase].use_opus_encoding = (memcmp(value, "True", sizeof("True")-1) == 0);
-   else if (memcmp(key, "OPUS_BITRATE", sizeof("OPUS_BITRATE")-1) == 0)
-      deployment_phases[phase].opus_encoding_bitrate = parse_int(value);
+   else if (parse_phase_setting(key, value, phase_valid ? &deployment_phases[phase] : &discarded_phase) && !phase_valid)
+      note_correction("phase setting appeared outside of a valid [PHASE] section - ignoring the setting");
 }
 
 
@@ -457,7 +465,7 @@ bool fetch_runtime_configuration(void)
    // Open and parse the stored runtime configuration file
    int32_t line_length;
    char line_buffer[MAX_CFG_FILE_LINE_LENGTH];
-   config_malformed = false;
+   config_corrected = false;
    bool success = storage_open(CONFIG_FILE_NAME, false);
    if (!success)
       print("ERROR: Unable to open the configuration file %s\n", CONFIG_FILE_NAME);
@@ -484,13 +492,13 @@ bool fetch_runtime_configuration(void)
       {
          print("WARNING: Phase #%d sample rate %u Hz is out of range - using %u Hz\n", i+1, phase->audio_sampling_rate, AUDIO_DEFAULT_SAMPLING_RATE_HZ);
          phase->audio_sampling_rate = AUDIO_DEFAULT_SAMPLING_RATE_HZ;
-         config_malformed = true;
+         config_corrected = true;
       }
       if ((phase->audio_clip_length < AUDIO_MIN_CLIP_LENGTH_SECONDS) || (phase->audio_clip_length > AUDIO_MAX_CLIP_LENGTH_SECONDS))
       {
          print("WARNING: Phase #%d clip length %u s is out of range - using %u s\n", i+1, phase->audio_clip_length, AUDIO_DEFAULT_CLIP_LENGTH_SECONDS);
          phase->audio_clip_length = AUDIO_DEFAULT_CLIP_LENGTH_SECONDS;
-         config_malformed = true;
+         config_corrected = true;
       }
       if (!phase->imu_sampling_rate)
          phase->imu_sampling_rate = IMU_DEFAULT_SAMPLING_RATE_HZ;
@@ -498,12 +506,12 @@ bool fetch_runtime_configuration(void)
       {
          print("WARNING: Phase #%d is amplitude triggered but allows zero clips - allowing 1\n", i+1);
          phase->max_audio_clips = 1;
-         config_malformed = true;
+         config_corrected = true;
       }
       if ((phase->audio_recording_mode == SCHEDULED) && !phase->num_audio_trigger_times)
       {
-         print("WARNING: Phase #%d is schedule triggered but has no schedule entries\n", i+1);
-         config_malformed = true;
+         print("WARNING: Phase #%d is schedule triggered but has no schedule entries - it will record continuously\n", i+1);
+         config_corrected = true;
       }
 
       // Validate the frequency band used by the silence filter
@@ -515,7 +523,7 @@ bool fetch_runtime_configuration(void)
          print("WARNING: Phase #%d frequency band [%u, %u] Hz is inverted - disabling the silence filter\n", i+1, phase->frequencies_of_interest.min_frequency, phase->frequencies_of_interest.max_frequency);
          phase->frequencies_of_interest.min_frequency = 0;
          phase->silence_threshold = 0.0f;
-         config_malformed = true;
+         config_corrected = true;
       }
    }
 
@@ -530,11 +538,8 @@ bool fetch_runtime_configuration(void)
       print("ERROR: Deployment window is empty (start %u, end %u)\n", deployment_time.start_time, deployment_time.end_time);
       success = false;
    }
-   if (success && config_malformed)
-   {
-      print("WARNING: Configuration file contained errors that were corrected - review the settings\n");
-      success = false;
-   }
+   if (success && config_corrected)
+      print("WARNING: Configuration file contained problems that were corrected - review the settings\n");
 
    // Check whether the device is currently activated for the current deployment
    device_activated = mram_is_activated();
@@ -552,6 +557,11 @@ bool fetch_runtime_configuration(void)
 
    // Return whether configuration parsing was successful
    return success;
+}
+
+bool config_was_corrected(void)
+{
+   return config_corrected;
 }
 
 uint32_t config_get_activation_number(void)
