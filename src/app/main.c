@@ -72,6 +72,13 @@ static void magnet_sensor_activated(bool field_detected)
       magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated);
 }
 
+static void run_pre_deployment_recording(bool use_magnetic_activation)
+{
+   if (use_magnetic_activation)
+      magnet_sensor_register_callback(magnet_sensor_activated);
+   pre_active_main(&device_activated);
+}
+
 static void handle_magnetic_field(bool store_activated_result, bool store_deactivated_result)
 {
    // Validate a magnetic activation or deactivation
@@ -142,7 +149,7 @@ int main(void)
 
    // Ensure that the RTC has a usable (but "invalid") time so that it can function for sleeping/wake-up
    if (!rtc_is_valid())
-      rtc_set_time_from_timestamp(1604083082);
+      rtc_set_time_from_timestamp(RTC_PLACEHOLDER_TIMESTAMP);
 
    // Record why the device restarted, now that storage is available to receive it
    log_boot_reason();
@@ -226,6 +233,18 @@ int main(void)
             else
                rtc_set_time_to_compile_time();
             print("ERROR: RTC time appears to have been lost...setting to last known timestamp: %u\n", rtc_get_timestamp());
+
+            // If the RTC timestamp is not valid, fall back to the build time, and if that fails, accept the clock
+            if (!rtc_is_valid())
+            {
+               print("ERROR: Last known timestamp %u is not a plausible time - using the build time\n", last_known_timestamp);
+               rtc_set_time_to_compile_time();
+            }
+            if (!rtc_is_valid())
+            {
+               print("ERROR: Unable to establish any plausible RTC time - continuing with the clock as-is\n");
+               break;
+            }
          }
       }
 
@@ -242,7 +261,7 @@ int main(void)
       if (current_timestamp < config_get_deployment_start_time())
       {
          // Run continuous recording for 1 minute to allow user to make voice notes
-         pre_active_main(&device_activated);
+         run_pre_deployment_recording(use_magnetic_activation);
          current_timestamp = rtc_get_timestamp();
 
          // Go to sleep until deployment start time
@@ -304,7 +323,7 @@ int main(void)
             // If waiting for first phase, run pre-deployment recording activity
             if (!next_phase)
             {
-               pre_active_main(&device_activated);
+               run_pre_deployment_recording(use_magnetic_activation);
                current_timestamp = rtc_get_timestamp();
             }
 
@@ -323,7 +342,7 @@ int main(void)
             // If waiting for first phase, run pre-deployment recording activity
             if (!next_phase)
             {
-               pre_active_main(&device_activated);
+               run_pre_deployment_recording(use_magnetic_activation);
                current_timestamp = rtc_get_timestamp();
             }
 
@@ -354,14 +373,15 @@ int main(void)
       log_event("ACTIVATED", "activation=%u", config_get_activation_number() + 1);
       config_increase_activation_number();
 
-      // Verify the hardware before the deployment begins exactly once per activation
-      system_run_self_test();
       if (config_set_rtc_at_magnet_detect())
       {
          print("INFO: Setting RTC to the deployment start time: %u\n", config_get_deployment_start_time());
          mram_set_last_known_timestamp(config_get_deployment_start_time());
          rtc_set_time_from_timestamp(config_get_deployment_start_time());
       }
+
+      // Verify the hardware before the deployment begins exactly once per activation
+      system_run_self_test();
       system_delay(200000);
    }
 

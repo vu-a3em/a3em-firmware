@@ -123,6 +123,7 @@ static void validate_device_settings(uint32_t current_timestamp)
    storage_health_t storage_health;
    audio_get_stats(&audio_stats);
    storage_get_health(&storage_health);
+   const char *dcmp_note = !audio_stats.dcmp_applicable ? "" : (audio_stats.dcmp_trusted ? " (DCMP trusted)" : " (DCMP unproven)");
    print("INFO: Current Device Details:\n"
          "   UTC Timestamp: %u\n"
          "   Battery Voltage (mV): %u\n"
@@ -130,10 +131,10 @@ static void validate_device_settings(uint32_t current_timestamp)
          "   Location: [%0.6f, %0.6f, %0.2f]\n"
          "   LEDs Active: %s\n"
          "   VHF Active: %s\n"
-         "   Audio Buffers: %u captured (DCMP %s)\n",
+         "   Audio Buffers: %u captured%s\n",
          current_timestamp, battery_details.millivolts, battery_details.celcius,
          last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False",
-         audio_stats.buffers_captured, audio_stats.dcmp_trusted ? "trusted" : "unproven");
+         audio_stats.buffers_captured, dcmp_note);
 
    log_event("TELEM", "batt_mv=%u,temp_c=%0.2f,lat=%0.6f,lon=%0.6f,alt=%0.2f,"
                       "leds=%u,vhf=%u,sd_free_mb=%u,sd_write_fail=%u,sd_reopen=%u,sd_remount=%u,"

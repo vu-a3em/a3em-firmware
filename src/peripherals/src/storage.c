@@ -174,11 +174,14 @@ static bool wait_for_async_transfer(volatile bool *complete_flag)
          return true;
       am_hal_delay_us(10);
    }
+
+   // Sleep-wait for the rest (must be a NORMAL sleep to keep the peripheral clocked)
    for (uint32_t i = 0; i < ASYNC_SLEEP_ITERATIONS; ++i)
    {
       if (*complete_flag)
          return true;
-      am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);
+      system_feed_watchdog();
+      am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_NORMAL);
    }
    return *complete_flag;
 }

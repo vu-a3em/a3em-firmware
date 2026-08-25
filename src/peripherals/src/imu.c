@@ -990,6 +990,28 @@ void imu_enable_motion_change_detection(bool enable, float threshold_mg, motion_
 
 void imu_read_accel_data(float *accel_x_mg, float *accel_y_mg, float *accel_z_mg)
 {
+   // Ensure that the IMU is on and enabled
+   const bool already_streaming = (data_ready_callback != NULL);
+   lis2du12_md_t restore_mode = imu_mode;
+   if (!already_streaming)
+   {
+      imu_iom_wake();
+      imu_mode.fs = LIS2DU12_2g;
+      imu_mode.odr = LIS2DU12_100Hz;
+      const bool started = (lis2du12_mode_set(&imu_context, &imu_mode) == 0);
+      imu_iom_sleep();
+      if (!started)
+      {
+         print("WARNING: Unable to power on the accelerometer for a reading\n");
+         imu_mode = restore_mode;
+         *accel_x_mg = *accel_y_mg = *accel_z_mg = 0.0f;
+         return;
+      }
+
+      // Wait out the turn-on transient so that the registers hold a settled conversion
+      system_delay(IMU_ONE_SHOT_SETTLE_US);
+   }
+
    static lis2du12_data_t data;
    imu_iom_wake();
    lis2du12_data_get(&imu_context, &imu_mode, &data);
@@ -997,6 +1019,15 @@ void imu_read_accel_data(float *accel_x_mg, float *accel_y_mg, float *accel_z_mg
    *accel_x_mg = data.xl.mg[0];
    *accel_y_mg = data.xl.mg[1];
    *accel_z_mg = data.xl.mg[2];
+
+   // Return the sensor to whatever power state it was found in
+   if (!already_streaming)
+   {
+      imu_iom_wake();
+      imu_mode = restore_mode;
+      lis2du12_mode_set(&imu_context, &imu_mode);
+      imu_iom_sleep();
+   }
 }
 
 uint32_t imu_get_fifo_overrun_count(void)

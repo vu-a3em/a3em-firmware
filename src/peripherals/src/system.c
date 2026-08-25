@@ -624,7 +624,9 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
    system_deinitialize_peripherals();
 
    // Power down the crypto module followed by all peripherals
+#ifndef AM_DEBUG_PRINTF
    am_hal_pwrctrl_control(AM_HAL_PWRCTRL_CONTROL_CRYPTO_POWERDOWN, NULL);
+#endif
    am_hal_pwrctrl_control(AM_HAL_PWRCTRL_CONTROL_DIS_PERIPHS_ALL, NULL);
 
    // Optionally allow a change on the magnet sensor GPIO pin to wake up the device

@@ -57,6 +57,8 @@
 
 #define WATCHDOG_TIMEOUT_SECONDS                    120
 
+#define RTC_PLACEHOLDER_TIMESTAMP                   1546300800
+
 #define GPS_TIME_MAX_ATTEMPTS                       60
 #define LED_PATTERN_MAX_WAIT_WAKEUPS                200
 
@@ -228,6 +230,8 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define IMU_FIFO_WATERMARK                              96
 #define IMU_FIFO_MAX_LEVEL                              128
 #define IMU_FIFO_BURST_ENTRIES                          16
+
+#define IMU_ONE_SHOT_SETTLE_US                          60000
 
 #define IMU_MOTION_FULL_SCALE_MG                        2000.0f
 #define IMU_MOTION_THRESHOLD_STEPS                      255

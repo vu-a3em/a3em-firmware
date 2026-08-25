@@ -858,6 +858,7 @@ void audio_get_stats(audio_stats_t *stats)
    stats->buffers_dropped = stat_buffers_dropped;
    stats->missed_completions = stat_missed_completions;
    stats->dcmp_trusted = (dcmp_confidence >= AUDIO_DMA_DCMP_CONFIDENCE);
+   stats->dcmp_applicable = !is_digital_mic;
 }
 
 uint32_t audio_get_actual_sample_rate(void)
