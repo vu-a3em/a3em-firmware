@@ -155,6 +155,11 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 #define SELF_TEST_PASS_INDICATION_US                3000000
 #define SELF_TEST_FAIL_INDICATION_REPEATS           3
+#define SELF_TEST_FAIL_MARKER_US                    1500000
+#define SELF_TEST_FAIL_MARKER_GAP_US                1000000
+#define SELF_TEST_FAIL_BLINK_ON_US                  350000
+#define SELF_TEST_FAIL_BLINK_OFF_US                 650000
+#define SELF_TEST_FAIL_REPEAT_GAP_US                3000000
 
 
 // Interrupt Priorities ------------------------------------------------------------------------------------------------

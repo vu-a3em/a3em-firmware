@@ -393,16 +393,21 @@ static void indicate_result(self_test_result_t result)
       led_off(LED_GREEN);
       return;
    }
+   // Each repeat is one long red pulse that marks "a count follows", then one slow blink per subsystem number
    for (uint32_t repeat = 0; repeat < SELF_TEST_FAIL_INDICATION_REPEATS; ++repeat)
    {
+      led_on(LED_RED);
+      system_delay(SELF_TEST_FAIL_MARKER_US);
+      led_off(LED_RED);
+      system_delay(SELF_TEST_FAIL_MARKER_GAP_US);
       for (uint32_t blink = 0; blink < (uint32_t)result; ++blink)
       {
          led_on(LED_RED);
-         system_delay(250000);
+         system_delay(SELF_TEST_FAIL_BLINK_ON_US);
          led_off(LED_RED);
-         system_delay(250000);
+         system_delay(SELF_TEST_FAIL_BLINK_OFF_US);
       }
-      system_delay(1000000);
+      system_delay(SELF_TEST_FAIL_REPEAT_GAP_US);
    }
 }
 
@@ -619,9 +624,13 @@ self_test_result_t system_run_self_test(void)
    write_results(result, &health, storage_bytes, imu_magnitude_mg, battery, rtc_after);
    log_event("SELF_TEST_END", "result=%s,failed_subsystem=%d", (result == SELF_TEST_PASS) ? "PASS" : "FAIL", (int)result);
    storage_flush_log();
-   print("INFO: Self test %s%s - %s\n", (result == SELF_TEST_PASS) ? "PASSED" : "FAILED",
-         (result == SELF_TEST_PASS) ? "" : " on subsystem ",
-         (result == SELF_TEST_PASS) ? "solid green for 3 seconds" : "counting red flashes");
+   static const char *const subsystem_names[] = { "none", "MICROPHONE", "STORAGE", "IMU", "POWER/CLOCK" };
+   if (result == SELF_TEST_PASS)
+      print("INFO: Self test PASSED - solid green for 3 seconds\n");
+   else
+      print("ERROR: Self test FAILED on subsystem %d (%s) - long red pulse then %d red blink(s), repeated %d times\n",
+            (int)result, subsystem_names[(uint32_t)result < 5 ? (uint32_t)result : 0],
+            (int)result, (int)SELF_TEST_FAIL_INDICATION_REPEATS);
    indicate_result(result);
    leds_enable(leds_were_enabled);
    return result;

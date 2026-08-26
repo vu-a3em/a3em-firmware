@@ -246,6 +246,10 @@ int main(void)
          }
       }
 
+      // Verify the hardware once per activation on the first boot after the magnet confirmed it
+      if (system_get_boot_info()->software_reason == RESET_REASON_ACTIVATED)
+         system_run_self_test();
+
       // Determine if the VHF radio should already be active
       print("INFO: Device is ACTIVATED\n");
       print("INFO: Current activation is #%u\n", config_get_activation_number());
@@ -378,8 +382,6 @@ int main(void)
          rtc_set_time_from_timestamp(config_get_deployment_start_time());
       }
 
-      // Verify the hardware before the deployment begins exactly once per activation
-      system_run_self_test();
       system_delay(200000);
    }
 
