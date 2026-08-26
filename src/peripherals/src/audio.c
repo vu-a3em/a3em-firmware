@@ -42,8 +42,8 @@ static void *audio_handle;
 static float pga_gain_db;
 static bool is_digital_mic;
 static audio_trigger_t trigger_criterion;
-static uint32_t health_num_samples, health_num_rms_samples, health_stride_phase, dma_period_ms;
-static uint32_t num_audio_channels, sampling_rate_hz, dc_offset, num_samples_per_dma, actual_sample_rate_hz;
+static uint32_t health_num_samples, health_num_rms_samples, health_stride_phase, dma_period_ms, num_audio_channels;
+static uint32_t sampling_rate_hz, dc_offset, num_samples_per_dma, actual_sample_rate_hz, dma_period_limit_samples;
 static volatile bool dma_complete = false, dma_error = false, adc_awake, tail_window_open, backstop_running;
 static volatile uint32_t stat_buffers_captured, stat_buffers_dropped, stat_missed_completions;
 static volatile uint32_t dma_buffers_pending, dcmp_confidence, skip_samples;
@@ -322,6 +322,8 @@ static bool compute_dma_period(uint32_t buffer_max_samples, uint32_t sample_rate
       while ((max_seconds_per_dma > 1) && (clip_length_seconds % max_seconds_per_dma))
          --max_seconds_per_dma;
    num_samples_per_dma = max_seconds_per_dma * sample_rate_hz;
+   if (dma_period_limit_samples && (dma_period_limit_samples < num_samples_per_dma))
+      num_samples_per_dma = dma_period_limit_samples;
    dma_period_ms = (uint32_t)(((uint64_t)num_samples_per_dma * 1000u) / sample_rate_hz);
    memset(sample_buffer, 0, 2 * num_samples_per_dma * sizeof(sample_buffer[0]));
    return true;
@@ -852,6 +854,18 @@ int16_t* audio_read_data_direct(void)
 uint32_t audio_num_seconds_per_dma(void)
 {
    return sampling_rate_hz ? (num_samples_per_dma / sampling_rate_hz) : 0;
+}
+
+uint32_t audio_num_samples_per_dma(void)
+{
+   // Sample-accurate counterpart to audio_num_seconds_per_dma(), which rounds to zero below a second
+   return num_samples_per_dma;
+}
+
+void audio_set_dma_period_limit(uint32_t max_samples)
+{
+   // Takes effect at the next init; pass zero to go back to the full clip-derived period
+   dma_period_limit_samples = max_samples;
 }
 
 void audio_get_stats(audio_stats_t *stats)

@@ -142,6 +142,8 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define SELF_TEST_AUDIO_CLIP_LENGTH_SECONDS         60
 #define SELF_TEST_MIC_MAX_PLAUSIBLE_RMS             12000
 #define SELF_TEST_LIVE_LEVEL_THRESHOLD              600
+#define SELF_TEST_LEVEL_UPDATE_MS                   100
+#define SELF_TEST_LEVEL_HOLD_MS                     250
 
 #define SELF_TEST_STORAGE_BYTES                     4096
 

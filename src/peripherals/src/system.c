@@ -268,19 +268,27 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
 {
    // Record a short window, tracking the level on the green LED as it goes
    const uint32_t sample_rate = SELF_TEST_AUDIO_SAMPLE_RATE_HZ, clip_length = SELF_TEST_AUDIO_CLIP_LENGTH_SECONDS;
+
+   // Cap the DMA buffer so the tap indicator is responsive
+   audio_set_dma_period_limit((sample_rate * SELF_TEST_LEVEL_UPDATE_MS) / 1000u);
    const bool audio_ready = (config_get_mic_type() == MIC_ANALOG) ?
          audio_analog_init(AUDIO_NUM_CHANNELS, sample_rate, clip_length, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f, NULL) :
          audio_digital_init(AUDIO_NUM_CHANNELS, sample_rate, clip_length, config_get_mic_amplification_db());
+   audio_set_dma_period_limit(0);
    if (!audio_ready)
    {
       print("ERROR: Unable to configure audio for the microphone test\n");
       log_event("SELF_TEST_DETAIL", "check=MICROPHONE,result=FAIL_INIT");
       return false;
    }
-   const uint32_t samples_per_buffer = audio_num_seconds_per_dma() * sample_rate;
+   const uint32_t samples_per_buffer = audio_num_samples_per_dma();
+   const uint32_t total_samples_wanted = (uint32_t)SELF_TEST_AUDIO_SECONDS * sample_rate;
+   const uint32_t hold_buffers = samples_per_buffer ?
+         ((((SELF_TEST_LEVEL_HOLD_MS * sample_rate) / 1000u) + samples_per_buffer - 1u) / samples_per_buffer) : 1u;
    audio_health_reset();
-   log_event("SELF_TEST_DETAIL", "check=MICROPHONE,phase=CONFIG,requested_hz=%u,actual_hz=%u,seconds_per_dma=%u,samples_per_buffer=%u",
-             sample_rate, audio_get_actual_sample_rate(), audio_num_seconds_per_dma(), samples_per_buffer);
+   log_event("SELF_TEST_DETAIL", "check=MICROPHONE,phase=CONFIG,requested_hz=%u,actual_hz=%u,samples_per_buffer=%u,buffer_ms=%u",
+             sample_rate, audio_get_actual_sample_rate(), samples_per_buffer,
+             sample_rate ? ((samples_per_buffer * 1000u) / sample_rate) : 0u);
 
    // Announce the listening window: three quick green flashes mean "tap the housing now"
    print("INFO: Self test - listening for %u seconds, tap the microphone now\n", (uint32_t)SELF_TEST_AUDIO_SECONDS);
@@ -298,7 +306,8 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
    audio_begin_reading();
    int16_t *buffer;
    bool audio_failed = false;
-   for (uint32_t captured = 0; captured < SELF_TEST_AUDIO_SECONDS; )
+   uint32_t hold_remaining = 0;
+   for (uint32_t captured = 0; captured < total_samples_wanted; )
    {
       if (audio_error_encountered())
       {
@@ -311,8 +320,7 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
          if (file_open)
             storage_write_audio(buffer, sizeof(int16_t) * samples_per_buffer, false);
 
-         // Live level feedback: the LED follows the loudest sample in this buffer, so
-         // tapping the housing produces a visible response within about a second.
+         // Live level feedback: the LED follows the loudest sample in this buffer
          int32_t peak = 0;
          for (uint32_t i = 0; i < samples_per_buffer; ++i)
          {
@@ -320,12 +328,19 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
             if (magnitude > peak)
                peak = magnitude;
          }
+
+         // Latch the indicator on briefly so a single sharp tap stays visible instead of flashing
          if (peak > SELF_TEST_LIVE_LEVEL_THRESHOLD)
+            hold_remaining = hold_buffers;
+         if (hold_remaining)
+         {
             led_on(LED_GREEN);
+            --hold_remaining;
+         }
          else
             led_off(LED_GREEN);
 
-         captured += audio_num_seconds_per_dma();
+         captured += samples_per_buffer;
       }
       else
          system_enter_deep_sleep_mode();

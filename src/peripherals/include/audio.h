@@ -42,6 +42,8 @@ bool audio_error_encountered(void);
 bool audio_read_data(int16_t *buffer);
 int16_t* audio_read_data_direct(void);
 uint32_t audio_num_seconds_per_dma(void);
+uint32_t audio_num_samples_per_dma(void);
+void audio_set_dma_period_limit(uint32_t max_samples);
 void audio_get_stats(audio_stats_t *stats);
 uint32_t audio_get_actual_sample_rate(void);
 void audio_health_reset(void);
