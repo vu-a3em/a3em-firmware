@@ -903,6 +903,7 @@ audio_health_t audio_health_get(void)
 
    // Collect statistics from the captured audio samples
    health.num_samples = health_num_samples;
+   health.num_rms_samples = health_num_rms_samples;
    health.min_sample = health_min_sample;
    health.max_sample = health_max_sample;
    const int64_t rms_count = health_num_rms_samples ? (int64_t)health_num_rms_samples : 1;

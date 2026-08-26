@@ -31,6 +31,9 @@ static uint32_t first_hal_failure_line, first_hal_failure_status;
 static bool watchdog_running, sram_active_in_deep_sleep;
 static uint8_t storage_pattern[SELF_TEST_STORAGE_BYTES];
 
+__attribute__((section(".shared"), aligned(32)))
+static int16_t self_test_audio[SELF_TEST_AUDIO_BUFFER_SAMPLES];
+
 #if ENABLE_CACHE_MONITOR
 static uint64_t cache_total_accesses, cache_total_hits, cache_total_line_hits;
 #endif
@@ -282,6 +285,13 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
       return false;
    }
    const uint32_t samples_per_buffer = audio_num_samples_per_dma();
+   if (!samples_per_buffer || (samples_per_buffer > SELF_TEST_AUDIO_BUFFER_SAMPLES))
+   {
+      print("ERROR: Microphone test buffer is %u samples but only %u fit\n", samples_per_buffer, (uint32_t)SELF_TEST_AUDIO_BUFFER_SAMPLES);
+      log_event("SELF_TEST_DETAIL", "check=MICROPHONE,result=FAIL_BUFFER,samples=%u", samples_per_buffer);
+      audio_deinit();
+      return false;
+   }
    const uint32_t total_samples_wanted = (uint32_t)SELF_TEST_AUDIO_SECONDS * sample_rate;
    const uint32_t hold_buffers = samples_per_buffer ?
          ((((SELF_TEST_LEVEL_HOLD_MS * sample_rate) / 1000u) + samples_per_buffer - 1u) / samples_per_buffer) : 1u;
@@ -304,7 +314,6 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
    // Save the clip so the microphone port can be confirmed open by ear
    const bool file_open = storage_open_named_wav_file(SELF_TEST_CLIP_FILE_NAME, AUDIO_NUM_CHANNELS, sample_rate);
    audio_begin_reading();
-   int16_t *buffer;
    bool audio_failed = false;
    uint32_t hold_remaining = 0;
    for (uint32_t captured = 0; captured < total_samples_wanted; )
@@ -315,16 +324,14 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
          audio_failed = true;
          break;
       }
-      if (audio_data_available() && (buffer = audio_read_data_direct()))
+      // Take a private copy of the buffer first
+      if (audio_data_available() && audio_read_data(self_test_audio))
       {
-         if (file_open)
-            storage_write_audio(buffer, sizeof(int16_t) * samples_per_buffer, false);
-
          // Live level feedback: the LED follows the loudest sample in this buffer
          int32_t peak = 0;
          for (uint32_t i = 0; i < samples_per_buffer; ++i)
          {
-            const int32_t magnitude = (buffer[i] < 0) ? -(int32_t)buffer[i] : (int32_t)buffer[i];
+            const int32_t magnitude = (self_test_audio[i] < 0) ? -(int32_t)self_test_audio[i] : (int32_t)self_test_audio[i];
             if (magnitude > peak)
                peak = magnitude;
          }
@@ -340,6 +347,9 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
          else
             led_off(LED_GREEN);
 
+         // The stored clip comes from the same copy the level and the health statistics saw
+         if (file_open)
+            storage_write_audio(self_test_audio, sizeof(int16_t) * samples_per_buffer, false);
          captured += samples_per_buffer;
       }
       else
@@ -450,6 +460,7 @@ static void write_results(self_test_result_t result, const audio_health_t *healt
    WRITE_RESULT("MIC_TYPE = \"%s\"", (config_get_mic_type() == MIC_ANALOG) ? "ANALOG" : "DIGITAL");
    WRITE_RESULT("MIC_RESULT = \"%s\"", (result == SELF_TEST_FAIL_MICROPHONE) ? "FAIL" : (health->silent ? "PASS_SILENT" : "PASS"));
    WRITE_RESULT("MIC_RMS = \"%u\"", (unsigned)health->rms);
+   WRITE_RESULT("MIC_RMS_SAMPLES = \"%u\"", (unsigned)health->num_rms_samples);
    WRITE_RESULT("MIC_PEAK = \"%u\"", (unsigned)health->peak);
    WRITE_RESULT("MIC_MIN = \"%d\"", (int)health->min_sample);
    WRITE_RESULT("MIC_MAX = \"%d\"", (int)health->max_sample);

@@ -25,6 +25,7 @@ typedef struct {
    uint32_t rms;                 // signal level
    uint32_t peak;                // largest absolute excursion
    uint32_t num_samples;
+   uint32_t num_rms_samples;    // Samples actually folded into rms/mean; equals num_samples at stride 1
    bool constant_output;         // every sample identical: a stuck or dead signal path
    bool silent;                  // no excursion beyond the noise floor
 } audio_health_t;

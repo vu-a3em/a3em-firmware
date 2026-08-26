@@ -12,6 +12,7 @@
 // Private Peripheral Type Definitions ---------------------------------------------------------------------------------
 
 #define EARLY_LOG_MAX_BYTES     4096
+#define EVENT_PAYLOAD_MAX_BYTES 384
 
 // Whether SD transfers wait on the SDIO completion interrupt instead of polling the controller
 // The interrupt-driven path has been observed to lose completions on this hardware, which is unrecoverable
@@ -1118,15 +1119,24 @@ void storage_write_log(const char *fmt, ...)
 void storage_write_event(const char *code, const char *fmt, ...)
 {
    // Emit a machine-readable event line alongside the human-readable log: EVT|<CODE>|key=value,key=value
+   va_list args;
    if (log_open)
    {
       storage_write_log("EVT|%s|", code);
-      va_list args;
       va_start(args, fmt);
       f_vprintf(&log_file, fmt, args);
       va_end(args);
       storage_write_log("\n");
+      return;
    }
+
+   // No log file yet, use the early log buffer to store the event line
+   static char payload[EVENT_PAYLOAD_MAX_BYTES];
+   va_start(args, fmt);
+   am_util_stdio_vsnprintf(payload, sizeof(payload), fmt, args);
+   va_end(args);
+   payload[sizeof(payload) - 1] = 0;
+   storage_write_log("EVT|%s|%s\n", code, payload);
 }
 
 void storage_flush_log(void)
