@@ -323,6 +323,7 @@ static bool compute_dma_period(uint32_t buffer_max_samples, uint32_t sample_rate
          --max_seconds_per_dma;
    num_samples_per_dma = max_seconds_per_dma * sample_rate_hz;
    dma_period_ms = (uint32_t)(((uint64_t)num_samples_per_dma * 1000u) / sample_rate_hz);
+   memset(sample_buffer, 0, 2 * num_samples_per_dma * sizeof(sample_buffer[0]));
    return true;
 }
 

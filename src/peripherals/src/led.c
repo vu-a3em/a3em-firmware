@@ -299,15 +299,14 @@ void led_indicate_missing_config_file(void)
    led_pattern_start(&pattern);
 }
 
-void led_indicate_magnet_presence(bool field_present)
+void led_indicate_magnet_presence(bool field_present, bool device_activated)
 {
    // Immediate "field detected, keep holding" feedback, deliberately ungated
    if (!pattern_running)
    {
+      led_off(LED_ALL);
       if (field_present)
-         led_on(LED_ALL);
-      else
-         led_off(LED_ALL);
+         led_on(device_activated ? LED_GREEN : LED_RED);
    }
 }
 

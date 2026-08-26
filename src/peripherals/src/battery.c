@@ -12,8 +12,8 @@
 static bool battery_low_latched, tempco_available;
 static am_hal_adc_sample_t temperature_samples_raw[BATTERY_NUM_SAMPLES];
 static volatile uint32_t battery_voltage_code, temperature_code, temperature_samples_raw_count;
+static uint32_t consecutive_low_readings, last_tempco_timestamp;
 static volatile bool conversion_complete;
-static uint32_t consecutive_low_readings;
 static void *adc_handle;
 
 
@@ -235,6 +235,15 @@ battery_result_t battery_monitor_get_details(void)
    if (am_hal_adc_control(adc_handle, AM_HAL_ADC_REQ_TEMP_CELSIUS_GET, temperature_codes) == AM_HAL_STATUS_SUCCESS)
       result.celcius = temperature_codes[1];
    return result;
+}
+
+void battery_monitor_service_tempco(uint32_t current_timestamp)
+{
+   // Refresh the TEMPCO voltage trim if it is due
+   if (!tempco_available || !adc_handle || (last_tempco_timestamp && ((current_timestamp - last_tempco_timestamp) < TEMPCO_UPDATE_INTERVAL_SECONDS)))
+      return;
+   last_tempco_timestamp = current_timestamp;
+   battery_monitor_get_details();
 }
 
 bool battery_monitor_is_critically_low(uint32_t threshold_millivolts)

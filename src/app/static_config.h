@@ -36,6 +36,8 @@
 #define MAX_NUM_DEPLOYMENT_PHASES                   6
 #define MAX_CFG_FILE_LINE_LENGTH                    80
 #define MIN_LOG_DATA_INTERVAL_SECONDS               300
+
+#define TEMPCO_UPDATE_INTERVAL_SECONDS              10
 #define NUM_HOURS_PER_AUDIO_DIRECTORY               4
 #define AUDIO_BUFFER_MAX_SIZE                       65536
 #define NUM_SECONDS_PER_AUDIO_DIRECTORY             (NUM_HOURS_PER_AUDIO_DIRECTORY * 60 * 60)

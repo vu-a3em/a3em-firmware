@@ -25,6 +25,7 @@ typedef struct { uint32_t millivolts; float celcius; bool valid; } battery_resul
 void battery_monitor_init(void);
 void battery_monitor_deinit(void);
 battery_result_t battery_monitor_get_details(void);
+void battery_monitor_service_tempco(uint32_t current_timestamp);
 bool battery_monitor_is_critically_low(uint32_t threshold_millivolts);
 void battery_monitor_reset_low_state(void);
 

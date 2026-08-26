@@ -32,7 +32,7 @@ static bool watchdog_running, sram_active_in_deep_sleep;
 static uint8_t storage_pattern[SELF_TEST_STORAGE_BYTES];
 
 #if ENABLE_CACHE_MONITOR
-static uint64_t cache_total_accesses, cache_total_hits;
+static uint64_t cache_total_accesses, cache_total_hits, cache_total_line_hits;
 #endif
 
 
@@ -268,21 +268,41 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
 {
    // Record a short window, tracking the level on the green LED as it goes
    const uint32_t sample_rate = SELF_TEST_AUDIO_SAMPLE_RATE_HZ;
-   if (config_get_mic_type() == MIC_ANALOG)
-      audio_analog_init(AUDIO_NUM_CHANNELS, sample_rate, 1, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f, NULL);
-   else
-      audio_digital_init(AUDIO_NUM_CHANNELS, sample_rate, 1, config_get_mic_amplification_db());
+   const bool audio_ready = (config_get_mic_type() == MIC_ANALOG) ?
+         audio_analog_init(AUDIO_NUM_CHANNELS, sample_rate, 1, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f, NULL) :
+         audio_digital_init(AUDIO_NUM_CHANNELS, sample_rate, 1, config_get_mic_amplification_db());
+   if (!audio_ready)
+   {
+      print("ERROR: Unable to configure audio for the microphone test\n");
+      log_event("SELF_TEST_DETAIL", "check=MICROPHONE,result=FAIL_INIT");
+      return false;
+   }
    const uint32_t samples_per_buffer = audio_num_seconds_per_dma() * sample_rate;
    audio_health_reset();
+
+   // Announce the listening window: three quick green flashes mean "tap the housing now"
+   print("INFO: Self test - listening for %u seconds, tap the microphone now\n", (uint32_t)SELF_TEST_AUDIO_SECONDS);
+   for (uint32_t flash = 0; flash < 3; ++flash)
+   {
+      led_on(LED_GREEN);
+      system_delay(120000);
+      led_off(LED_GREEN);
+      system_delay(120000);
+   }
 
    // Save the clip so the microphone port can be confirmed open by ear
    const bool file_open = storage_open_named_wav_file(SELF_TEST_CLIP_FILE_NAME, AUDIO_NUM_CHANNELS, sample_rate);
    audio_begin_reading();
    int16_t *buffer;
+   bool audio_failed = false;
    for (uint32_t captured = 0; captured < SELF_TEST_AUDIO_SECONDS; )
    {
       if (audio_error_encountered())
+      {
+         print("ERROR: Audio DMA error during the microphone test\n");
+         audio_failed = true;
          break;
+      }
       if (audio_data_available() && (buffer = audio_read_data_direct()))
       {
          if (file_open)
@@ -314,6 +334,11 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
    audio_deinit();
 
    *health = audio_health_get();
+   if (audio_failed)
+   {
+      log_event("SELF_TEST_DETAIL", "check=MICROPHONE,result=FAIL_DMA");
+      return false;
+   }
 
    // A constant output means the signal path is dead
    if (health->constant_output)
@@ -542,15 +567,18 @@ self_test_result_t system_run_self_test(void)
    const uint32_t rtc_before = rtc_get_timestamp();
 
    // Storage first: everything after this requires somewhere to record results
+   print("INFO: Self test - checking storage\n");
    uint32_t storage_bytes = 0;
    const bool storage_ok = test_storage(&storage_bytes);
    log_event("SELF_TEST_DETAIL", "check=STORAGE,result=%s,bytes=%u",  storage_ok ? "PASS" : "FAIL", storage_bytes);
+   print("INFO: Self test - checking accelerometer\n");
    float imu_magnitude_mg = 0.0f;
    const bool imu_ok = test_imu(&imu_magnitude_mg);
    log_event("SELF_TEST_DETAIL", "check=IMU,result=%s,magnitude_mg=%d", imu_ok ? "PASS" : "FAIL", (int)imu_magnitude_mg);
    audio_health_t health = { 0 };
    const bool microphone_ok = test_microphone(activation_number, device_label, &health);
    log_event("SELF_TEST_DETAIL", "check=MICROPHONE,result=%s,rms=%u,peak=%u,silent=%s", microphone_ok ? "PASS" : "FAIL", health.rms, health.peak, health.silent ? "True" : "False");
+   print("INFO: Self test - checking power and clock\n");
    const battery_result_t battery = battery_monitor_get_details();
    const uint32_t rtc_after = rtc_get_timestamp();
    const bool power_ok = test_power_and_clock(rtc_before, rtc_after, battery);
@@ -569,6 +597,9 @@ self_test_result_t system_run_self_test(void)
    write_results(result, &health, storage_bytes, imu_magnitude_mg, battery, rtc_after);
    log_event("SELF_TEST_END", "result=%s,failed_subsystem=%d", (result == SELF_TEST_PASS) ? "PASS" : "FAIL", (int)result);
    storage_flush_log();
+   print("INFO: Self test %s%s - %s\n", (result == SELF_TEST_PASS) ? "PASSED" : "FAILED",
+         (result == SELF_TEST_PASS) ? "" : " on subsystem ",
+         (result == SELF_TEST_PASS) ? "solid green for 3 seconds" : "counting red flashes");
    indicate_result(result);
    leds_enable(leds_were_enabled);
    return result;
@@ -769,15 +800,17 @@ void system_release_sram_retention(void)
 void system_accumulate_cache_stats(void)
 {
 #if ENABLE_CACHE_MONITOR
-   uint32_t accesses = 0, hits = 0;
+   uint32_t accesses = 0, hits = 0, line_hits = 0;
    AM_CRITICAL_BEGIN
    accesses = CPU->IMON0;
    hits = CPU->IMON2;
+   line_hits = CPU->IMON3;
    CPU->CACHECTRL = CPU_CACHECTRL_RESETSTAT_Msk;
    am_hal_sysctrl_sysbus_write_flush();
    AM_CRITICAL_END
    cache_total_accesses += accesses;
    cache_total_hits += hits;
+   cache_total_line_hits += line_hits;
 #endif
 }
 
@@ -785,9 +818,10 @@ bool system_get_cache_stats(uint64_t *accesses, uint64_t *hits, float *hit_rate_
 {
 #if ENABLE_CACHE_MONITOR
    system_accumulate_cache_stats();
+   const uint64_t served = cache_total_hits + cache_total_line_hits;
    *accesses = cache_total_accesses;
-   *hits = cache_total_hits;
-   *hit_rate_percent = cache_total_accesses ? ((100.0f * (float)cache_total_hits) / (float)cache_total_accesses) : 0.0f;
+   *hits = served;
+   *hit_rate_percent = cache_total_accesses ? ((100.0f * (float)served) / (float)cache_total_accesses) : 0.0f;
    return true;
 #else
    *accesses = *hits = 0;

@@ -229,8 +229,14 @@ static void log_effective_configuration(void)
             print("         %u-%u\n", phase->audio_trigger_times[w].start_time, phase->audio_trigger_times[w].end_time);
       }
       print("      Filter: %s %u-%u Hz\n", audio_filter_type_name(phase->audio_filter_type), phase->audio_filter_range.min_frequency, phase->audio_filter_range.max_frequency);
-      print("      Frequencies: %u-%u Hz, silence threshold %d/1000\n", phase->frequencies_of_interest.min_frequency, phase->frequencies_of_interest.max_frequency, (int)(phase->silence_threshold * 1000.0f));
-      print("      IMU: %s, %u Hz, %u DoF, motion threshold %d mg\n", imu_mode_name(phase->imu_recording_mode), phase->imu_sampling_rate, phase->imu_degrees_of_freedom, (int)phase->imu_trigger_threshold);
+      if (phase->silence_threshold > 0.0f)
+         print("      Frequencies: %u-%u Hz, silence below %d/1000 of full scale\n", phase->frequencies_of_interest.min_frequency, phase->frequencies_of_interest.max_frequency, (int)(phase->silence_threshold * 1000.0f));
+      else
+         print("      Frequencies: %u-%u Hz, silence filter OFF\n", phase->frequencies_of_interest.min_frequency, phase->frequencies_of_interest.max_frequency);
+      if (phase->imu_recording_mode == ACTIVITY)
+         print("      IMU: %s, %u Hz, %u DoF, motion threshold %d mg\n", imu_mode_name(phase->imu_recording_mode), phase->imu_sampling_rate, phase->imu_degrees_of_freedom, (int)phase->imu_trigger_threshold);
+      else
+         print("      IMU: %s, %u Hz, %u DoF\n", imu_mode_name(phase->imu_recording_mode), phase->imu_sampling_rate, phase->imu_degrees_of_freedom);
    }
 }
 

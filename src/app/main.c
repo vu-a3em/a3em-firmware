@@ -65,7 +65,7 @@ static void magnet_sensor_validated(bool validated)
 static void magnet_sensor_activated(bool field_detected)
 {
    // Indicate magnetic field presence via LED and begin verification
-   led_indicate_magnet_presence(field_detected);
+   led_indicate_magnet_presence(field_detected, device_activated);
    if (field_detected)
       magnet_sensor_verify_field(config_get_magnetic_field_validation_length(), magnet_sensor_validated);
 }

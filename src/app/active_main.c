@@ -123,33 +123,21 @@ static void validate_device_settings(uint32_t current_timestamp)
    storage_health_t storage_health;
    audio_get_stats(&audio_stats);
    storage_get_health(&storage_health);
-   const char *dcmp_note = !audio_stats.dcmp_applicable ? "" : (audio_stats.dcmp_trusted ? " (DCMP trusted)" : " (DCMP unproven)");
-   print("INFO: Current Device Details:\n"
-         "   UTC Timestamp: %u\n"
-         "   Battery Voltage (mV): %u\n"
-         "   Temperature (C): %0.2f\n"
-         "   Location: [%0.6f, %0.6f, %0.2f]\n"
-         "   LEDs Active: %s\n"
-         "   VHF Active: %s\n"
-         "   Audio Buffers: %u captured%s\n",
-         current_timestamp, battery_details.millivolts, battery_details.celcius,
-         last_lat, last_lon, last_height, leds_are_enabled() ? "True" : "False", vhf_activated() ? "True" : "False",
-         audio_stats.buffers_captured, dcmp_note);
-
-   log_event("TELEM", "batt_mv=%u,temp_c=%0.2f,lat=%0.6f,lon=%0.6f,alt=%0.2f,"
+   uint64_t cache_accesses = 0, cache_served = 0;
+   float cache_hit_rate = 0.0f;
+   const bool cache_valid = system_get_cache_stats(&cache_accesses, &cache_served, &cache_hit_rate);
+   log_event("TELEM", "time=%u,batt_mv=%u,temp_c=%0.2f,lat=%0.6f,lon=%0.6f,alt=%0.2f,"
                       "leds=%u,vhf=%u,sd_free_mb=%u,sd_write_fail=%u,sd_reopen=%u,sd_remount=%u,"
-                      "imu_dropped=%u,audio_dropped=%u",
-             battery_details.millivolts, battery_details.celcius, last_lat, last_lon, last_height,
+                      "imu_dropped=%u,audio_dropped=%u,audio_buffers=%u,dcmp=%s,"
+                      "icache_accesses=%llu,icache_served=%llu,icache_hit_pct=%0.2f",
+             current_timestamp, battery_details.millivolts, battery_details.celcius, last_lat, last_lon, last_height,
              leds_are_enabled() ? 1u : 0u, vhf_activated() ? 1u : 0u,
              storage_get_free_space_mb(), storage_health.write_failures,
              storage_health.reopen_recoveries, storage_health.remount_recoveries,
-             storage_health.imu_buffers_dropped, audio_stats.buffers_dropped);
-
-   // Report the instruction cache hit rate, which is what decides the cache sizing question
-   uint64_t cache_accesses = 0, cache_hits = 0;
-   float cache_hit_rate = 0.0f;
-   if (system_get_cache_stats(&cache_accesses, &cache_hits, &cache_hit_rate))
-      print("   I-Cache: %0.2f%% hit rate over %llu accesses\n", cache_hit_rate, cache_accesses);
+             storage_health.imu_buffers_dropped, audio_stats.buffers_dropped, audio_stats.buffers_captured,
+             !audio_stats.dcmp_applicable ? "n/a" : (audio_stats.dcmp_trusted ? "trusted" : "unproven"),
+             cache_valid ? cache_accesses : 0ull, cache_valid ? cache_served : 0ull,
+             cache_valid ? cache_hit_rate : 0.0f);
 
    // Only report the health counters when something has actually gone wrong
    const uint32_t imu_overruns = imu_get_fifo_overrun_count(), hal_failures = system_get_hal_failure_count();
@@ -197,6 +185,7 @@ static void service_background_work(void)
    // Perform work that every audio processing loop requires on each pass
    system_feed_watchdog();
    magnet_sensor_handle_pending_validation();
+   battery_monitor_service_tempco(rtc_get_timestamp());
 
    // Fold the cache counters into their 64-bit totals before the 32-bit hardware ones can wrap
    system_accumulate_cache_stats();
@@ -837,9 +826,10 @@ void pre_active_main(volatile bool *device_activated)
    storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, start_time, false);
    for (uint32_t num_audio_reads = 0; *device_activated && (num_audio_reads < num_audio_reads_per_clip); )
    {
-      // Feed the watchdog and deliver any deferred magnet validation
+      // Feed the watchdog, deliver any deferred magnet validation, keep the voltage trim current
       system_feed_watchdog();
       magnet_sensor_handle_pending_validation();
+      battery_monitor_service_tempco(rtc_get_timestamp());
 
       // Handle any newly available audio data
       if (audio_error_encountered())
