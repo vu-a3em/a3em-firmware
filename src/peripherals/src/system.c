@@ -655,15 +655,20 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
    am_hal_interrupt_master_enable();
    am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);
 
-   // Reinitialize select peripherals upon waking from Deep Sleep mode, if requested
+   // Reinitialize peripherals upon waking from Deep Sleep mode, if requested
    if (reinit_on_wakeup)
    {
       logging_init();
+      mram_init();
       leds_init();
-      storage_init();
-      battery_monitor_init();
+      imu_init();
+      if (config_gps_available())
+         tracker_init();
       magnet_sensor_init();
+      battery_monitor_init();
+      storage_init();
       storage_setup_logs();
+      system_enable_interrupts(true);
       system_enable_watchdog();
       print("INFO: Device woke up!\n");
    }

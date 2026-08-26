@@ -47,7 +47,8 @@ static uint32_t num_audio_channels, sampling_rate_hz, dc_offset, num_samples_per
 static volatile bool dma_complete = false, dma_error = false, adc_awake, tail_window_open, backstop_running;
 static volatile uint32_t stat_buffers_captured, stat_buffers_dropped, stat_missed_completions;
 static volatile uint32_t dma_buffers_pending, dcmp_confidence, skip_samples;
-static int16_t health_min_sample, health_max_sample, health_sum, health_sum_squares;
+static int16_t health_min_sample, health_max_sample;
+static int64_t health_sum, health_sum_squares;
 static am_hal_timer_config_t audio_dma_timer_config;
 static am_hal_audadc_dma_config_t audadc_dma_config =
 {
