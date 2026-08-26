@@ -16,6 +16,8 @@ typedef struct
    uint32_t fault_address;
    uint32_t boot_epoch;         // Power-on count, from MRAM
    uint32_t resets_this_epoch;  // Resets since the last power-on, from a scratch register
+   uint32_t scratch0_raw;       // Scratch registers exactly as the previous run left them, so that a
+   uint32_t scratch1_raw;       //   disagreement with the decoded reason can be seen in the log
    bool was_power_on;
 } system_boot_info_t;
 
@@ -46,7 +48,7 @@ void system_delay(uint32_t delay_us);
 
 // Reset control functionality
 void system_reset(void);
-void system_reset_with_reason(uint32_t reason);
+void system_reset_with_reason(uint32_t reason) __attribute__((noreturn));
 
 // Boot diagnostics functionality
 self_test_result_t system_run_self_test(void);

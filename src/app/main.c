@@ -35,10 +35,8 @@ static void log_boot_reason(void)
    hardware_bits |= hw->bBOHPMEMStat  ? (1u << 10) : 0;
    hardware_bits |= hw->bBOLPCOREStat ? (1u << 11) : 0;
    print("INFO: A3EM firmware %s, built %s\n", _FW_VERSION, _DATETIME);
-   print("INFO: Restart #%u of power-on epoch %u, reason %s (hardware bits 0x%03X)\n", boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), hardware_bits);
-   log_event("BOOT", "fw=%s,hw=%s,built=%s,resets=%u,epoch=%u,last_stop=%s",
-             _FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, boot->resets_this_epoch,
-             boot->boot_epoch, reset_reason_name(boot->software_reason));
+   print("INFO: Restart #%u of power-on epoch %u, reason %s (hardware bits 0x%03X, scratch 0x%08X/0x%08X)\n", boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), hardware_bits, boot->scratch0_raw, boot->scratch1_raw);
+   log_event("BOOT", "fw=%s,hw=%s,built=%s,resets=%u,epoch=%u,last_stop=%s,scratch0=0x%08X,scratch1=0x%08X", _FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), boot->scratch0_raw, boot->scratch1_raw);
    if (boot->software_reason == RESET_REASON_HARD_FAULT)
       print("ERROR: Previous run ended in a hard fault at address 0x%08X\n", boot->fault_address);
    if (hw->bWDTStat)

@@ -183,6 +183,8 @@ static void system_capture_boot_info(void)
    // Recover the software reset reason handed over by the previous run.
    // A missing magic tag means the scratch register lost its contents, which only happens on a real power cycle.
    const uint32_t scratch0 = MCUCTRL->SCRATCH0, scratch1 = MCUCTRL->SCRATCH1;
+   boot_info.scratch0_raw = scratch0;
+   boot_info.scratch1_raw = scratch1;
    const bool scratch_valid = ((scratch1 & SCRATCH_MAGIC_MASK) == SCRATCH_MAGIC);
    boot_info.was_power_on = !scratch_valid;
    boot_info.resets_this_epoch = scratch_valid ? ((scratch1 & SCRATCH1_RESET_COUNT_MASK) + 1) : 0;
@@ -518,8 +520,13 @@ void system_reset_with_reason(uint32_t reason)
 {
    // Record why the device is restarting so that the next boot can report it
    MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (reason & SCRATCH0_REASON_MASK);
+   am_hal_sysctrl_bus_write_flush();
    system_deinitialize_peripherals();
    am_hal_reset_control(AM_HAL_RESET_CONTROL_SWPOR, NULL);
+
+   // Writing the SWPOR key only *requests* the reset; the core keeps executing until the reset generator asserts
+   am_hal_sysctrl_bus_write_flush();
+   while (true) {}
 }
 
 self_test_result_t system_run_self_test(void)
