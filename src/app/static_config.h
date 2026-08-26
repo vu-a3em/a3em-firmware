@@ -139,6 +139,8 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 // Length of the microphone window, long enough to tap the enclosure several times and watch the LED respond
 #define SELF_TEST_AUDIO_SECONDS                     20
 #define SELF_TEST_AUDIO_SAMPLE_RATE_HZ              16000
+#define SELF_TEST_AUDIO_CLIP_LENGTH_SECONDS         60
+#define SELF_TEST_MIC_MAX_PLAUSIBLE_RMS             12000
 #define SELF_TEST_LIVE_LEVEL_THRESHOLD              600
 
 #define SELF_TEST_STORAGE_BYTES                     4096

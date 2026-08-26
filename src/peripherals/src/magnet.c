@@ -260,6 +260,9 @@ void magnet_sensor_verify_field(uint32_t milliseconds, magnetic_field_validation
    // Only proceed if there is not a pending verification in progress
    if (!validation_callback && !validation_complete)
    {
+      // Claim the LEDs so that the recording indications cannot repaint them mid-sequence
+      led_reserve(true);
+
       // Start the field validation timer for the requested number of milliseconds
       transition_tick_count = -1;
       validation_callback = callback;

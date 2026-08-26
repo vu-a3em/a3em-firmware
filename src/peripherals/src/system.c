@@ -267,10 +267,10 @@ static bool test_power_and_clock(uint32_t rtc_before, uint32_t rtc_after, batter
 static bool test_microphone(uint32_t activation_number, const char *device_label, audio_health_t *health)
 {
    // Record a short window, tracking the level on the green LED as it goes
-   const uint32_t sample_rate = SELF_TEST_AUDIO_SAMPLE_RATE_HZ;
+   const uint32_t sample_rate = SELF_TEST_AUDIO_SAMPLE_RATE_HZ, clip_length = SELF_TEST_AUDIO_CLIP_LENGTH_SECONDS;
    const bool audio_ready = (config_get_mic_type() == MIC_ANALOG) ?
-         audio_analog_init(AUDIO_NUM_CHANNELS, sample_rate, 1, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f, NULL) :
-         audio_digital_init(AUDIO_NUM_CHANNELS, sample_rate, 1, config_get_mic_amplification_db());
+         audio_analog_init(AUDIO_NUM_CHANNELS, sample_rate, clip_length, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0f, NULL) :
+         audio_digital_init(AUDIO_NUM_CHANNELS, sample_rate, clip_length, config_get_mic_amplification_db());
    if (!audio_ready)
    {
       print("ERROR: Unable to configure audio for the microphone test\n");
@@ -279,6 +279,8 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
    }
    const uint32_t samples_per_buffer = audio_num_seconds_per_dma() * sample_rate;
    audio_health_reset();
+   log_event("SELF_TEST_DETAIL", "check=MICROPHONE,phase=CONFIG,requested_hz=%u,actual_hz=%u,seconds_per_dma=%u,samples_per_buffer=%u",
+             sample_rate, audio_get_actual_sample_rate(), audio_num_seconds_per_dma(), samples_per_buffer);
 
    // Announce the listening window: three quick green flashes mean "tap the housing now"
    print("INFO: Self test - listening for %u seconds, tap the microphone now\n", (uint32_t)SELF_TEST_AUDIO_SECONDS);
@@ -289,6 +291,7 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
       led_off(LED_GREEN);
       system_delay(120000);
    }
+   led_off(LED_ALL);
 
    // Save the clip so the microphone port can be confirmed open by ear
    const bool file_open = storage_open_named_wav_file(SELF_TEST_CLIP_FILE_NAME, AUDIO_NUM_CHANNELS, sample_rate);
@@ -328,7 +331,17 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
          system_enter_deep_sleep_mode();
    }
    audio_stop_reading();
-   led_off(LED_GREEN);
+   led_off(LED_ALL);
+
+   // Close the window with two slow flashes of both LEDs
+   print("INFO: Self test - listening window closed\n");
+   for (uint32_t flash = 0; flash < 2; ++flash)
+   {
+      led_on(LED_ALL);
+      system_delay(400000);
+      led_off(LED_ALL);
+      system_delay(400000);
+   }
    if (file_open)
       storage_close_audio();
    audio_deinit();
@@ -337,6 +350,15 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
    if (audio_failed)
    {
       log_event("SELF_TEST_DETAIL", "check=MICROPHONE,result=FAIL_DMA");
+      return false;
+   }
+
+   // A window this hot is not a recording
+   if (health->rms >= SELF_TEST_MIC_MAX_PLAUSIBLE_RMS)
+   {
+      print("ERROR: Microphone level implausible (rms %u, peak %u) - signal path is not delivering audio\n",
+            health->rms, health->peak);
+      log_event("SELF_TEST_DETAIL", "check=MICROPHONE,result=FAIL_LEVEL,rms=%u,peak=%u", health->rms, health->peak);
       return false;
    }
 

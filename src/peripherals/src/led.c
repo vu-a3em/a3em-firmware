@@ -24,7 +24,7 @@ static const am_devices_led_t leds[] = {
 };
 static volatile led_pattern_t active_pattern;
 static volatile uint16_t pattern_cycles_remaining;
-static volatile bool pattern_running, pattern_in_on_phase;
+static volatile bool pattern_running, pattern_in_on_phase, leds_reserved;
 
 
 // Blink Pattern Engine ------------------------------------------------------------------------------------------------
@@ -88,6 +88,7 @@ void led_status_timer_isr(void)
       am_hal_timer_clear_stop(TIMER_NUMBER_STATUS_LED);
       drive_color(active_pattern.final_color);
       pattern_running = false;
+      leds_reserved = false;
    }
 }
 
@@ -259,13 +260,20 @@ void led_pattern_cancel(void)
 {
    am_hal_timer_clear_stop(TIMER_NUMBER_STATUS_LED);
    pattern_running = false;
+   leds_reserved = false;
    led_off(LED_ALL);
+}
+
+void led_reserve(bool reserved)
+{
+   // Claim the LEDs for an activation sequence or release them again
+   leds_reserved = reserved;
 }
 
 void led_indicate_clip_begin(void)
 {
    // Three quick green flashes, then green held steady for the duration of the clip
-   if (leds_enabled)
+   if (leds_enabled && !leds_reserved)
    {
       static const led_pattern_t pattern = { LED_GREEN, LED_NONE, LED_GREEN, 20, 20, 3 };
       led_pattern_start(&pattern);
@@ -274,14 +282,14 @@ void led_indicate_clip_begin(void)
 
 void led_indicate_clip_progress(void)
 {
-   // Skipped while a pattern is running so the two do not fight over the LEDs
-   if (leds_enabled && !pattern_running)
+   // Skipped while a pattern is running or an activation sequence owns the LEDs
+   if (leds_enabled && !pattern_running && !leds_reserved)
       led_toggle(LED_GREEN);
 }
 
 void led_indicate_clip_end(void)
 {
-   if (leds_enabled && !pattern_running)
+   if (leds_enabled && !pattern_running && !leds_reserved)
       led_off(LED_ALL);
 }
 
