@@ -13,8 +13,13 @@
 
 #define EARLY_LOG_MAX_BYTES     4096
 
-#define ASYNC_SPIN_ITERATIONS   20       // 20 x 10 us = 200 us of fine-grained polling
-#define ASYNC_SLEEP_ITERATIONS  2000     // Then sleep-wait, bounded, woken by the SDIO interrupt
+// Whether SD transfers wait on the SDIO completion interrupt instead of polling the controller
+// The interrupt-driven path has been observed to lose completions on this hardware, which is unrecoverable
+#define STORAGE_USE_ASYNC_TRANSFERS 0
+
+#define ASYNC_POLL_INTERVAL_US    10     // How often the completion flag is re-read
+#define ASYNC_POLLS_PER_MS        100    // 100 x 10 us = 1 ms between watchdog feeds
+#define ASYNC_TRANSFER_TIMEOUT_MS 2000   // Well beyond the SD specification's worst-case block write
 
 typedef struct
 {
@@ -167,21 +172,15 @@ DSTATUS disk_status(BYTE)
 
 static bool wait_for_async_transfer(volatile bool *complete_flag)
 {
-   // Wait for an asynchronous SD transfer to complete
-   for (uint32_t i = 0; i < ASYNC_SPIN_ITERATIONS; ++i)
+   for (uint32_t elapsed_ms = 0; elapsed_ms < ASYNC_TRANSFER_TIMEOUT_MS; ++elapsed_ms)
    {
-      if (*complete_flag)
-         return true;
-      am_hal_delay_us(10);
-   }
-
-   // Sleep-wait for the rest (must be a NORMAL sleep to keep the peripheral clocked)
-   for (uint32_t i = 0; i < ASYNC_SLEEP_ITERATIONS; ++i)
-   {
-      if (*complete_flag)
-         return true;
+      for (uint32_t i = 0; i < ASYNC_POLLS_PER_MS; ++i)
+      {
+         if (*complete_flag)
+            return true;
+         am_hal_delay_us(ASYNC_POLL_INTERVAL_US);
+      }
       system_feed_watchdog();
-      am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_NORMAL);
    }
    return *complete_flag;
 }
@@ -203,7 +202,7 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
 
    // Call the appropriate synchronous or asynchronous read API
    DRESULT result = RES_OK;
-   if (!sd_card_config.callback)
+   if (!STORAGE_USE_ASYNC_TRANSFERS)
    {
       uint32_t status = am_hal_sd_card_block_read_sync(&sd_card, sector, count, (uint8_t*)buff);
       if ((status & 0xFFFF) != AM_HAL_STATUS_SUCCESS)
@@ -254,7 +253,7 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
 
    // Call the appropriate synchronous or asynchronous write API
    DRESULT result = RES_OK;
-   if (!sd_card_config.callback)
+   if (!STORAGE_USE_ASYNC_TRANSFERS)
    {
       uint32_t status = am_hal_sd_card_block_write_sync(&sd_card, sector, count, (uint8_t*)buff);
       if ((status & 0xFFFF) != AM_HAL_STATUS_SUCCESS)
