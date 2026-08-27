@@ -880,6 +880,10 @@ bool storage_write_device_info(const char *fw_version, const char *hw_revision, 
                                const char *device_uid, uint32_t activation_number, uint32_t timestamp,
                                uint32_t battery_mv, const char *last_stop_reason, bool recovered)
 {
+   // A zero timestamp means the clock was not usable when this was called; keep whatever the file already holds
+   if (!timestamp)
+      timestamp = storage_get_recorded_timestamp();
+
    // A small machine-readable file at the card root, overwritten on every boot
    snprintf(dev_fw_version, sizeof(dev_fw_version), "%s", fw_version);
    snprintf(dev_hw_revision, sizeof(dev_hw_revision), "%s", hw_revision);
