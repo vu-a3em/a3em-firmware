@@ -312,7 +312,7 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
    led_off(LED_ALL);
 
    // Save the clip so the microphone port can be confirmed open by ear
-   const bool file_open = storage_open_named_wav_file(SELF_TEST_CLIP_FILE_NAME, AUDIO_NUM_CHANNELS, sample_rate);
+   const bool file_open = storage_open_named_wav_file(SELF_TEST_CLIP_FILE_NAME, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate());
    audio_begin_reading();
    bool audio_failed = false;
    uint32_t hold_remaining = 0;
@@ -558,11 +558,31 @@ void setup_hardware(void)
    // Initialize all unused GPIO pins to a known state
    system_initialize_unused_pins();
 
+   // Trim HFRC against the 32.768 kHz crystal
+   am_hal_clkgen_control(AM_HAL_CLKGEN_CONTROL_HFADJ_ENABLE, NULL);
+
    // Set up persistent storage and determine why the device restarted
    mram_init();
    system_capture_boot_info();
    logging_init();
    print_reset_reason(&boot_info.hardware_status);
+}
+
+bool reset_reason_is_error(uint32_t reason)
+{
+   // Reasons that mean something went wrong as opposed to an ordinary end of run
+   switch (reason)
+   {
+      case RESET_REASON_HARD_FAULT:
+      case RESET_REASON_AUDIO_ERROR:
+      case RESET_REASON_STORAGE_FAILURE:
+      case RESET_REASON_RTC_STOPPED:
+      case RESET_REASON_MISSING_CONFIG:
+      case RESET_REASON_PERIPHERAL_TIMEOUT:
+         return true;
+      default:
+         return false;
+   }
 }
 
 const char* reset_reason_name(uint32_t reason)
@@ -599,6 +619,7 @@ void system_reset_with_reason(uint32_t reason)
    // Record why the device is restarting so that the next boot can report it
    MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (reason & SCRATCH0_REASON_MASK);
    am_hal_sysctrl_bus_write_flush();
+   storage_flush_early_log();
    system_deinitialize_peripherals();
    am_hal_reset_control(AM_HAL_RESET_CONTROL_SWPOR, NULL);
 
@@ -714,6 +735,7 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
    // Turn off all peripherals
    print("WARNING: Powering off. Will awake on: [ %s%s]...\n", wake_on_magnet ? "Magnet " : "", wake_on_timestamp ? "Timestamp " : "");
    storage_flush_log();
+   storage_flush_early_log();
    system_disable_watchdog();
    system_release_sram_retention();
    system_deinitialize_peripherals();

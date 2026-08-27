@@ -797,6 +797,26 @@ void storage_setup_logs(void)
    }
 }
 
+void storage_flush_early_log(void)
+{
+   // Nothing can be written without a card or an early log
+   if (log_open || !early_log_used || !card_present)
+      return;
+
+   // Rescue anything buffered before a log file existed
+   FIL boot_text;
+   if (f_open(&boot_text, UNACTIVATED_LOG_FILE_NAME, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
+      return;
+   UINT data_written = 0;
+   if (early_log_overflowed)
+      f_write(&boot_text, "[earlier log output was truncated]\n", 35, &data_written);
+   f_write(&boot_text, early_log, early_log_used, &data_written);
+   f_sync(&boot_text);
+   f_close(&boot_text);
+   early_log_used = 0;
+   early_log_overflowed = false;
+}
+
 bool storage_rotate_log(uint32_t activation_number, const char *device_label, uint32_t current_time)
 {
    // Establish the directory for the supplied time and move the log into it if it changed
@@ -841,7 +861,7 @@ uint32_t storage_get_free_space_mb(void)
 
 bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime,
                                const char *device_uid, uint32_t activation_number, uint32_t timestamp,
-                               uint32_t battery_mv, const char *last_deactivation_reason)
+                               uint32_t battery_mv, const char *last_stop_reason, bool recovered)
 {
    // A small machine-readable file at the card root, overwritten on every boot
    snprintf(dev_fw_version, sizeof(dev_fw_version), "%s", fw_version);
@@ -860,19 +880,20 @@ bool storage_write_device_info(const char *fw_version, const char *hw_revision, 
    f_printf(&info_file, "ACTIVATION_NUMBER = \"%u\"\n", activation_number);
    f_printf(&info_file, "LAST_TIMESTAMP = \"%u\"\n", timestamp);
    f_printf(&info_file, "LAST_BATTERY_MV = \"%u\"\n", battery_mv);
-   f_printf(&info_file, "LAST_DEACTIVATION_REASON = \"%s\"\n", last_deactivation_reason);
+   f_printf(&info_file, "LAST_STOP_REASON = \"%s\"\n", last_stop_reason);
+   f_printf(&info_file, "LAST_STOP_RECOVERED = \"%s\"\n", recovered ? "True" : "False");
    f_close(&info_file);
    return true;
 }
 
 bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp,
-                                 uint32_t battery_mv, const char *last_deactivation_reason)
+                                 uint32_t battery_mv, const char *last_stop_reason, bool recovered)
 {
    // Rewrite the device file with current values, reusing the identity fields captured at boot
    if (!dev_info_captured)
       return false;
    return storage_write_device_info(dev_fw_version, dev_hw_revision, dev_build_datetime, dev_uid,
-                                    activation_number, timestamp, battery_mv, last_deactivation_reason);
+                                    activation_number, timestamp, battery_mv, last_stop_reason, recovered);
 }
 
 void storage_write_boot_record(const char *reason, uint32_t epoch, uint32_t reset_count, uint32_t detail, uint32_t timestamp)

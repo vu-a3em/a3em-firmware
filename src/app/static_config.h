@@ -47,6 +47,7 @@
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define DEVICE_INFO_FILE_NAME                       "_a3em.dev"
 #define LOG_FILE_NAME                               "a3em.log"
+#define UNACTIVATED_LOG_FILE_NAME                   "_a3em.boot.txt"
 #define BOOT_LOG_FILE_NAME                          "boot.log"
 
 
@@ -193,6 +194,12 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 #define AUDIO_HEALTH_SILENCE_FLOOR                      4
 #define AUDIO_HEALTH_RMS_STRIDE                         1
+
+#define PDM_SOURCE_CLOCK_HZ                             24000000
+#define PDM_MIN_MIC_CLOCK_HZ                            750000
+#define PDM_MAX_MIC_CLOCK_HZ                            3200000
+#define PDM_MIN_DECIMATION                              8
+#define PDM_MAX_DECIMATION                              127
 
 #define AUDIO_NUM_CHANNELS                              1
 #define AUDIO_MIC_BIAS_VOLTAGE                          0.0f

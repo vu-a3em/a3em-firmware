@@ -50,17 +50,15 @@ uint32_t storage_get_free_space_mb(void);
 
 // Deployment log file functionality
 void storage_setup_logs(void);
+void storage_flush_early_log(void);
 bool storage_rotate_log(uint32_t activation_number, const char *device_label, uint32_t current_time);
 void storage_write_log(const char *fmt, ...);
 void storage_write_event(const char *code, const char *fmt, ...);
 void storage_flush_log(void);
 
 // Fixed-record boot log functionality
-bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime,
-                               const char *device_uid, uint32_t activation_number, uint32_t timestamp,
-                               uint32_t battery_mv, const char *last_deactivation_reason);
-bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp,
-                                 uint32_t battery_mv, const char *last_deactivation_reason);
+bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime, const char *device_uid, uint32_t activation_number, uint32_t timestamp, uint32_t battery_mv, const char *last_stop_reason, bool recovered);
+bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp, uint32_t battery_mv, const char *last_stop_reason, bool recovered);
 void storage_write_boot_record(const char *reason, uint32_t epoch, uint32_t reset_count, uint32_t detail, uint32_t timestamp);
 
 #endif  // #ifndef __STORAGE_HEADER_H__

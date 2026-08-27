@@ -68,7 +68,7 @@ static am_hal_audadc_irtt_config_t audadc_irtt_config =
 static am_hal_pdm_transfer_t pdm_transfer_config = { 0 };
 static am_hal_pdm_config_t pdm_config =
 {
-    .ePDMClkSpeed = AM_HAL_PDM_CLK_HFRC2ADJ_24_576MHZ,
+    .ePDMClkSpeed = AM_HAL_PDM_CLK_HFRC_24MHZ,
     .eClkDivider = AM_HAL_PDM_MCLKDIV_1,
     .ePDMAClkOutDivder = AM_HAL_PDM_PDMA_CLKO_DIV3,
     .eStepSize = AM_HAL_PDM_GAIN_STEP_0_13DB,
@@ -432,28 +432,41 @@ bool audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t
    else
       gain_settings = AM_HAL_PDM_GAIN_P345DB;
 
-   // Configure the PDM peripheral and HFRC2 clock source
-   if (sample_rate_hz <= 16000)
+   // Pick the divider pair that lands closest to the requested rate
+   uint32_t best_divider = 0, best_decimation = 0, best_error = UINT32_MAX, best_rate = 0;
+   for (uint32_t divider = 1; divider <= 15; ++divider)
    {
-      pdm_config.ePDMAClkOutDivder = AM_HAL_PDM_PDMA_CLKO_DIV7;  // F_CLK = 1.536MHz
-      pdm_config.ui32DecimationRate = 1536000 / (2 * sample_rate_hz);
-      actual_sample_rate_hz = pdm_config.ui32DecimationRate ? (1536000 / (2 * pdm_config.ui32DecimationRate)) : sample_rate_hz;
+      // Clock handed to the microphone; outside this range a PDM microphone will not track it
+      const uint32_t mic_clock_hz = PDM_SOURCE_CLOCK_HZ / (2u * (divider + 1u));
+      if ((mic_clock_hz < PDM_MIN_MIC_CLOCK_HZ) || (mic_clock_hz > PDM_MAX_MIC_CLOCK_HZ))
+         continue;
+      const uint32_t decimation = (mic_clock_hz + sample_rate_hz) / (2u * sample_rate_hz);
+      if ((decimation < PDM_MIN_DECIMATION) || (decimation > PDM_MAX_DECIMATION))
+         continue;
+      const uint32_t achieved = mic_clock_hz / (2u * decimation);
+      const uint32_t error = (achieved > sample_rate_hz) ? (achieved - sample_rate_hz) : (sample_rate_hz - achieved);
+      if (error < best_error)
+      {
+         best_error = error;
+         best_divider = divider;
+         best_decimation = decimation;
+         best_rate = achieved;
+      }
    }
-   else
+   if (!best_decimation)
    {
-      pdm_config.ePDMAClkOutDivder = AM_HAL_PDM_PDMA_CLKO_DIV3;  // F_CLK = 3.072MHz
-      pdm_config.ui32DecimationRate = 3072000 / (2 * sample_rate_hz);
-      actual_sample_rate_hz = pdm_config.ui32DecimationRate ? (3072000 / (2 * pdm_config.ui32DecimationRate)) : sample_rate_hz;
+      print("ERROR: No PDM divider reaches %u Hz from a %u Hz clock\n", sample_rate_hz, (uint32_t)PDM_SOURCE_CLOCK_HZ);
+      return false;
    }
+   pdm_config.ePDMAClkOutDivder = (am_hal_pdm_pdma_clkodiv_e)best_divider;
+   pdm_config.ui32DecimationRate = best_decimation;
+   actual_sample_rate_hz = best_rate;
    if (actual_sample_rate_hz != sample_rate_hz)
-      print("WARNING: Requested %u Hz but PDM will actually sample at %u Hz\n", sample_rate_hz, actual_sample_rate_hz);
+      print("WARNING: Requested %u Hz but PDM will actually sample at %u Hz - recordings are tagged with the actual rate\n",
+            sample_rate_hz, actual_sample_rate_hz);
    pdm_config.eLeftGain = gain_settings;
    pdm_config.eRightGain = gain_settings;
    pdm_config.ePCMChannels = (num_channels == 1) ? AM_HAL_PDM_CHANNEL_LEFT : AM_HAL_PDM_CHANNEL_STEREO;
-   configASSERT0(am_hal_clkgen_control(AM_HAL_CLKGEN_CONTROL_HFRC2_START, NULL));
-   am_util_delay_us(200);
-   configASSERT0(am_hal_clkgen_control(AM_HAL_CLKGEN_CONTROL_HF2ADJ_ENABLE, NULL));
-   am_util_delay_us(500);
 
    // Configure the necessary PDM pins
    am_bsp_pdm_pins_enable(PDM_MODULE);
@@ -662,8 +675,6 @@ void audio_deinit(void)
          am_hal_pdm_dma_disable(audio_handle);
          am_hal_pdm_disable(audio_handle);
          am_hal_pdm_deinitialize(audio_handle);
-         configASSERT0(am_hal_clkgen_control(AM_HAL_CLKGEN_CONTROL_HFRC2_STOP, NULL));
-         configASSERT0(am_hal_clkgen_control(AM_HAL_CLKGEN_CONTROL_HF2ADJ_DISABLE, NULL));
          audio_handle = NULL;
          adc_awake = false;
       }

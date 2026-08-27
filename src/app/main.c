@@ -135,7 +135,15 @@ int main(void)
       storage_write_device_info(_FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, device_uid,
                                 config_get_activation_number(), rtc_get_timestamp(),
                                 battery_monitor_get_details().millivolts,
-                                reset_reason_name(boot_info->software_reason));
+                                reset_reason_name(boot_info->software_reason),
+                                success && reset_reason_is_error(boot_info->software_reason));
+
+      // Log a boot that comes up clean after a failure has recovered
+      if (success && reset_reason_is_error(boot_info->software_reason))
+      {
+         print("INFO: Recovered from previous %s stop\n", reset_reason_name(boot_info->software_reason));
+         log_event("RECOVERED", "from=%s", reset_reason_name(boot_info->software_reason));
+      }
    }
    const bool use_magnetic_activation = config_awake_on_magnet();
    if (storage_sd_card_error())

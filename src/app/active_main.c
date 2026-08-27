@@ -161,7 +161,8 @@ static void validate_device_settings(uint32_t current_timestamp)
    {
       // A new directory means a new recording window; summarise the one that just closed
       report_microphone_health();
-      storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts, reset_reason_name(system_get_boot_info()->software_reason));
+      const uint32_t last_stop = system_get_boot_info()->software_reason;
+      storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts, reset_reason_name(last_stop), reset_reason_is_error(last_stop));
    }
    storage_flush_log();
 
@@ -174,7 +175,7 @@ static void validate_device_settings(uint32_t current_timestamp)
 static bool recover_from_audio_write_failure(uint32_t sampling_rate, uint32_t current_time)
 {
    // Handle a failed audio write by escalating through the storage layer's recovery options
-   if (storage_recover_audio(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time))
+   if (storage_recover_audio(activation_number, device_label, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate(), current_time))
       return true;
    end_of_phase_reason = RESET_REASON_STORAGE_FAILURE;
    return false;
@@ -321,7 +322,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
             if (!use_silence_filter || !silence_filter_is_silence(audio_buffer, audio_samples_per_dma))
             {
                // Generate a new audio file using the current date and time
-               if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time, ogg_encode))
+               if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate(), current_time, ogg_encode))
                {
                   // Signal start of a new audio clip
                   if (record_imu_with_audio)
@@ -437,7 +438,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          audio_timer_triggered = false;
 
          // Generate a new audio file using the current date and time
-         if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time, ogg_encode))
+         if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate(), current_time, ogg_encode))
          {
             // Signal start of a new audio clip
             audio_clip_in_progress = true;
@@ -554,7 +555,7 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          if (!audio_clip_in_progress)
          {
             // Generate a new audio file using the current date and time
-            if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, sampling_rate, current_time, ogg_encode))
+            if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate(), current_time, ogg_encode))
             {
                // Signal start of a new audio clip
                audio_clip_in_progress = true;
@@ -823,7 +824,7 @@ void pre_active_main(volatile bool *device_activated)
 
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    led_indicate_clip_begin();
-   storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, AUDIO_PRE_DEPLOYMENT_SAMPLE_RATE_HZ, start_time, false);
+   storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate(), start_time, false);
    for (uint32_t num_audio_reads = 0; *device_activated && (num_audio_reads < num_audio_reads_per_clip); )
    {
       // Feed the watchdog, deliver any deferred magnet validation, keep the voltage trim current
