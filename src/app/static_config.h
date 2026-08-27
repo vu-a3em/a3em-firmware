@@ -195,11 +195,15 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define AUDIO_HEALTH_SILENCE_FLOOR                      4
 #define AUDIO_HEALTH_RMS_STRIDE                         1
 
-#define PDM_SOURCE_CLOCK_HZ                             24000000
-#define PDM_MIN_MIC_CLOCK_HZ                            750000
-#define PDM_MAX_MIC_CLOCK_HZ                            3200000
-#define PDM_MIN_DECIMATION                              8
-#define PDM_MAX_DECIMATION                              127
+#define PDM_NOMINAL_CLOCK_HZ                            24000000
+#define PDM_RATE_TOLERANCE_PERMILLE                     5
+#define PDM_MIN_DIVMCLKQ                                1
+#define PDM_MAX_DIVMCLKQ                                3
+#define PDM_MIN_CKO_HZ                                  700000
+#define PDM_MAX_CKO_HZ                                  3072000
+#define PDM_MIN_SINCRATE                                16
+#define PDM_MAX_SINCRATE                                64
+#define PDM_ALT_SINCRATE                                96
 
 #define AUDIO_NUM_CHANNELS                              1
 #define AUDIO_MIC_BIAS_VOLTAGE                          0.0f

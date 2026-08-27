@@ -432,38 +432,60 @@ bool audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t
    else
       gain_settings = AM_HAL_PDM_GAIN_P345DB;
 
-   // Pick the divider pair that lands closest to the requested rate
-   uint32_t best_divider = 0, best_decimation = 0, best_error = UINT32_MAX, best_rate = 0;
-   for (uint32_t divider = 1; divider <= 15; ++divider)
+   // Choose the divider pair from the datasheet clock tree rather than from fixed constants
+   uint32_t best_divmclkq = 0, best_mclkdiv = 0, best_sincrate = 0, best_cko = 0, best_rate = 0;
+   uint32_t best_error = UINT32_MAX;
+   for (uint32_t divmclkq = PDM_MIN_DIVMCLKQ; divmclkq <= PDM_MAX_DIVMCLKQ; ++divmclkq)
    {
-      // Clock handed to the microphone; outside this range a PDM microphone will not track it
-      const uint32_t mic_clock_hz = PDM_SOURCE_CLOCK_HZ / (2u * (divider + 1u));
-      if ((mic_clock_hz < PDM_MIN_MIC_CLOCK_HZ) || (mic_clock_hz > PDM_MAX_MIC_CLOCK_HZ))
-         continue;
-      const uint32_t decimation = (mic_clock_hz + sample_rate_hz) / (2u * sample_rate_hz);
-      if ((decimation < PDM_MIN_DECIMATION) || (decimation > PDM_MAX_DECIMATION))
-         continue;
-      const uint32_t achieved = mic_clock_hz / (2u * decimation);
-      const uint32_t error = (achieved > sample_rate_hz) ? (achieved - sample_rate_hz) : (sample_rate_hz - achieved);
-      if (error < best_error)
+      for (uint32_t mclkdiv = 1; mclkdiv <= 15; ++mclkdiv)
       {
-         best_error = error;
-         best_divider = divider;
-         best_decimation = decimation;
-         best_rate = achieved;
+         // Compute the clock delivered to the microphone
+         const uint32_t cko_hz = PDM_NOMINAL_CLOCK_HZ / ((divmclkq + 1u) * (mclkdiv + 1u));
+         if ((cko_hz < PDM_MIN_CKO_HZ) || (cko_hz > PDM_MAX_CKO_HZ))
+            continue;
+         for (uint32_t sincrate = PDM_MIN_SINCRATE; sincrate <= PDM_ALT_SINCRATE; ++sincrate)
+         {
+            if ((sincrate > PDM_MAX_SINCRATE) && (sincrate != PDM_ALT_SINCRATE))
+               continue;
+            const uint32_t achieved = cko_hz / (2u * sincrate);
+            const uint32_t error = (achieved > sample_rate_hz) ? (achieved - sample_rate_hz) : (sample_rate_hz - achieved);
+
+            // Prefer the fastest microphone clock among options that land close enough
+            const uint32_t tolerance = (sample_rate_hz * PDM_RATE_TOLERANCE_PERMILLE) / 1000u;
+            const bool in_tolerance = (error <= tolerance);
+            const bool best_in_tolerance = (best_error <= tolerance);
+            bool better;
+            if (in_tolerance != best_in_tolerance)
+               better = in_tolerance;
+            else if (in_tolerance)
+               better = (cko_hz > best_cko);
+            else
+               better = (error < best_error);
+            if (!best_sincrate || better)
+            {
+               best_error = error;
+               best_divmclkq = divmclkq;
+               best_mclkdiv = mclkdiv;
+               best_sincrate = sincrate;
+               best_cko = cko_hz;
+               best_rate = achieved;
+            }
+         }
       }
    }
-   if (!best_decimation)
+   if (!best_sincrate)
    {
-      print("ERROR: No PDM divider reaches %u Hz from a %u Hz clock\n", sample_rate_hz, (uint32_t)PDM_SOURCE_CLOCK_HZ);
+      print("ERROR: No legal PDM divider pair reaches %u Hz\n", sample_rate_hz);
       return false;
    }
-   pdm_config.ePDMAClkOutDivder = (am_hal_pdm_pdma_clkodiv_e)best_divider;
-   pdm_config.ui32DecimationRate = best_decimation;
+   pdm_config.eClkDivider = (am_hal_pdm_mclkdiv_e)best_divmclkq;
+   pdm_config.ePDMAClkOutDivder = (am_hal_pdm_pdma_clkodiv_e)best_mclkdiv;
+   pdm_config.ui32DecimationRate = best_sincrate;
    actual_sample_rate_hz = best_rate;
+   print("INFO: PDM %u Hz requested - DIVMCLKQ %u, MCLKDIV %u, SINCRATE %u, mic clock %u Hz, OSR %u, nominal rate %u Hz\n", sample_rate_hz, best_divmclkq, best_mclkdiv, best_sincrate, best_cko, 2u * best_sincrate, best_rate);
+   log_event("PDM_CLOCK", "source_hz=%u,requested_hz=%u,divmclkq=%u,mclkdiv=%u,sincrate=%u,cko_hz=%u,osr=%u,nominal_hz=%u", (uint32_t)PDM_NOMINAL_CLOCK_HZ, sample_rate_hz, best_divmclkq, best_mclkdiv, best_sincrate, best_cko, 2u * best_sincrate, best_rate);
    if (actual_sample_rate_hz != sample_rate_hz)
-      print("WARNING: Requested %u Hz but PDM will actually sample at %u Hz - recordings are tagged with the actual rate\n",
-            sample_rate_hz, actual_sample_rate_hz);
+      print("WARNING: Closest legal PDM rate to %u Hz is %u Hz - recordings are tagged with the actual rate\n", sample_rate_hz, actual_sample_rate_hz);
    pdm_config.eLeftGain = gain_settings;
    pdm_config.eRightGain = gain_settings;
    pdm_config.ePCMChannels = (num_channels == 1) ? AM_HAL_PDM_CHANNEL_LEFT : AM_HAL_PDM_CHANNEL_STEREO;
