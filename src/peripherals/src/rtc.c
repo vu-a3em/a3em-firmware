@@ -88,6 +88,15 @@ static uint32_t read_timestamp_locked(void)
    return (am_hal_rtc_time_get(&rtc_time) == AM_HAL_STATUS_SUCCESS) ? to_unix_timestamp(&rtc_time) : 0;
 }
 
+static uint64_t read_centiseconds_locked(void)
+{
+   rtc_stat = RTC->RTCSTAT;
+   static am_hal_rtc_time_t rtc_time;
+   if (am_hal_rtc_time_get(&rtc_time) != AM_HAL_STATUS_SUCCESS)
+      return 0;
+   return ((uint64_t)to_unix_timestamp(&rtc_time) * 100u) + rtc_time.ui32Hundredths;
+}
+
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
@@ -183,6 +192,15 @@ uint32_t rtc_get_timestamp(void)
    timestamp = read_timestamp_locked();
    AM_CRITICAL_END
    return timestamp;
+}
+
+uint64_t rtc_get_centiseconds(void)
+{
+   uint64_t value = 0;
+   AM_CRITICAL_BEGIN
+   value = read_centiseconds_locked();
+   AM_CRITICAL_END
+   return value;
 }
 
 uint32_t rtc_get_time_of_day(void)

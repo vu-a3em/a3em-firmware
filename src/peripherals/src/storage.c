@@ -53,6 +53,7 @@ static char time_string[DATETIME_STAMP_LEN], audio_directory[MAX_DEVICE_LABEL_LE
 static char dev_fw_version[32], dev_hw_revision[8], dev_build_datetime[40], dev_uid[24], early_log[EARLY_LOG_MAX_BYTES];
 static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open, dev_info_captured, early_log_overflowed;
 static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx, early_log_used;
+static uint32_t measured_sample_rate_hz, wav_num_channels;
 static volatile bool async_write_complete, async_read_complete, card_present;
 static volatile uint8_t *imu_data_awaiting_storage;
 static volatile uint32_t imu_storage_index;
@@ -537,6 +538,12 @@ static bool storage_write_ogg_opus_audio(const void *data, uint32_t num_samples,
    return success;
 }
 
+void storage_set_measured_sample_rate(uint32_t sample_rate_hz)
+{
+   // The rate the hardware is actually delivering measured against the RTC
+   measured_sample_rate_hz = sample_rate_hz;
+}
+
 static void storage_close_wav_audio(void)
 {
    // Finalize and close the currently open audio file
@@ -548,6 +555,15 @@ static void storage_close_wav_audio(void)
       const uint32_t riff_size = 36 + payload_size;
       f_lseek(&audio_file, 4);
       storage_write_audio_raw(&riff_size, 4);
+
+      // Patch in the measured rate if it is available, otherwise the predicted one
+      if (measured_sample_rate_hz)
+      {
+         const uint32_t byte_rate = measured_sample_rate_hz * wav_num_channels * 2u;
+         f_lseek(&audio_file, 24);
+         storage_write_audio_raw(&measured_sample_rate_hz, 4);
+         storage_write_audio_raw(&byte_rate, 4);
+      }
       f_lseek(&audio_file, 40);
       storage_write_audio_raw(&payload_size, 4);
       f_close(&audio_file);
@@ -606,6 +622,7 @@ static bool storage_write_wav_header(uint32_t num_channels, uint32_t sample_rate
       success = success && storage_write_audio_raw(&field, 2);
       success = success && storage_write_audio_raw(&num_channels, 2);
       success = success && storage_write_audio_raw(&sample_rate_hz, 4);
+      wav_num_channels = num_channels;
       field = sample_rate_hz * num_channels * bytes_per_sample;
       success = success && storage_write_audio_raw(&field, 4);
       field = num_channels * bytes_per_sample;

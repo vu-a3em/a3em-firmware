@@ -7,6 +7,7 @@
 #include "comparator.h"
 #include "led.h"
 #include "logging.h"
+#include "rtc.h"
 #include "mram.h"
 #include "system.h"
 
@@ -44,6 +45,13 @@ static bool is_digital_mic;
 static audio_trigger_t trigger_criterion;
 static uint32_t health_num_samples, health_num_rms_samples, health_stride_phase, dma_period_ms, num_audio_channels;
 static uint32_t sampling_rate_hz, dc_offset, num_samples_per_dma, actual_sample_rate_hz, dma_period_limit_samples;
+
+// Sample-rate measurement. The divider arithmetic only predicts the rate that WOULD result from a
+// source running at its nominal frequency, and the oscillator is not that accurate. Counting
+// delivered samples against the RTC gives the rate the hardware is really producing.
+static uint64_t rate_window_start_centis, rate_window_samples;
+static uint32_t measured_sample_rate_hz, pdm_total_divider;
+static bool measured_rate_reported;
 static volatile bool dma_complete = false, dma_error = false, adc_awake, tail_window_open, backstop_running;
 static volatile uint32_t stat_buffers_captured, stat_buffers_dropped, stat_missed_completions;
 static volatile uint32_t dma_buffers_pending, dcmp_confidence, skip_samples;
@@ -478,6 +486,7 @@ bool audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t
       print("ERROR: No legal PDM divider pair reaches %u Hz\n", sample_rate_hz);
       return false;
    }
+   pdm_total_divider = (best_divmclkq + 1u) * (best_mclkdiv + 1u) * 2u * best_sincrate;
    pdm_config.eClkDivider = (am_hal_pdm_mclkdiv_e)best_divmclkq;
    pdm_config.ePDMAClkOutDivder = (am_hal_pdm_pdma_clkodiv_e)best_mclkdiv;
    pdm_config.ui32DecimationRate = best_sincrate;
@@ -735,6 +744,12 @@ void audio_deinit(void)
 
 void audio_begin_reading(void)
 {
+   // Restart the rate measurement for this capture session
+   rate_window_start_centis = rtc_get_centiseconds();
+   rate_window_samples = 0;
+   measured_sample_rate_hz = 0;
+   measured_rate_reported = false;
+
    // Shared SRAM has to be held fully active, not merely retained, while the DMA writes into it during Deep Sleep
    system_set_sram_active(true);
 
@@ -807,6 +822,31 @@ bool audio_error_encountered(void)
    return dma_error;
 }
 
+static void audio_rate_measure_update(void)
+{
+   // Fold this buffer into the running total and re-derive the achieved rate
+   rate_window_samples += num_samples_per_dma;
+   const uint64_t now_centis = rtc_get_centiseconds();
+   if (!rate_window_start_centis || (now_centis <= rate_window_start_centis))
+      return;
+   const uint64_t elapsed_centis = now_centis - rate_window_start_centis;
+   if (elapsed_centis < AUDIO_RATE_MEASURE_MIN_CENTIS)
+      return;
+   measured_sample_rate_hz = (uint32_t)((rate_window_samples * 100u) / elapsed_centis);
+
+   // Report once per session along with the source frequency the measurement implies
+   if (!measured_rate_reported && measured_sample_rate_hz && pdm_total_divider)
+   {
+      measured_rate_reported = true;
+      log_event("PDM_CLOCK", "phase=MEASURED,measured_rate_hz=%u,nominal_rate_hz=%u,measured_source_hz=%u,nominal_source_hz=%u,window_centis=%u",
+                measured_sample_rate_hz, actual_sample_rate_hz,
+                measured_sample_rate_hz * pdm_total_divider,
+                actual_sample_rate_hz * pdm_total_divider, (uint32_t)elapsed_centis);
+      print("INFO: Measured audio rate %u Hz against the RTC (dividers predicted %u Hz)\n",
+            measured_sample_rate_hz, actual_sample_rate_hz);
+   }
+}
+
 bool audio_read_data(int16_t *buffer)
 {
    // Only read data if a DMA audio conversion is complete
@@ -827,6 +867,7 @@ bool audio_read_data(int16_t *buffer)
       }
       audio_health_accumulate(buffer, num_samples_per_dma);
       audio_filter_apply(buffer, num_samples_per_dma);
+      audio_rate_measure_update();
       dma_complete = false;
       if (dma_buffers_pending)
          --dma_buffers_pending;
@@ -876,6 +917,7 @@ int16_t* audio_read_data_direct(void)
       }
       audio_health_accumulate(buffer, num_samples_per_dma);
       audio_filter_apply(buffer, num_samples_per_dma);
+      audio_rate_measure_update();
       dma_complete = false;
       if (dma_buffers_pending)
          --dma_buffers_pending;
@@ -908,6 +950,12 @@ void audio_get_stats(audio_stats_t *stats)
    stats->missed_completions = stat_missed_completions;
    stats->dcmp_trusted = (dcmp_confidence >= AUDIO_DMA_DCMP_CONFIDENCE);
    stats->dcmp_applicable = !is_digital_mic;
+}
+
+uint32_t audio_get_measured_sample_rate(void)
+{
+   // The measured rate once the window is long enough to trust it, otherwise the predicted one
+   return measured_sample_rate_hz ? measured_sample_rate_hz : audio_get_actual_sample_rate();
 }
 
 uint32_t audio_get_actual_sample_rate(void)

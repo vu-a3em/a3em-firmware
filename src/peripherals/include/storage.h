@@ -41,6 +41,7 @@ bool storage_write_audio(const void *data, uint32_t data_len, bool is_last_packe
 void storage_write_imu_data(float accel_x_mg, float accel_y_mg, float accel_z_mg);
 void storage_handle_imu_data(void);
 void storage_close_audio(void);
+void storage_set_measured_sample_rate(uint32_t sample_rate_hz);
 void storage_close_imu(void);
 
 // Storage recovery functionality

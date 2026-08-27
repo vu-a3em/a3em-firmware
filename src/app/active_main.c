@@ -188,6 +188,9 @@ static void service_background_work(void)
    magnet_sensor_handle_pending_validation();
    battery_monitor_service_tempco(rtc_get_timestamp());
 
+   // Hand the measured rate to storage so each WAV header can be patched with it at close
+   storage_set_measured_sample_rate(audio_get_measured_sample_rate());
+
    // Fold the cache counters into their 64-bit totals before the 32-bit hardware ones can wrap
    system_accumulate_cache_stats();
 
@@ -831,6 +834,9 @@ void pre_active_main(volatile bool *device_activated)
       system_feed_watchdog();
       magnet_sensor_handle_pending_validation();
       battery_monitor_service_tempco(rtc_get_timestamp());
+
+   // Hand the measured rate to storage so each WAV header can be patched with it at close
+   storage_set_measured_sample_rate(audio_get_measured_sample_rate());
 
       // Handle any newly available audio data
       if (audio_error_encountered())
