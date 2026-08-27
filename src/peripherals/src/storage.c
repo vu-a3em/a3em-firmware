@@ -14,6 +14,8 @@
 #define EARLY_LOG_MAX_BYTES     4096
 #define EVENT_PAYLOAD_MAX_BYTES 384
 
+_Static_assert(EVENT_PAYLOAD_MAX_BYTES < AM_PRINTF_BUFSIZE, "Event payload buffer must be smaller than the formatter's own buffer");
+
 // Whether SD transfers wait on the SDIO completion interrupt instead of polling the controller
 // The interrupt-driven path has been observed to lose completions on this hardware, which is unrecoverable
 #define STORAGE_USE_ASYNC_TRANSFERS 0
@@ -1133,9 +1135,9 @@ void storage_write_event(const char *code, const char *fmt, ...)
    // No log file yet, use the early log buffer to store the event line
    static char payload[EVENT_PAYLOAD_MAX_BYTES];
    va_start(args, fmt);
-   am_util_stdio_vsnprintf(payload, sizeof(payload), fmt, args);
+   const uint32_t written = am_util_stdio_vsnprintf(payload, sizeof(payload), fmt, args);
    va_end(args);
-   payload[sizeof(payload) - 1] = 0;
+   payload[(written < sizeof(payload)) ? written : (sizeof(payload) - 1)] = 0;
    storage_write_log("EVT|%s|%s\n", code, payload);
 }
 
