@@ -48,6 +48,8 @@ void audio_set_dma_period_limit(uint32_t max_samples);
 void audio_get_stats(audio_stats_t *stats);
 uint32_t audio_get_actual_sample_rate(void);
 uint32_t audio_get_measured_sample_rate(void);
+bool audio_rate_is_settled(void);
+uint32_t audio_get_rate_estimate(void);
 void audio_health_reset(void);
 bool audio_health_available(void);
 audio_health_t audio_health_get(void);

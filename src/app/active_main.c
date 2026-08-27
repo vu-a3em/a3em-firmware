@@ -129,7 +129,7 @@ static void validate_device_settings(uint32_t current_timestamp)
    log_event("TELEM", "time=%u,batt_mv=%u,temp_c=%0.2f,lat=%0.6f,lon=%0.6f,alt=%0.2f,"
                       "leds=%u,vhf=%u,sd_free_mb=%u,sd_write_fail=%u,sd_reopen=%u,sd_remount=%u,"
                       "imu_dropped=%u,audio_dropped=%u,audio_buffers=%u,dcmp=%s,"
-                      "icache_accesses=%llu,icache_served=%llu,icache_hit_pct=%0.2f",
+                      "icache_accesses=%llu,icache_served=%llu,icache_hit_pct=%0.2f,rate_est_hz=%u,rate_settled=%u",
              current_timestamp, battery_details.millivolts, battery_details.celcius, last_lat, last_lon, last_height,
              leds_are_enabled() ? 1u : 0u, vhf_activated() ? 1u : 0u,
              storage_get_free_space_mb(), storage_health.write_failures,
@@ -137,7 +137,8 @@ static void validate_device_settings(uint32_t current_timestamp)
              storage_health.imu_buffers_dropped, audio_stats.buffers_dropped, audio_stats.buffers_captured,
              !audio_stats.dcmp_applicable ? "n/a" : (audio_stats.dcmp_trusted ? "trusted" : "unproven"),
              cache_valid ? cache_accesses : 0ull, cache_valid ? cache_served : 0ull,
-             cache_valid ? cache_hit_rate : 0.0f);
+             cache_valid ? cache_hit_rate : 0.0f,
+             audio_get_rate_estimate(), audio_rate_is_settled() ? 1u : 0u);
 
    // Only report the health counters when something has actually gone wrong
    const uint32_t imu_overruns = imu_get_fifo_overrun_count(), hal_failures = system_get_hal_failure_count();
@@ -157,13 +158,15 @@ static void validate_device_settings(uint32_t current_timestamp)
    }
 
    // Check if time to roll into a new audio directory
+   const uint32_t last_stop = system_get_boot_info()->software_reason;
    if (storage_rotate_log(activation_number, device_label, current_timestamp))
    {
       // A new directory means a new recording window; summarise the one that just closed
       report_microphone_health();
-      const uint32_t last_stop = system_get_boot_info()->software_reason;
-      storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts, reset_reason_name(last_stop), reset_reason_is_error(last_stop));
    }
+
+   // Refresh the device file every cycle
+   storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts, reset_reason_name(last_stop), reset_reason_is_error(last_stop));
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time

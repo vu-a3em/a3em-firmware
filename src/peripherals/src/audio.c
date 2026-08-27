@@ -50,8 +50,8 @@ static uint32_t sampling_rate_hz, dc_offset, num_samples_per_dma, actual_sample_
 // source running at its nominal frequency, and the oscillator is not that accurate. Counting
 // delivered samples against the RTC gives the rate the hardware is really producing.
 static uint64_t rate_window_start_centis, rate_window_samples;
-static uint32_t measured_sample_rate_hz, pdm_total_divider;
-static bool measured_rate_reported;
+static uint32_t measured_sample_rate_hz, pdm_total_divider, rate_previous_estimate, rate_stable_count;
+static bool measured_rate_reported, measured_rate_settled;
 static volatile bool dma_complete = false, dma_error = false, adc_awake, tail_window_open, backstop_running;
 static volatile uint32_t stat_buffers_captured, stat_buffers_dropped, stat_missed_completions;
 static volatile uint32_t dma_buffers_pending, dcmp_confidence, skip_samples;
@@ -744,11 +744,11 @@ void audio_deinit(void)
 
 void audio_begin_reading(void)
 {
-   // Restart the rate measurement for this capture session
-   rate_window_start_centis = rtc_get_centiseconds();
+   // Arm the rate measurement
+   rate_window_start_centis = 0;
    rate_window_samples = 0;
-   measured_sample_rate_hz = 0;
-   measured_rate_reported = false;
+   measured_sample_rate_hz = rate_previous_estimate = rate_stable_count = 0;
+   measured_rate_reported = measured_rate_settled = false;
 
    // Shared SRAM has to be held fully active, not merely retained, while the DMA writes into it during Deep Sleep
    system_set_sram_active(true);
@@ -825,17 +825,31 @@ bool audio_error_encountered(void)
 static void audio_rate_measure_update(void)
 {
    // Fold this buffer into the running total and re-derive the achieved rate
-   rate_window_samples += num_samples_per_dma;
    const uint64_t now_centis = rtc_get_centiseconds();
-   if (!rate_window_start_centis || (now_centis <= rate_window_start_centis))
+   if (!rate_window_start_centis)
+   {
+      rate_window_start_centis = now_centis;
+      return;
+   }
+   rate_window_samples += num_samples_per_dma;
+   if (now_centis <= rate_window_start_centis)
       return;
    const uint64_t elapsed_centis = now_centis - rate_window_start_centis;
    if (elapsed_centis < AUDIO_RATE_MEASURE_MIN_CENTIS)
       return;
    measured_sample_rate_hz = (uint32_t)((rate_window_samples * 100u) / elapsed_centis);
 
-   // Report once per session along with the source frequency the measurement implies
-   if (!measured_rate_reported && measured_sample_rate_hz && pdm_total_divider)
+   // Treat the estimate as settled only once consecutive readings agree
+   const uint32_t drift = (measured_sample_rate_hz > rate_previous_estimate)
+                        ? (measured_sample_rate_hz - rate_previous_estimate)
+                        : (rate_previous_estimate - measured_sample_rate_hz);
+   rate_stable_count = (rate_previous_estimate && (drift <= AUDIO_RATE_SETTLE_TOLERANCE_HZ)) ? (rate_stable_count + 1u) : 0u;
+   rate_previous_estimate = measured_sample_rate_hz;
+   if (rate_stable_count >= AUDIO_RATE_SETTLE_CONSECUTIVE)
+      measured_rate_settled = true;
+
+   // Report once the value has settled, along with the source frequency it implies
+   if (measured_rate_settled && !measured_rate_reported && measured_sample_rate_hz && pdm_total_divider)
    {
       measured_rate_reported = true;
       log_event("PDM_CLOCK", "phase=MEASURED,measured_rate_hz=%u,nominal_rate_hz=%u,measured_source_hz=%u,nominal_source_hz=%u,window_centis=%u",
@@ -954,8 +968,19 @@ void audio_get_stats(audio_stats_t *stats)
 
 uint32_t audio_get_measured_sample_rate(void)
 {
-   // The measured rate once the window is long enough to trust it, otherwise the predicted one
-   return measured_sample_rate_hz ? measured_sample_rate_hz : audio_get_actual_sample_rate();
+   // Only hand back a measurement that has stopped moving; until then the predicted rate stands
+   return measured_rate_settled ? measured_sample_rate_hz : audio_get_actual_sample_rate();
+}
+
+bool audio_rate_is_settled(void)
+{
+   return measured_rate_settled;
+}
+
+uint32_t audio_get_rate_estimate(void)
+{
+   // The current estimate whether or not it has settled, for telemetry only
+   return measured_sample_rate_hz;
 }
 
 uint32_t audio_get_actual_sample_rate(void)

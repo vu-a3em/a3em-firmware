@@ -913,6 +913,100 @@ bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp,
                                     activation_number, timestamp, battery_mv, last_stop_reason, recovered);
 }
 
+static uint32_t largest_numeric_entry(const char *path, bool want_directory)
+{
+   // Directory and file names in the audio tree are decimal timestamps, so the newest is simply the
+   // numerically largest. Nothing here assumes the entries come back in any particular order.
+   DIR directory;
+   static FILINFO entry;
+   uint32_t largest = 0;
+   if (f_opendir(&directory, path) != FR_OK)
+      return 0;
+   while ((f_readdir(&directory, &entry) == FR_OK) && entry.fname[0])
+   {
+      if (((entry.fattrib & AM_DIR) != 0) != want_directory)
+         continue;
+      char *end = NULL;
+      const uint32_t value = (uint32_t)strtoul(entry.fname, &end, 10);
+      if (!value || (end == entry.fname))
+         continue;
+      if (want_directory ? (*end != '\0') : (strcmp(end, ".wav") != 0))
+         continue;
+      if (value > largest)
+         largest = value;
+   }
+   f_closedir(&directory);
+   return largest;
+}
+
+uint32_t storage_get_latest_audio_timestamp(const char *device_label)
+{
+   // The newest recording is the freshest proof of when the device was still running
+   if (!card_present || !device_label || !device_label[0])
+      return 0;
+   const uint32_t activation = storage_get_current_activation_number(device_label);
+   if (!activation)
+      return 0;
+
+   static char path[FF_MAX_LFN];
+   snprintf(path, sizeof(path), "%s/Activation_%04lu", device_label, (unsigned long)activation);
+   const uint32_t day = largest_numeric_entry(path, true);
+   if (!day)
+      return 0;
+   snprintf(path + strlen(path), sizeof(path) - strlen(path), "/%lu", (unsigned long)day);
+   const uint32_t hour = largest_numeric_entry(path, true);
+   if (!hour)
+      return 0;
+   snprintf(path + strlen(path), sizeof(path) - strlen(path), "/%lu", (unsigned long)hour);
+   const uint32_t start_time = largest_numeric_entry(path, false);
+   if (!start_time)
+      return 0;
+   snprintf(path + strlen(path), sizeof(path) - strlen(path), "/%lu.wav", (unsigned long)start_time);
+
+   // Length comes from the file on disk rather than the header
+   FIL clip;
+   uint32_t duration_seconds = 0;
+   if (f_open(&clip, path, FA_READ) == FR_OK)
+   {
+      uint8_t header[44];
+      UINT bytes_read = 0;
+      if ((f_read(&clip, header, sizeof(header), &bytes_read) == FR_OK) && (bytes_read == sizeof(header)))
+      {
+         const uint32_t byte_rate = (uint32_t)header[28] | ((uint32_t)header[29] << 8) |
+                                    ((uint32_t)header[30] << 16) | ((uint32_t)header[31] << 24);
+         const uint32_t payload = (f_size(&clip) > sizeof(header)) ? (uint32_t)(f_size(&clip) - sizeof(header)) : 0;
+         if (byte_rate)
+            duration_seconds = payload / byte_rate;
+      }
+      f_close(&clip);
+   }
+   return start_time + duration_seconds;
+}
+
+uint32_t storage_get_recorded_timestamp(void)
+{
+   // Read back the timestamp the device file was last written with
+   if (!card_present)
+      return 0;
+   FIL info;
+   if (f_open(&info, DEVICE_INFO_FILE_NAME, FA_READ) != FR_OK)
+      return 0;
+   char line[64];
+   uint32_t timestamp = 0;
+   while (f_gets(line, sizeof(line), &info))
+   {
+      const char *marker = "LAST_TIMESTAMP = \"";
+      const size_t marker_len = sizeof("LAST_TIMESTAMP = \"") - 1;
+      if (strncmp(line, marker, marker_len) == 0)
+      {
+         timestamp = (uint32_t)strtoul(line + marker_len, NULL, 10);
+         break;
+      }
+   }
+   f_close(&info);
+   return timestamp;
+}
+
 void storage_write_boot_record(const char *reason, uint32_t epoch, uint32_t reset_count, uint32_t detail, uint32_t timestamp)
 {
    // The boot log is a fixed-size, pre-allocated, circular file of fixed-length records. Each record

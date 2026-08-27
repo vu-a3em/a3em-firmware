@@ -44,8 +44,16 @@ static void log_boot_reason(void)
 
    // The detail field carries the fault address for a fault, and the hardware reset bits otherwise
    const uint32_t detail = (boot->software_reason == RESET_REASON_HARD_FAULT) ? boot->fault_address : hardware_bits;
-   storage_write_boot_record(reset_reason_name(boot->software_reason), boot->boot_epoch,
-                             boot->resets_this_epoch, detail, rtc_get_timestamp());
+
+   // Fall back to the last known good time, which at least puts the record near when the power was lost
+   uint32_t record_time = rtc_get_timestamp();
+   if (!rtc_is_valid())
+   {
+      const uint32_t last_known = mram_get_last_known_timestamp();
+      if (last_known)
+         record_time = last_known;
+   }
+   storage_write_boot_record(reset_reason_name(boot->software_reason), boot->boot_epoch, boot->resets_this_epoch, detail, record_time);
 }
 
 static void magnet_sensor_validated(bool validated)
@@ -233,9 +241,21 @@ int main(void)
             // Log this error and set the RTC to the last known timestamp
             if (config_gps_available())
                print("ERROR: No GPS time after %u attempts - falling back to the last known timestamp\n", gps_time_attempts);
-            uint32_t last_known_timestamp = mram_get_last_known_timestamp();
+            char recovery_label[1 + MAX_DEVICE_LABEL_LEN] = { 0 };
+            config_get_device_label(recovery_label, sizeof(recovery_label));
+            const uint32_t mram_timestamp = mram_get_last_known_timestamp();
+            const uint32_t card_timestamp = storage_get_recorded_timestamp();
+            const uint32_t audio_timestamp = storage_get_latest_audio_timestamp(recovery_label);
+            uint32_t last_known_timestamp = mram_timestamp;
+            const char *source = "MRAM";
+            if (card_timestamp > last_known_timestamp) { last_known_timestamp = card_timestamp; source = "device file"; }
+            if (audio_timestamp > last_known_timestamp) { last_known_timestamp = audio_timestamp; source = "newest audio clip"; }
             if (last_known_timestamp)
+            {
+               print("INFO: Recovering clock from %s (MRAM %u, device file %u, audio %u)\n", source, mram_timestamp, card_timestamp, audio_timestamp);
+               log_event("CLOCK_RECOVERED", "source=%s,mram=%u,dev=%u,audio=%u,chosen=%u", source, mram_timestamp, card_timestamp, audio_timestamp, last_known_timestamp);
                rtc_set_time_from_timestamp(last_known_timestamp);
+            }
             else
                rtc_set_time_to_compile_time();
             print("ERROR: RTC time appears to have been lost...setting to last known timestamp: %u\n", rtc_get_timestamp());

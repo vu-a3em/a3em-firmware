@@ -194,7 +194,9 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 #define AUDIO_HEALTH_SILENCE_FLOOR                      4
 #define AUDIO_HEALTH_RMS_STRIDE                         1
-#define AUDIO_RATE_MEASURE_MIN_CENTIS                   3000
+#define AUDIO_RATE_MEASURE_MIN_CENTIS                   6000
+#define AUDIO_RATE_SETTLE_TOLERANCE_HZ                  3
+#define AUDIO_RATE_SETTLE_CONSECUTIVE                   3
 
 #define PDM_NOMINAL_CLOCK_HZ                            24000000
 #define PDM_RATE_TOLERANCE_PERMILLE                     5

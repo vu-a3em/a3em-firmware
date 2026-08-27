@@ -60,6 +60,8 @@ void storage_flush_log(void);
 // Fixed-record boot log functionality
 bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime, const char *device_uid, uint32_t activation_number, uint32_t timestamp, uint32_t battery_mv, const char *last_stop_reason, bool recovered);
 bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp, uint32_t battery_mv, const char *last_stop_reason, bool recovered);
+uint32_t storage_get_recorded_timestamp(void);
+uint32_t storage_get_latest_audio_timestamp(const char *device_label);
 void storage_write_boot_record(const char *reason, uint32_t epoch, uint32_t reset_count, uint32_t detail, uint32_t timestamp);
 
 #endif  // #ifndef __STORAGE_HEADER_H__
