@@ -26,7 +26,7 @@ FLASH_START = 0x00018000
 ID_FLASH_LOCATION = 0x001FFFF8
 
 DEFINES  = -D_HW_REVISION=$(REVISION)
-FW_VERSION := 2026.08.24
+FW_VERSION := 2026.08.27
 GIT_HASH := $(shell git -C $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST))))) rev-parse --short HEAD 2>/dev/null || echo nogit)
 GIT_DIRTY := $(shell git -C $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST))))) diff --quiet HEAD 2>/dev/null || echo -dirty)
 
