@@ -558,9 +558,6 @@ void setup_hardware(void)
    // Initialize all unused GPIO pins to a known state
    system_initialize_unused_pins();
 
-   // Trim HFRC against the 32.768 kHz crystal
-   am_hal_clkgen_control(AM_HAL_CLKGEN_CONTROL_HFADJ_ENABLE, NULL);
-
    // Set up persistent storage and determine why the device restarted
    mram_init();
    system_capture_boot_info();
@@ -688,6 +685,7 @@ void system_initialize_peripherals(void)
    // Initialize peripherals and start up the RTC
    leds_init();
    rtc_init();
+   am_hal_clkgen_control(AM_HAL_CLKGEN_CONTROL_HFADJ_ENABLE, NULL);
    vhf_init();
    imu_init();
    tracker_init();
