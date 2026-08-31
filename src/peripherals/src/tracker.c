@@ -107,6 +107,10 @@ void tracker_init(void)
    am_hal_gpio_pincfg_t sda_config = g_AM_BSP_GPIO_IOS_SDA;
    scl_config.GP.cfg_b.uFuncSel = PIN_EXT_HW_I2C_SCL_FUNCTION;
    sda_config.GP.cfg_b.uFuncSel = PIN_EXT_HW_I2C_SDA_FUNCTION;
+   scl_config.GP.cfg_b.eGPInput = AM_HAL_GPIO_PIN_INPUT_ENABLE;
+   sda_config.GP.cfg_b.eGPInput = AM_HAL_GPIO_PIN_INPUT_ENABLE;
+   scl_config.GP.cfg_b.ePullup = AM_HAL_GPIO_PIN_PULLUP_NONE;
+   sda_config.GP.cfg_b.ePullup = AM_HAL_GPIO_PIN_PULLUP_NONE;
    configASSERT0(am_hal_gpio_pinconfig(PIN_EXT_HW_I2C_SCL, scl_config));
    configASSERT0(am_hal_gpio_pinconfig(PIN_EXT_HW_I2C_SDA, sda_config));
    configASSERT0(am_hal_ios_initialize(EXT_HW_I2C_NUMBER, &i2c_handle));

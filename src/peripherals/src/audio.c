@@ -41,20 +41,15 @@ uint32_t sample_buffer[2*AUDIO_BUFFER_MAX_SAMPLES];
 
 static void *audio_handle;
 static float pga_gain_db;
-static bool is_digital_mic;
 static audio_trigger_t trigger_criterion;
+static uint64_t rate_window_start_centis, rate_window_samples;
 static uint32_t health_num_samples, health_num_rms_samples, health_stride_phase, dma_period_ms, num_audio_channels;
 static uint32_t sampling_rate_hz, dc_offset, num_samples_per_dma, actual_sample_rate_hz, dma_period_limit_samples;
-
-// Sample-rate measurement. The divider arithmetic only predicts the rate that WOULD result from a
-// source running at its nominal frequency, and the oscillator is not that accurate. Counting
-// delivered samples against the RTC gives the rate the hardware is really producing.
-static uint64_t rate_window_start_centis, rate_window_samples;
 static uint32_t measured_sample_rate_hz, pdm_total_divider, rate_previous_estimate, rate_stable_count;
-static bool measured_rate_reported, measured_rate_settled;
 static volatile bool dma_complete = false, dma_error = false, adc_awake, tail_window_open, backstop_running;
 static volatile uint32_t stat_buffers_captured, stat_buffers_dropped, stat_missed_completions;
 static volatile uint32_t dma_buffers_pending, dcmp_confidence, skip_samples;
+static bool measured_rate_reported, measured_rate_settled, is_digital_mic;
 static int16_t health_min_sample, health_max_sample;
 static int64_t health_sum, health_sum_squares;
 static am_hal_timer_config_t audio_dma_timer_config;

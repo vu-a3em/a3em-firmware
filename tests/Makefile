@@ -289,12 +289,12 @@ SRC += silence.c
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/mcu/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-.PHONY: all program clean ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc silence storage system tracker tracker2 vhf
+.PHONY: all program clean ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc silence storage system tracker tracker2 tracker_bus tracker_master vhf
 .PRECIOUS: $(CONFIG)/%.axf
 .SECONDEXPANSION:
 
 all:
-	$(error Make targets include: ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc silence storage system tracker tracker2 vhf)
+	$(error Make targets include: ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc silence storage system tracker tracker2 tracker_bus tracker_master vhf)
 
 program:
 ifneq ($(BUILT_BY), eclipse)
@@ -414,6 +414,14 @@ tracker: $(CONFIG) $(CONFIG)/test_tracker.o $(CONFIG)/$$(TARGET).bin program
 tracker2: TARGET = TestTracker2
 tracker2: SRC += test_tracker2.c
 tracker2: $(CONFIG) $(CONFIG)/test_tracker2.o $(CONFIG)/$$(TARGET).bin program
+
+tracker_bus: TARGET = TestTrackerBus
+tracker_bus: SRC += test_tracker_bus.c
+tracker_bus: $(CONFIG) $(CONFIG)/test_tracker_bus.o $(CONFIG)/$$(TARGET).bin program
+
+tracker_master: TARGET = TestTrackerMaster
+tracker_master: SRC += test_tracker_master.c
+tracker_master: $(CONFIG) $(CONFIG)/test_tracker_master.o $(CONFIG)/$$(TARGET).bin program
 
 vhf: TARGET = TestVHF
 vhf: SRC += test_vhf.c

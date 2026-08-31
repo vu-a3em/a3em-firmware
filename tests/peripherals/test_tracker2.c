@@ -266,6 +266,29 @@ static void report_slave_configuration(void)
          (uint32_t)(IOSLAVE->FIFOCFG_b.ROBASE << 3), (uint32_t)(IOSLAVE->FIFOCFG_b.FIFOBASE << 3),
          (uint32_t)(IOSLAVE->FIFOCFG_b.FIFOMAX << 3));
    print("   tracker_init() returned without tripping an assertion, so every HAL call in it succeeded\n");
+
+   // Read back the two pads as well. A correct IOSLAVE CFG proves nothing on its own, because the pad input enable is
+   // what actually gates the wire through to the peripheral: Programmer's Guide Section 9.2.3 says a pad with INPEN
+   // clear "will always read as a 0", and Table 19 of Section 9.3.1.6 requires INPEN set and PULLCFG cleared on both
+   // lines for IO Slave I2C. With INPEN clear on SDA the slave sees a constant zero and can never match its address
+   const uint32_t pad_config[2] = { (&GPIO->PINCFG0)[PIN_EXT_HW_I2C_SCL], (&GPIO->PINCFG0)[PIN_EXT_HW_I2C_SDA] };
+   const uint32_t pads[2] = { PIN_EXT_HW_I2C_SCL, PIN_EXT_HW_I2C_SDA };
+   const char *pad_names[2] = { "SCL", "SDA" };
+   bool pads_usable = true;
+   for (uint32_t i = 0; i < 2; ++i)
+   {
+      const uint32_t function = (pad_config[i] & GPIO_PINCFG0_FNCSEL0_Msk) >> GPIO_PINCFG0_FNCSEL0_Pos;
+      const uint32_t input_enabled = (pad_config[i] & GPIO_PINCFG0_INPEN0_Msk) >> GPIO_PINCFG0_INPEN0_Pos;
+      const uint32_t pull_config = (pad_config[i] & GPIO_PINCFG0_PULLCFG0_Msk) >> GPIO_PINCFG0_PULLCFG0_Pos;
+      const uint32_t expected_function = i ? PIN_EXT_HW_I2C_SDA_FUNCTION : PIN_EXT_HW_I2C_SCL_FUNCTION;
+      pads_usable = pads_usable && input_enabled && (function == expected_function);
+      print("   PINCFG%u  = 0x%08X: %s pad, FNCSEL %u (%s), INPEN %u (%s), PULLCFG %u\n", pads[i], pad_config[i],
+            pad_names[i], function, (function == expected_function) ? "IO Slave" : "NOT the IO Slave",
+            input_enabled, input_enabled ? "the pad reaches the peripheral" : "PAD READS AS A CONSTANT ZERO",
+            pull_config);
+   }
+   print("   %s\n", pads_usable ? "Both pads are routed to the IO Slave with their inputs enabled" :
+         "The pads are NOT usable by the IO Slave, so no address can ever match no matter what CFG says");
 }
 
 void tracker_isr_observer(uint32_t interrupt_status)
