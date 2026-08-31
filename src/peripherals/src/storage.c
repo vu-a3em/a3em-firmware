@@ -374,9 +374,12 @@ void am_sdio_isr(void)
 {
    // Service the SDIO interrupt
    static uint32_t status;
-   am_hal_sdhc_intr_status_get(sd_card_host->pHandle, &status, false);
-   am_hal_sdhc_intr_status_clear(sd_card_host->pHandle, status);
-   am_hal_sdhc_interrupt_service(sd_card_host->pHandle, status);
+   if (sd_card_host)
+   {
+      am_hal_sdhc_intr_status_get(sd_card_host->pHandle, &status, false);
+      am_hal_sdhc_intr_status_clear(sd_card_host->pHandle, status);
+      am_hal_sdhc_interrupt_service(sd_card_host->pHandle, status);
+   }
 }
 
 
@@ -804,6 +807,8 @@ void storage_deinit(void)
       am_hal_card_pwrctrl_wakeup(&sd_card);
       sd_card_host->ops->deinit(sd_card_host->pHandle);
    }
+   NVIC_DisableIRQ(SDIO_IRQn);
+   NVIC_ClearPendingIRQ(SDIO_IRQn);
    sd_session_depth = 0;
    sd_card_awake = false;
    am_hal_gpio_output_clear(PIN_SD_CARD_ENABLE);
