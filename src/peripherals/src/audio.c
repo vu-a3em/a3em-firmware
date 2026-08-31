@@ -963,8 +963,8 @@ void audio_get_stats(audio_stats_t *stats)
 
 uint32_t audio_get_measured_sample_rate(void)
 {
-   // Only hand back a measurement that has stopped moving; until then the predicted rate stands
-   return measured_rate_settled ? measured_sample_rate_hz : audio_get_actual_sample_rate();
+   // Any measurement at all beats the prediction, so the settle flag does not gate this
+   return measured_sample_rate_hz ? measured_sample_rate_hz : audio_get_actual_sample_rate();
 }
 
 bool audio_rate_is_settled(void)
