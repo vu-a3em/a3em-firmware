@@ -140,9 +140,18 @@ static void validate_device_settings(uint32_t current_timestamp)
              cache_valid ? cache_hit_rate : 0.0f,
              audio_get_rate_estimate(), audio_rate_is_settled() ? 1u : 0u);
 
-   // Only report the health counters when something has actually gone wrong
+   // Report the cumulative health counters when one of them actually moves
+   static uint32_t last_reported_health[6];
    const uint32_t imu_overruns = imu_get_fifo_overrun_count(), hal_failures = system_get_hal_failure_count();
-   if (audio_stats.buffers_dropped || audio_stats.missed_completions || storage_health.write_failures || storage_health.imu_buffers_dropped || imu_overruns || hal_failures)
+   const uint32_t health_now[6] = { audio_stats.buffers_dropped, audio_stats.missed_completions, storage_health.write_failures, storage_health.imu_buffers_dropped, imu_overruns, hal_failures };
+   bool health_changed = false;
+   for (uint32_t i = 0; i < 6; ++i)
+      if (health_now[i] != last_reported_health[i])
+      {
+         last_reported_health[i] = health_now[i];
+         health_changed = true;
+      }
+   if (health_changed)
    {
       print("   DEGRADED: %u audio buffers dropped, %u DMA completions recovered\n"
             "   DEGRADED: %u write failures, %u reopens, %u remounts, %u IMU buffers dropped, %u IMU FIFO overruns\n",

@@ -51,9 +51,9 @@ static am_device_card_config_t sd_card_config;
 static FIL current_file, log_file, imu_file, audio_file;
 static char time_string[DATETIME_STAMP_LEN], audio_directory[MAX_DEVICE_LABEL_LEN + 40];
 static char dev_fw_version[32], dev_hw_revision[8], dev_build_datetime[40], dev_uid[24], early_log[EARLY_LOG_MAX_BYTES];
-static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open, dev_info_captured, early_log_overflowed;
+static bool using_ogg, log_open, file_open, imu_file_open, audio_file_open, dev_info_captured, early_log_overflowed, sd_card_awake;
 static uint32_t audio_directory_timestamp, data_size, opus_audio_buffer_idx, early_log_used;
-static uint32_t measured_sample_rate_hz, wav_num_channels;
+static uint32_t measured_sample_rate_hz, wav_num_channels, sd_session_depth;
 static volatile bool async_write_complete, async_read_complete, card_present;
 static volatile uint8_t *imu_data_awaiting_storage;
 static volatile uint32_t imu_storage_index;
@@ -63,13 +63,14 @@ static ogg_data_packet_t ogg_packet;
 static ogg_writer_t ogg_writer;
 static storage_health_t health;
 
-// The Opus staging buffer and the IMU double buffer live in the shared SRAM group
+// The audio staging buffer and the IMU double buffer live in the shared SRAM group.
 __attribute__((section(".shared"), aligned(32)))
-static uint8_t opus_audio_buffer[AUDIO_BUFFER_MAX_SIZE];
+static union { uint8_t opus[AUDIO_BUFFER_MAX_SIZE]; uint8_t wav[WAV_STAGING_BUFFER_SIZE]; } audio_staging;
+#define opus_audio_buffer  (audio_staging.opus)
+#define wav_staging_buffer (audio_staging.wav)
+_Static_assert(sizeof(audio_staging) == WAV_STAGING_BUFFER_SIZE, "WAV staging is expected to be the larger overlay");
 __attribute__((section(".shared"), aligned(32)))
 static float imu_data_buffer[2*IMU_BUFFER_MAX_SAMPLES][3];
-__attribute__((section(".shared"), aligned(32)))
-static uint8_t wav_staging_buffer[WAV_STAGING_BUFFER_SIZE];
 static uint32_t wav_staging_used;
 static float (*imu_storage_buffer)[3];
 
@@ -158,6 +159,8 @@ DSTATUS disk_initialize(BYTE)
       printonly("ERROR: Failed to power down the SDIO peripheral\n");
       return sd_disk_status;
    }
+   sd_session_depth = 0;
+   sd_card_awake = false;
 
    // Set the storage interrupt priority
    NVIC_SetPriority(SDIO_IRQn, STORAGE_INTERRUPT_PRIORITY);
@@ -189,6 +192,44 @@ static bool wait_for_async_transfer(volatile bool *complete_flag)
    return *complete_flag;
 }
 
+static bool sd_wake(void)
+{
+   if (sd_card_awake)
+      return true;
+   if (am_hal_card_pwrctrl_wakeup(&sd_card) != AM_HAL_STATUS_SUCCESS)
+   {
+      printonly("ERROR: Failed to power on the SDIO peripheral\n");
+      return false;
+   }
+   sd_card_awake = true;
+   return true;
+}
+
+static bool sd_sleep_if_idle(void)
+{
+   // Stay awake for as long as any session is open; the outermost session end powers the card down
+   if (sd_session_depth || !sd_card_awake)
+      return true;
+   if (am_hal_card_pwrctrl_sleep(&sd_card) != AM_HAL_STATUS_SUCCESS)
+   {
+      printonly("ERROR: Failed to power down the SDIO peripheral\n");
+      return false;
+   }
+   sd_card_awake = false;
+   return true;
+}
+
+void storage_sd_session_begin(void)
+{
+   ++sd_session_depth;
+}
+
+void storage_sd_session_end(void)
+{
+   if (sd_session_depth && !--sd_session_depth)
+      sd_sleep_if_idle();
+}
+
 DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
 {
    // Validate status and transfer parameters
@@ -197,12 +238,9 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
    if (sd_disk_status & STA_NOINIT)
       return RES_NOTRDY;
 
-   // Power on the SDIO peripheral
-   if (am_hal_card_pwrctrl_wakeup(&sd_card) != AM_HAL_STATUS_SUCCESS)
-   {
-      printonly("ERROR: Failed to power on the SDIO peripheral\n");
+   // Power on the SDIO peripheral unless a session is already holding it awake
+   if (!sd_wake())
       return RES_ERROR;
-   }
 
    // Call the appropriate synchronous or asynchronous read API
    DRESULT result = RES_OK;
@@ -231,12 +269,9 @@ DRESULT disk_read(BYTE, BYTE *buff, LBA_t sector, UINT count)
       }
    }
 
-   // Always power down the SDIO peripheral
-   if (am_hal_card_pwrctrl_sleep(&sd_card) != AM_HAL_STATUS_SUCCESS)
-   {
-      printonly("ERROR: Failed to power down the SDIO peripheral\n");
+   // Power down the SDIO peripheral unless a session is holding it awake for further transfers
+   if (!sd_sleep_if_idle())
       result = RES_ERROR;
-   }
    return result;
 }
 
@@ -248,12 +283,9 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
    if (sd_disk_status & STA_NOINIT)
       return RES_NOTRDY;
 
-   // Power on the SDIO peripheral
-   if (am_hal_card_pwrctrl_wakeup(&sd_card) != AM_HAL_STATUS_SUCCESS)
-   {
-      printonly("ERROR: Failed to power on the SDIO peripheral\n");
+   // Power on the SDIO peripheral unless a session is already holding it awake
+   if (!sd_wake())
       return RES_ERROR;
-   }
 
    // Call the appropriate synchronous or asynchronous write API
    DRESULT result = RES_OK;
@@ -282,12 +314,9 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
       }
    }
 
-   // Always power down the SDIO peripheral
-   if (am_hal_card_pwrctrl_sleep(&sd_card) != AM_HAL_STATUS_SUCCESS)
-   {
-      printonly("ERROR: Failed to power down the SDIO peripheral\n");
+   // Power down the SDIO peripheral unless a session is holding it awake for further transfers
+   if (!sd_sleep_if_idle())
       result = RES_ERROR;
-   }
    return result;
 }
 
@@ -428,10 +457,15 @@ static bool flush_wav_staging(void)
    if (!audio_file_open)
       return false;
 
+   // Hold the card awake across the whole FatFs cluster-writing batch
+   storage_sd_session_begin();
+
    // Write any outstanding IMU data alongside the audio so the two files are touched together
    storage_handle_imu_data();
    UINT data_written = 0;
-   if ((f_write(&audio_file, wav_staging_buffer, length, &data_written) == FR_OK) && (data_written == length))
+   const bool written_ok = (f_write(&audio_file, wav_staging_buffer, length, &data_written) == FR_OK) && (data_written == length);
+   storage_sd_session_end();
+   if (written_ok)
    {
       note_write_success();
       return true;
@@ -515,13 +549,17 @@ static bool storage_write_ogg_opus_audio(const void *data, uint32_t num_samples,
       // Flush the staging buffer to the card once it is full
       if (bytes_remaining)
       {
+         // Hold the card awake for the audio and IMU writes together so the pair costs one wake instead of two
+         storage_sd_session_begin();
+
          // Write any outstanding IMU data at the same time as the audio data
          storage_handle_imu_data();
 
          // On failure the buffer index is still reset and the overflow still copied in
          UINT data_written = 0;
-         if ((f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) &&
-             (data_written == sizeof(opus_audio_buffer)))
+         const bool opus_written_ok = (f_write(&audio_file, opus_audio_buffer, sizeof(opus_audio_buffer), &data_written) == FR_OK) && (data_written == sizeof(opus_audio_buffer));
+         storage_sd_session_end();
+         if (opus_written_ok)
          {
             data_size += sizeof(opus_audio_buffer);
             note_write_success();
@@ -663,7 +701,7 @@ static bool storage_open_ogg_opus_file(uint32_t activation_number, const char *d
    // Close an already-opened audio file
    if (audio_file_open)
       storage_close_ogg_opus_audio();
-   opus_audio_buffer_idx = 0;
+   opus_audio_buffer_idx = wav_staging_used = 0;
 
    // Determine if time to create a new audio storage directory, rotating the log if so
    if (ensure_audio_directory(activation_number, device_label, current_time))
@@ -766,6 +804,8 @@ void storage_deinit(void)
       am_hal_card_pwrctrl_wakeup(&sd_card);
       sd_card_host->ops->deinit(sd_card_host->pHandle);
    }
+   sd_session_depth = 0;
+   sd_card_awake = false;
    am_hal_gpio_output_clear(PIN_SD_CARD_ENABLE);
    sd_disk_status = STA_NOINIT;
    sd_card_host = NULL;
@@ -876,6 +916,23 @@ uint32_t storage_get_free_space_mb(void)
    return (uint32_t)((free_sectors * FF_MAX_SS) / (1024u * 1024u));
 }
 
+uint32_t storage_get_allocation_unit_bytes(void)
+{
+   // Cluster size of the mounted volume, which is whatever the card was last formatted with
+   if (!card_present || !file_system.csize)
+      return 0;
+   return (uint32_t)file_system.csize * FF_MAX_SS;
+}
+
+uint32_t storage_get_total_space_mb(void)
+{
+   // Total usable size of the volume in megabytes counting only data clusters
+   if (!card_present || !file_system.n_fatent)
+      return 0;
+   const uint64_t total_sectors = (uint64_t)(file_system.n_fatent - 2) * file_system.csize;
+   return (uint32_t)((total_sectors * FF_MAX_SS) / (1024u * 1024u));
+}
+
 bool storage_write_device_info(const char *fw_version, const char *hw_revision, const char *build_datetime,
                                const char *device_uid, uint32_t activation_number, uint32_t timestamp,
                                uint32_t battery_mv, const char *last_stop_reason, bool recovered)
@@ -903,6 +960,9 @@ bool storage_write_device_info(const char *fw_version, const char *hw_revision, 
    f_printf(&info_file, "LAST_BATTERY_MV = \"%u\"\n", battery_mv);
    f_printf(&info_file, "LAST_STOP_REASON = \"%s\"\n", last_stop_reason);
    f_printf(&info_file, "LAST_STOP_RECOVERED = \"%s\"\n", recovered ? "True" : "False");
+   f_printf(&info_file, "CARD_ALLOCATION_UNIT_BYTES = \"%u\"\n", storage_get_allocation_unit_bytes());
+   f_printf(&info_file, "CARD_CAPACITY_MB = \"%u\"\n", storage_get_total_space_mb());
+   f_printf(&info_file, "CARD_FREE_MB = \"%u\"\n", storage_get_free_space_mb());
    f_close(&info_file);
    return true;
 }
@@ -1096,6 +1156,10 @@ bool storage_open(const char *file_path, bool writeable)
 
 bool storage_open_audio_file(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time, bool use_ogg)
 {
+   // Close any file still open under the previous format BEFORE switching formats
+   if (audio_file_open)
+      storage_close_audio();
+
    // Call the appropriate open-file function
    using_ogg = use_ogg;
    return using_ogg ?
@@ -1280,7 +1344,12 @@ void storage_write_event(const char *code, const char *fmt, ...)
 void storage_flush_log(void)
 {
    // Flush the log file to ensure that contents are not lost upon power loss
-   if (log_open && (f_sync(&log_file) != FR_OK))
+   if (!log_open)
+      return;
+   storage_sd_session_begin();
+   const FRESULT sync_result = f_sync(&log_file);
+   storage_sd_session_end();
+   if (sync_result != FR_OK)
    {
       // A failed sync means the log file object is no longer usable; reopen it in place
       f_close(&log_file);
@@ -1320,7 +1389,10 @@ void storage_handle_imu_data(void)
       {
          UINT data_written = 0;
          const uint32_t length = sizeof(float) * 3 * IMU_BUFFER_MAX_SAMPLES;
-         if ((f_write(&imu_file, pending, length, &data_written) != FR_OK) || (data_written != length))
+         storage_sd_session_begin();
+         const bool imu_written_ok = (f_write(&imu_file, pending, length, &data_written) == FR_OK) && (data_written == length);
+         storage_sd_session_end();
+         if (!imu_written_ok)
             note_write_failure();
       }
       imu_data_awaiting_storage = NULL;
@@ -1360,11 +1432,13 @@ void storage_delete(const char *file_path)
 
 void storage_close_audio(void)
 {
-   // Call the appropriate close-audio function
+   // Keep the card awake for all closing SD card writes
+   storage_sd_session_begin();
    if (using_ogg)
       storage_close_ogg_opus_audio();
    else
       storage_close_wav_audio();
+   storage_sd_session_end();
 }
 
 void storage_close_imu(void)

@@ -24,6 +24,9 @@ typedef struct
 void storage_init(void);
 void storage_deinit(void);
 bool storage_sd_card_error(void);
+
+void storage_sd_session_begin(void);
+void storage_sd_session_end(void);
 bool storage_mkdir(const char *directory);
 bool storage_open(const char *file_path, bool writeable);
 uint32_t storage_get_current_activation_number(const char *device_label);
@@ -48,6 +51,8 @@ void storage_close_imu(void);
 bool storage_recover_audio(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time);
 void storage_get_health(storage_health_t *health);
 uint32_t storage_get_free_space_mb(void);
+uint32_t storage_get_total_space_mb(void);
+uint32_t storage_get_allocation_unit_bytes(void);
 
 // Deployment log file functionality
 void storage_setup_logs(void);

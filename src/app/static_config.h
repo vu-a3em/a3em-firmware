@@ -41,8 +41,8 @@
 #define NUM_HOURS_PER_AUDIO_DIRECTORY               4
 #define AUDIO_BUFFER_MAX_SIZE                       65536
 #define NUM_SECONDS_PER_AUDIO_DIRECTORY             (NUM_HOURS_PER_AUDIO_DIRECTORY * 60 * 60)
-#define SD_CARD_ALLOCATION_UNIT_BYTES               4096
-#define WAV_STAGING_BUFFER_SIZE                     (256 * 1024)
+#define SD_CARD_ALLOCATION_UNIT_BYTES               (32 * 1024)
+#define WAV_STAGING_BUFFER_SIZE                     (512 * 1024)
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define DEVICE_INFO_FILE_NAME                       "_a3em.dev"
@@ -252,7 +252,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 // IMU Sampling Definitions --------------------------------------------------------------------------------------------
 
 #define IMU_DEFAULT_SAMPLING_RATE_HZ                    25
-#define IMU_BUFFER_MAX_SAMPLES                          ((AUDIO_BUFFER_MAX_SAMPLES / 80) + 100)
+#define IMU_BUFFER_MAX_SAMPLES                          3000
 
 #define IMU_FIFO_WATERMARK                              96
 #define IMU_FIFO_MAX_LEVEL                              128
