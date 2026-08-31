@@ -60,7 +60,10 @@ static void log_boot_reason(void)
    print("INFO: Restart #%u of power-on epoch %u, reason %s (hardware bits 0x%03X, scratch 0x%08X/0x%08X)\n", boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), hardware_bits, boot->scratch0_raw, boot->scratch1_raw);
    log_event("BOOT", "fw=%s,hw=%s,built=%s,resets=%u,epoch=%u,last_stop=%s,scratch0=0x%08X,scratch1=0x%08X", _FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), boot->scratch0_raw, boot->scratch1_raw);
    if (boot->software_reason == RESET_REASON_HARD_FAULT)
-      print("ERROR: Previous run ended in a hard fault at address 0x%08X\n", boot->fault_address);
+   {
+      print("ERROR: Previous run ended in a hard fault at address 0x%08X (CFSR 0x%08X)\n", boot->fault_address, boot->fault_status);
+      log_event("HARD_FAULT", "address=0x%08X,cfsr=0x%08X", boot->fault_address, boot->fault_status);
+   }
    if (hw->bWDTStat)
       print("ERROR: Previous run was terminated by the watchdog\n");
 
@@ -430,10 +433,14 @@ int main(void)
       }
 
       system_delay(200000);
+
+      // Restart with the "just activated" reason which gates the self-test
+      storage_flush_log();
+      system_reset_with_reason(RESET_REASON_ACTIVATED);
    }
 
    // Reboot the system and start over from the top
    storage_flush_log();
-   system_reset_with_reason(device_activated ? RESET_REASON_ACTIVATED : RESET_REASON_UNKNOWN);
+   system_reset_with_reason(device_activated ? RESET_REASON_CYCLE : RESET_REASON_UNKNOWN);
    return 0;
 }

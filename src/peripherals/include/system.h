@@ -14,6 +14,7 @@ typedef struct
    am_hal_reset_status_t hardware_status;
    uint32_t software_reason;
    uint32_t fault_address;
+   uint32_t fault_status;       // CFSR at the time of the fault, which classifies what kind it was
    uint32_t boot_epoch;         // Power-on count, from MRAM
    uint32_t resets_this_epoch;  // Resets since the last power-on, from a scratch register
    uint32_t scratch0_raw;       // Scratch registers exactly as the previous run left them, so that a

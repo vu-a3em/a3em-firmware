@@ -205,6 +205,7 @@ static void system_capture_boot_info(void)
    mram_boot_record_t stored_record;
    mram_get_boot_record(&stored_record);
    boot_info.fault_address = (boot_info.software_reason == RESET_REASON_HARD_FAULT) ? stored_record.fault_address : 0;
+   boot_info.fault_status = (boot_info.software_reason == RESET_REASON_HARD_FAULT) ? stored_record.hardware_status : 0;
 
    // Re-stamp the scratch registers for the next boot
    MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | RESET_REASON_UNKNOWN;
@@ -597,6 +598,7 @@ const char* reset_reason_name(uint32_t reason)
       case RESET_REASON_MAGNET_DEACTIVATED:  return "MAGNET-OFF";
       case RESET_REASON_ACTIVATED:           return "MAGNET-ON";
       case RESET_REASON_PERIPHERAL_TIMEOUT:  return "PERIPH-TIMEOUT";
+      case RESET_REASON_CYCLE:               return "CYCLE";
       default:                               return "UNKNOWN";
    }
 }
@@ -698,11 +700,13 @@ void system_initialize_peripherals(void)
 
 void system_deinitialize_peripherals(void)
 {
+   // Mask interrupts before releasing anything
+   am_hal_interrupt_master_disable();
+
    // De-initialize all peripherals except for RTC and VHF
    mram_deinit();
    storage_deinit();
    audio_deinit();
-   am_hal_interrupt_master_disable();
    tracker_deinit();
    imu_deinit();
    magnet_sensor_deinit();

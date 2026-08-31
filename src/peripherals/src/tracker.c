@@ -27,6 +27,12 @@ void alert_host(void)
    am_hal_gpio_output_set(PIN_EXT_HW_INTERRUPT);
 }
 
+__attribute__((weak)) void tracker_isr_observer(uint32_t interrupt_status)
+{
+   // Test builds override this to watch raw interrupt activity, which is otherwise cleared before anything can see it
+   (void)interrupt_status;
+}
+
 void am_ioslave_ios_isr(void)
 {
    // Clear the interrupt status and de-assert the HW interrupt line
@@ -34,6 +40,7 @@ void am_ioslave_ios_isr(void)
    am_hal_ios_interrupt_status_get(i2c_handle, false, &status);
    am_hal_ios_interrupt_clear(i2c_handle, status);
    am_hal_gpio_output_set(PIN_EXT_HW_INTERRUPT);
+   tracker_isr_observer(status);
 
    // Handle any incoming data
    if (status & AM_HAL_IOS_INT_FSIZE)

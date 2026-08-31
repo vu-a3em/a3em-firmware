@@ -140,6 +140,7 @@ static void enable_sensor(bool enable)
 void magnet_sensor_init(void)
 {
    // Ensure detection callbacks are initially unregistered
+   validation_complete = validation_result = false;
    detection_callback = NULL;
    validation_callback = NULL;
    transition_tick_count = -1;
@@ -189,6 +190,7 @@ void magnet_sensor_deinit(void)
    NVIC_DisableIRQ(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_MAG_SENSOR_INP));
    am_hal_gpio_interrupt_register(AM_HAL_GPIO_INT_CHANNEL_0, PIN_MAG_SENSOR_INP, NULL, (void*)input_pin);
    am_hal_gpio_interrupt_control(AM_HAL_GPIO_INT_CHANNEL_0, AM_HAL_GPIO_INT_CTRL_INDV_DISABLE, (void*)&input_pin);
+   validation_complete = validation_result = false;
    validation_callback = NULL;
    detection_callback = NULL;
 
@@ -247,8 +249,9 @@ void magnet_sensor_register_callback(magnet_sensor_callback_t callback)
    configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_INP, input_pin_config));
    configASSERT0(am_hal_gpio_pinconfig(PIN_MAG_SENSOR_INP2, input_pin_config));
 
-   // Manually fire the initial callback
-   detection_callback(magnetic_field_present);
+   // Manually fire the initial callback if registered
+   if (detection_callback)
+      detection_callback(magnetic_field_present);
 
    // Enable magnet sensing interrupts
    NVIC_SetPriority(GPIO0_001F_IRQn + GPIO_NUM2IDX(PIN_MAG_SENSOR_INP), MAGNET_SENSOR_INTERRUPT_PRIORITY);

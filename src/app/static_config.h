@@ -107,6 +107,7 @@ _Static_assert(BOOT_LOG_RESERVED_RECORDS < BOOT_LOG_NUM_RECORDS, "BOOT_LOG_RESER
 #define RESET_REASON_MAGNET_DEACTIVATED             0x09
 #define RESET_REASON_ACTIVATED                      0x0A
 #define RESET_REASON_PERIPHERAL_TIMEOUT             0x0B
+#define RESET_REASON_CYCLE                          0x0C
 
 #ifndef MIN
 #define MIN(a, b)                                   (((a) < (b)) ? (a) : (b))

@@ -158,15 +158,11 @@ static void validate_device_settings(uint32_t current_timestamp)
    }
 
    // Check if time to roll into a new audio directory
-   const uint32_t last_stop = system_get_boot_info()->software_reason;
    if (storage_rotate_log(activation_number, device_label, current_timestamp))
    {
       // A new directory means a new recording window; summarise the one that just closed
       report_microphone_health();
    }
-
-   // Refresh the device file every cycle
-   storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts, reset_reason_name(last_stop), reset_reason_is_error(last_stop));
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time

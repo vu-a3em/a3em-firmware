@@ -39,5 +39,6 @@ bool tracker_get_pending_gps_data(tracker_gps_data_t *out);
 void tracker_update_status_data(uint32_t timestamp);
 void tracker_send_alert(const tracker_alert_data_t *alert);
 void tracker_send_status_update(void);
+void tracker_isr_observer(uint32_t interrupt_status);
 
 #endif  // #ifndef __TRACKER_HEADER_H__
