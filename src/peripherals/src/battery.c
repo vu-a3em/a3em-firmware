@@ -248,6 +248,10 @@ void battery_monitor_service_tempco(uint32_t current_timestamp)
 
 bool battery_monitor_is_critically_low(uint32_t threshold_millivolts)
 {
+   // A zero threshold turns the cutoff off
+   if (!threshold_millivolts)
+      return false;
+
    // Require several consecutive low readings before reporting a low battery, and require the voltage
    // to recover by a margin before clearing the condition
    const battery_result_t details = battery_monitor_get_details();

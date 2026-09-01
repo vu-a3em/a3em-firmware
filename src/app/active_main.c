@@ -171,6 +171,7 @@ static void validate_device_settings(uint32_t current_timestamp)
    {
       // A new directory means a new recording window; summarise the one that just closed
       report_microphone_health();
+      storage_refresh_device_info(activation_number, current_timestamp, battery_details.millivolts, reset_reason_name(system_get_boot_info()->software_reason), reset_reason_is_error(system_get_boot_info()->software_reason));
    }
    storage_flush_log();
 

@@ -46,6 +46,7 @@
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
 #define DEVICE_INFO_FILE_NAME                       "_a3em.dev"
+#define DEVICE_INFO_TEMP_FILE_NAME                  "_a3em.dev.tmp"
 #define LOG_FILE_NAME                               "a3em.log"
 #define UNACTIVATED_LOG_FILE_NAME                   "_a3em.boot.txt"
 #define BOOT_LOG_FILE_NAME                          "boot.log"

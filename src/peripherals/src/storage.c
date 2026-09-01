@@ -953,9 +953,18 @@ bool storage_write_device_info(const char *fw_version, const char *hw_revision, 
    snprintf(dev_uid, sizeof(dev_uid), "%s", device_uid);
    dev_info_captured = true;
 
+   // Build the replacement alongside the original rather than over it
    FIL info_file;
-   if (!card_present || (f_open(&info_file, DEVICE_INFO_FILE_NAME, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK))
+   if (!card_present)
       return false;
+   storage_sd_session_begin();
+   const uint32_t allocation_unit_bytes = storage_get_allocation_unit_bytes();
+   const uint32_t capacity_mb = storage_get_total_space_mb(), free_mb = storage_get_free_space_mb();
+   if (f_open(&info_file, DEVICE_INFO_TEMP_FILE_NAME, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
+   {
+      storage_sd_session_end();
+      return false;
+   }
    f_printf(&info_file, "FW_VERSION = \"%s\"\n", fw_version);
    f_printf(&info_file, "HW_REVISION = \"%s\"\n", hw_revision);
    f_printf(&info_file, "BUILD_DATETIME = \"%s\"\n", build_datetime);
@@ -965,11 +974,25 @@ bool storage_write_device_info(const char *fw_version, const char *hw_revision, 
    f_printf(&info_file, "LAST_BATTERY_MV = \"%u\"\n", battery_mv);
    f_printf(&info_file, "LAST_STOP_REASON = \"%s\"\n", last_stop_reason);
    f_printf(&info_file, "LAST_STOP_RECOVERED = \"%s\"\n", recovered ? "True" : "False");
-   f_printf(&info_file, "CARD_ALLOCATION_UNIT_BYTES = \"%u\"\n", storage_get_allocation_unit_bytes());
-   f_printf(&info_file, "CARD_CAPACITY_MB = \"%u\"\n", storage_get_total_space_mb());
-   f_printf(&info_file, "CARD_FREE_MB = \"%u\"\n", storage_get_free_space_mb());
-   f_close(&info_file);
-   return true;
+   f_printf(&info_file, "CARD_ALLOCATION_UNIT_BYTES = \"%u\"\n", allocation_unit_bytes);
+   f_printf(&info_file, "CARD_CAPACITY_MB = \"%u\"\n", capacity_mb);
+   f_printf(&info_file, "CARD_FREE_MB = \"%u\"\n", free_mb);
+   const bool complete = (f_close(&info_file) == FR_OK);
+
+   // Swap once the replacement is closed and on the card; a failed write leaves the previous file untouched
+   if (complete)
+   {
+      f_unlink(DEVICE_INFO_FILE_NAME);
+      if (f_rename(DEVICE_INFO_TEMP_FILE_NAME, DEVICE_INFO_FILE_NAME) != FR_OK)
+         printonly("ERROR: Failed to install the updated device info file\n");
+   }
+   else
+   {
+      printonly("ERROR: Failed to write the device info file - keeping the previous one\n");
+      f_unlink(DEVICE_INFO_TEMP_FILE_NAME);
+   }
+   storage_sd_session_end();
+   return complete;
 }
 
 bool storage_refresh_device_info(uint32_t activation_number, uint32_t timestamp,
