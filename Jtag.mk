@@ -13,7 +13,7 @@ endif
 GDB_PORT_NUMBER ?= 2331
 
 # Configuration flags for JTAG tools
-JLINK_FLAGS = -device AMA4B2KK-KBR -if swd -speed 4000
+JLINK_FLAGS = -device AMAP42KP-KBR -if swd -speed 4000
 
 # Allow users to select a specific JTAG device with a variable
 ifdef SEGGER_SERIAL
