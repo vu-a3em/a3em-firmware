@@ -785,6 +785,8 @@ void storage_init(void)
    // A mount failure means no usable card, regardless of what the presence detect reported
    if (res != FR_OK)
       card_present = false;
+   else
+      f_unlink(DEVICE_INFO_TEMP_FILE_NAME);
 }
 
 void storage_deinit(void)
