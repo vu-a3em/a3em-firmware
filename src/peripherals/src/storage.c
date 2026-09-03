@@ -5,6 +5,7 @@
 #include "imu.h"
 #include "logging.h"
 #include "ogg_writer.h"
+#include "rtc.h"
 #include "storage.h"
 #include "system.h"
 
@@ -1350,11 +1351,16 @@ void storage_write_log(const char *fmt, ...)
 
 void storage_write_event(const char *code, const char *fmt, ...)
 {
-   // Emit a machine-readable event line alongside the human-readable log: EVT|<CODE>|key=value,key=value
+   // Emit a machine-readable event line alongside the human-readable log: EVT|<CODE>|t=<epoch>,key=value,key=value
    va_list args;
+   const bool dated = rtc_is_valid();
+   const uint32_t now = dated ? rtc_get_timestamp() : 0;
    if (log_open)
    {
-      storage_write_log("EVT|%s|", code);
+      if (dated)
+         storage_write_log("EVT|%s|t=%u,", code, now);
+      else
+         storage_write_log("EVT|%s|", code);
       va_start(args, fmt);
       f_vprintf(&log_file, fmt, args);
       va_end(args);
@@ -1368,7 +1374,10 @@ void storage_write_event(const char *code, const char *fmt, ...)
    const uint32_t written = am_util_stdio_vsnprintf(payload, sizeof(payload), fmt, args);
    va_end(args);
    payload[(written < sizeof(payload)) ? written : (sizeof(payload) - 1)] = 0;
-   storage_write_log("EVT|%s|%s\n", code, payload);
+   if (dated)
+      storage_write_log("EVT|%s|t=%u,%s\n", code, now, payload);
+   else
+      storage_write_log("EVT|%s|%s\n", code, payload);
 }
 
 void storage_flush_log(void)
