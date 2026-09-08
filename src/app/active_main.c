@@ -26,7 +26,7 @@ static uint32_t end_of_phase_reason = RESET_REASON_PHASE_COMPLETE;
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
 static bool record_imu_with_audio, use_silence_filter;
-static char device_label[MAX_DEVICE_LABEL_LEN];
+static char device_label[1 + MAX_DEVICE_LABEL_LEN];
 static uint8_t imu_degrees_of_freedom;
 
 
