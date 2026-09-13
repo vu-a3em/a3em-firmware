@@ -33,7 +33,7 @@ static uint32_t leds_active_seconds, vhf_start_timestamp, battery_level_low;
 static uint32_t magnetic_field_validation_length_ms, deactivation_forbidden_length_seconds, current_activation_number;
 static bool set_rtc_at_magnet_detect, vhf_enabled, leds_enabled, device_activated, gps_available, awake_on_magnet, config_corrected;
 static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES], discarded_phase;
-static int32_t num_deployment_phases, utc_offset, utc_offset_hour;
+static int32_t num_deployment_phases, utc_offset;
 static float microphone_amplification_db;
 static start_end_time_t deployment_time;
 static audio_mic_type_t microphone_type;
@@ -382,8 +382,7 @@ static void parse_line(char *line, int32_t line_length)
       memset(device_label, 0, sizeof(device_label));
       memcpy(device_label, value, MIN(value_len, (size_t)MAX_DEVICE_LABEL_LEN));
    }
-   else if (memcmp(key, "DEVICE_UTC_OFFSET_HOUR", sizeof("DEVICE_UTC_OFFSET_HOUR")-1) == 0)
-      utc_offset_hour = parse_int(value);
+   else if (memcmp(key, "DEVICE_UTC_OFFSET_HOUR", sizeof("DEVICE_UTC_OFFSET_HOUR")-1) == 0) { // Retired }
    else if (memcmp(key, "DEVICE_UTC_OFFSET", sizeof("DEVICE_UTC_OFFSET")-1) == 0)
       utc_offset = parse_int(value);
    else if (memcmp(key, "SET_RTC_AT_MAGNET_DETECT", sizeof("SET_RTC_AT_MAGNET_DETECT")-1) == 0)
@@ -427,7 +426,7 @@ bool fetch_runtime_configuration(void)
    awake_on_magnet = true;
    num_deployment_phases = -1;
    microphone_type = MIC_ANALOG;
-   utc_offset = utc_offset_hour = 0;
+   utc_offset = 0;
    microphone_amplification_db = 35.0f;
    leds_active_seconds = vhf_start_timestamp = 0;
    battery_level_low = BATTERY_DEFAULT_LOW_LEVEL_MV;
@@ -622,11 +621,6 @@ uint32_t config_get_battery_mV_low(void)
    return battery_level_low;
 }
 
-int32_t config_get_utc_offset_hour(void)
-{
-   return utc_offset_hour;
-}
-
 int32_t config_get_utc_offset_seconds(void)
 {
    return utc_offset;
@@ -669,11 +663,6 @@ uint32_t config_get_deployment_end_time(void)
 uint32_t config_get_magnetic_field_validation_length(void)
 {
    return magnetic_field_validation_length_ms;
-}
-
-uint32_t config_get_deactivation_forbidden_time(void)
-{
-   return deactivation_forbidden_length_seconds;
 }
 
 bool config_set_rtc_at_magnet_detect(void)

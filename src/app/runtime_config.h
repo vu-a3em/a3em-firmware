@@ -31,7 +31,6 @@ void config_set_activation_status(bool active);
 bool config_gps_available(void);
 bool config_awake_on_magnet(void);
 uint32_t config_get_battery_mV_low(void);
-int32_t config_get_utc_offset_hour(void);
 int32_t config_get_utc_offset_seconds(void);
 int32_t config_get_num_deployment_phases(void);
 int32_t config_get_active_deployment_phase_index(uint32_t current_time);
@@ -39,7 +38,6 @@ int32_t config_get_next_deployment_phase_index(uint32_t current_time, uint32_t *
 uint32_t config_get_deployment_start_time(void);
 uint32_t config_get_deployment_end_time(void);
 uint32_t config_get_magnetic_field_validation_length(void);
-uint32_t config_get_deactivation_forbidden_time(void);
 bool config_set_rtc_at_magnet_detect(void);
 bool config_get_leds_enabled(void);
 uint32_t config_get_leds_active_seconds(void);
