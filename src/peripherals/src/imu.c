@@ -636,12 +636,12 @@ int32_t lis2du12_wake_up_mode_set(const stmdev_ctx_t *ctx, lis2du12_wkup_md_t *v
    ctrl1.wu_x_en = val->x_en;
    if (val->threshold > 63U)
    {
-      interrupt_cfg.wake_ths_w = PROPERTY_ENABLE;
+      interrupt_cfg.wake_ths_w = PROPERTY_DISABLE;
       wake_up_ths.wk_ths = val->threshold / 4U;
    }
    else
    {
-      interrupt_cfg.wake_ths_w = PROPERTY_DISABLE;
+      interrupt_cfg.wake_ths_w = PROPERTY_ENABLE;
       wake_up_ths.wk_ths = val->threshold;
    }
    if (val->duration > 3U)
