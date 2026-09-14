@@ -289,6 +289,36 @@ static void tracker_data_available(tracker_msg_t message_type, const void *new_d
 
 // Audio Processing Loops ----------------------------------------------------------------------------------------------
 
+static bool audio_band_is_silent(const int16_t *audio_buffer)
+{
+   // Whether a just-captured buffer should be discarded because the band of interest is quiet
+   return use_silence_filter && silence_filter_is_silence(audio_buffer, audio_samples_per_dma);
+}
+
+static bool audio_sound_continues(const int16_t *audio_buffer, float trigger_threshold)
+{
+   // Whether the sound that opened this clip is still going
+   if (use_silence_filter)
+      return !silence_filter_is_silence(audio_buffer, audio_samples_per_dma);
+   if (trigger_threshold <= 0.0f)
+      return false;
+   const int32_t level = (int32_t)(trigger_threshold * (float)INT16_MAX);
+   for (uint32_t i = 0; i < audio_samples_per_dma; ++i)
+   {
+      const int32_t magnitude = (audio_buffer[i] < 0) ? -(int32_t)audio_buffer[i] : (int32_t)audio_buffer[i];
+      if (magnitude >= level)
+         return true;
+   }
+   return false;
+}
+
+static bool audio_clip_has_room_for_more(uint32_t buffers_written)
+{
+   // Whether an extended clip can take one more buffer without overrunning the 32-bit size fields of its WAV header
+   const uint64_t bytes_per_buffer = (uint64_t)audio_samples_per_dma * sizeof(int16_t);
+   return ((uint64_t)(buffers_written + 1) * bytes_per_buffer) <= AUDIO_MAX_CLIP_DATA_BYTES;
+}
+
 static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, bool ogg_encode)
 {
    // Initialize all necessary local variables
@@ -331,7 +361,7 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
          if (!audio_clip_in_progress)
          {
             // Check for total silence if silence filtering is enabled
-            if (!use_silence_filter || !silence_filter_is_silence(audio_buffer, audio_samples_per_dma))
+            if (!audio_band_is_silent(audio_buffer))
             {
                // Generate a new audio file using the current date and time
                if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate(), current_time, ogg_encode))
@@ -382,7 +412,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
 {
    // Initialize all necessary local variables
    audio_samples_per_dma = audio_num_seconds_per_dma() * sampling_rate;
-   bool audio_clip_in_progress = false, reading_audio = false;
+   bool audio_clip_in_progress = false, reading_audio = false, awaiting_audio_start = false;
    uint32_t num_audio_reads = 0;
    int16_t *audio_buffer;
 
@@ -415,7 +445,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
 
       // Determine if time to create a new WAV file
       const uint32_t seconds_til_next_scheduled_recording = seconds_until_next_scheduled_recording(num_schedules, schedule, (uint32_t)((int32_t)current_time + config_get_utc_offset_seconds()) % 86400);
-      if (!audio_clip_in_progress)
+      if (!audio_clip_in_progress && !awaiting_audio_start)
       {
          // Go to sleep if time remains until the next scheduled audio recording
          if (interval_based && !audio_timer_triggered)
@@ -449,27 +479,13 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          }
          audio_timer_triggered = false;
 
-         // Generate a new audio file using the current date and time
-         if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate(), current_time, ogg_encode))
+         // Start capturing but do not create a file yet in case a silence filter is in place
+         if (!reading_audio)
          {
-            // Signal start of a new audio clip
-            audio_clip_in_progress = true;
-            led_indicate_clip_begin();
-
-            // Begin reading IMU data if enabled
-            if (record_imu_with_audio)
-            {
-               storage_open_imu_file(activation_number, device_label, current_time, imu_sampling_rate_hz);
-               imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
-            }
-
-            // Trigger reading audio samples if currently stopped
-            if (!reading_audio)
-            {
-               audio_begin_reading();
-               reading_audio = true;
-            }
+            audio_begin_reading();
+            reading_audio = true;
          }
+         awaiting_audio_start = true;
       }
 
       // Handle any newly available audio data
@@ -480,29 +496,61 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
       }
       else if (audio_data_available() && (audio_buffer = audio_read_data_direct()))
       {
+         // There is now audio to judge, so decide whether this occurrence earns a file
+         if (awaiting_audio_start)
+         {
+            awaiting_audio_start = false;
+            if (!audio_band_is_silent(audio_buffer) && storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate(), current_time, ogg_encode))
+            {
+               // Signal start of a new audio clip
+               audio_clip_in_progress = true;
+               led_indicate_clip_begin();
+
+               // Begin reading IMU data if enabled
+               if (record_imu_with_audio)
+               {
+                  storage_open_imu_file(activation_number, device_label, current_time, imu_sampling_rate_hz);
+                  imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+               }
+            }
+            else if (interval_based || (num_schedules && seconds_til_next_scheduled_recording))
+            {
+               // Nothing worth keeping here and the next occurrence is not immediate
+               audio_stop_reading();
+               reading_audio = false;
+            }
+         }
+         if (!audio_clip_in_progress)
+            continue;
+
          led_indicate_clip_progress();
-         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip))
+         const bool clip_complete = (num_audio_reads + 1) >= num_audio_reads_per_clip;
+         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, clip_complete))
          {
             if (!recover_from_audio_write_failure(sampling_rate, current_time))
                system_reset_with_reason(RESET_REASON_STORAGE_FAILURE);
             num_audio_reads = 0;
          }
-         else if (++num_audio_reads >= num_audio_reads_per_clip)
+         else
          {
-            // Finalize the current audio file and stop reading if interval-based or if the current schedule has ended
-            storage_close_audio();
-            if (interval_based || (num_schedules && seconds_til_next_scheduled_recording))
+            ++num_audio_reads;
+            if (clip_complete)
             {
-               audio_stop_reading();
-               reading_audio = false;
-            }
-            led_indicate_clip_end();
-            audio_clip_in_progress = false;
-            num_audio_reads = 0;
+               // Finalize the current audio file and stop reading if interval-based or if the current schedule has ended
+               storage_close_audio();
+               if (interval_based || (num_schedules && seconds_til_next_scheduled_recording))
+               {
+                  audio_stop_reading();
+                  reading_audio = false;
+               }
+               led_indicate_clip_end();
+               audio_clip_in_progress = false;
+               num_audio_reads = 0;
 
-            // Stop reading IMU data if enabled
-            if (record_imu_with_audio)
-               imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+               // Stop reading IMU data if enabled
+               if (record_imu_with_audio)
+                  imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+            }
          }
       }
       else if (!validation_time)
@@ -514,10 +562,12 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
    storage_close_audio();
 }
 
-static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, uint32_t max_clips, uint32_t per_num_seconds, bool ogg_encode)
+static void process_audio_triggered(bool allow_extended_audio_clips, float trigger_threshold, uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, uint32_t max_clips, uint32_t per_num_seconds, bool ogg_encode)
 {
-   if (allow_extended_audio_clips)
-      print("WARNING: AUDIO_EXTEND_CLIP is set but is not implemented and will have no effect\n");
+   const bool extend_clips = allow_extended_audio_clips && (use_silence_filter || (trigger_threshold > 0.0f));
+   if (allow_extended_audio_clips && !extend_clips)
+      print("WARNING: AUDIO_EXTEND_CLIP needs either a silence threshold or a trigger level - ignoring it\n");
+
    // Initialize all necessary local variables
    audio_samples_per_dma = audio_num_seconds_per_dma() * sampling_rate;
    bool audio_clip_in_progress = false, awaiting_trigger = false;
@@ -566,6 +616,14 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          // Create a WAV file if this is a new audio clip
          if (!audio_clip_in_progress)
          {
+            //Ask the silence filter whether it was loud in the band of interest
+            if (audio_band_is_silent(audio_buffer))
+            {
+               awaiting_trigger = false;
+               audio_stop_reading();
+               continue;
+            }
+
             // Generate a new audio file using the current date and time
             if (storage_open_audio_file(activation_number, device_label, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate(), current_time, ogg_encode))
             {
@@ -583,25 +641,42 @@ static void process_audio_triggered(bool allow_extended_audio_clips, uint32_t sa
          }
 
          // Store the audio data to the audio file
+         if (!audio_clip_in_progress)
+            continue;
          led_indicate_clip_progress();
-         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, (num_audio_reads + 1) >= num_audio_reads_per_clip))
+
+         // A clip normally ends after its configured length
+         const uint32_t buffers_written = num_audio_reads + 1;
+         bool clip_complete = (buffers_written % num_audio_reads_per_clip) == 0;
+         if (clip_complete)
+         {
+            // Every clip length written spends one clip from the allowance whether it stood alone or continued the one before it
+            ++num_clips_stored;
+            if (extend_clips && (!max_clips || (num_clips_stored < max_clips)) && audio_clip_has_room_for_more(buffers_written) && audio_sound_continues(audio_buffer, trigger_threshold))
+               clip_complete = false;
+         }
+
+         if (!storage_write_audio(audio_buffer, sizeof(int16_t) * audio_samples_per_dma, clip_complete))
          {
             if (!recover_from_audio_write_failure(sampling_rate, current_time))
                system_reset_with_reason(RESET_REASON_STORAGE_FAILURE);
             num_audio_reads = 0;
          }
-         else if (++num_audio_reads >= num_audio_reads_per_clip)
+         else
          {
-            awaiting_trigger = audio_clip_in_progress = false;
-            led_indicate_clip_end();
-            audio_stop_reading();
-            num_audio_reads = 0;
-            ++num_clips_stored;
-            storage_close_audio();
+            ++num_audio_reads;
+            if (clip_complete)
+            {
+               awaiting_trigger = audio_clip_in_progress = false;
+               led_indicate_clip_end();
+               audio_stop_reading();
+               num_audio_reads = 0;
+               storage_close_audio();
 
-            // Stop reading IMU data if enabled
-            if (record_imu_with_audio)
-               imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+               // Stop reading IMU data if enabled
+               if (record_imu_with_audio)
+                  imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+            }
          }
       }
       else if (!validation_time)
@@ -662,8 +737,6 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       const frequency_range_t frequencies = config_get_frequencies_of_interest(phase_index);
       use_silence_filter = silence_filter_initialize(audio_sampling_rate_hz, frequencies.min_frequency, frequencies.max_frequency, threshold);
    }
-   if (use_silence_filter && (config_get_audio_recording_mode(phase_index) != CONTINUOUS))
-      print("WARNING: A silence threshold is configured but only takes effect in CONTINUOUS mode\n");
 
    // Set up Ogg Opus encoding if enabled
    const int32_t encoding_bitrate = config_use_opus_encoding(phase_index) ? config_get_opus_bitrate(phase_index) : 0;
@@ -729,7 +802,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
          }
          if (!audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, COMPARATOR_THRESHOLD, config_get_audio_trigger_threshold(phase_index), device_activated))
             break;
-         process_audio_triggered(allow_extended_audio_clips, audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), max_num_clips, max_clips_interval_seconds, encoding_bitrate > 0);
+         process_audio_triggered(allow_extended_audio_clips, config_get_audio_trigger_threshold(phase_index), audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), max_num_clips, max_clips_interval_seconds, encoding_bitrate > 0);
          break;
       }
       case SCHEDULED:

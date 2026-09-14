@@ -222,6 +222,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 #define AUDIO_MAX_SAMPLING_RATE_HZ                      AUDIO_BUFFER_MAX_SAMPLES
 #define AUDIO_MIN_CLIP_LENGTH_SECONDS                   1
 #define AUDIO_MAX_CLIP_LENGTH_SECONDS                   3600
+#define AUDIO_MAX_CLIP_DATA_BYTES                       (0xFFFFFFFFu - 64u)
 
 #define AUDIO_DMA_BACKSTOP_MARGIN_MS                    8
 #define AUDIO_DMA_DCMP_CONFIDENCE                       16

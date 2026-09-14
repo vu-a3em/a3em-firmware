@@ -81,8 +81,8 @@ bool silence_filter_initialize(uint32_t audio_sample_rate_hz, uint32_t min_frequ
 
 bool silence_filter_is_silence(const int16_t *audio, uint32_t num_samples)
 {
-   // Never claim silence if the filter could not be configured
-   if (!filter_usable)
+   // Never claim silence if the filter could not be configured or if the buffer is too short
+   if (!filter_usable || (num_samples < fft_length))
       return false;
 
    // Iterate through all FFT frames in the audio

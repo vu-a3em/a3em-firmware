@@ -382,7 +382,10 @@ static void parse_line(char *line, int32_t line_length)
       memset(device_label, 0, sizeof(device_label));
       memcpy(device_label, value, MIN(value_len, (size_t)MAX_DEVICE_LABEL_LEN));
    }
-   else if (memcmp(key, "DEVICE_UTC_OFFSET_HOUR", sizeof("DEVICE_UTC_OFFSET_HOUR")-1) == 0) { // Retired }
+   else if (memcmp(key, "DEVICE_UTC_OFFSET_HOUR", sizeof("DEVICE_UTC_OFFSET_HOUR")-1) == 0)
+   {
+      // Retired but the arm has to stay
+   }
    else if (memcmp(key, "DEVICE_UTC_OFFSET", sizeof("DEVICE_UTC_OFFSET")-1) == 0)
       utc_offset = parse_int(value);
    else if (memcmp(key, "SET_RTC_AT_MAGNET_DETECT", sizeof("SET_RTC_AT_MAGNET_DETECT")-1) == 0)
@@ -507,6 +510,25 @@ bool fetch_runtime_configuration(void)
       }
       if (!phase->imu_sampling_rate)
          phase->imu_sampling_rate = IMU_DEFAULT_SAMPLING_RATE_HZ;
+      else
+      {
+         static const uint32_t supported_rates_hz[] = { 3, 6, 25, 50, 100, 200, 400, 800 };
+         uint32_t nearest = supported_rates_hz[0];
+         for (uint32_t r = 1; r < (sizeof(supported_rates_hz) / sizeof(supported_rates_hz[0])); ++r)
+         {
+            const uint32_t candidate = supported_rates_hz[r];
+            const uint32_t candidate_error = (candidate > phase->imu_sampling_rate) ? (candidate - phase->imu_sampling_rate) : (phase->imu_sampling_rate - candidate);
+            const uint32_t nearest_error = (nearest > phase->imu_sampling_rate) ? (nearest - phase->imu_sampling_rate) : (phase->imu_sampling_rate - nearest);
+            if (candidate_error < nearest_error)
+               nearest = candidate;
+         }
+         if (nearest != phase->imu_sampling_rate)
+         {
+            print("WARNING: Phase #%d IMU rate %u Hz is not one the sensor can produce - using %u Hz\n", i+1, phase->imu_sampling_rate, nearest);
+            phase->imu_sampling_rate = nearest;
+            config_corrected = true;
+         }
+      }
       if ((phase->audio_recording_mode == AMPLITUDE) && !phase->max_audio_clips)
       {
          print("WARNING: Phase #%d is amplitude triggered but allows zero clips - allowing 1\n", i+1);
