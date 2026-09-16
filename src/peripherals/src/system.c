@@ -118,11 +118,8 @@ void system_hard_fault_handler(sContextStateFrame *frame)
    MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | RESET_REASON_HARD_FAULT;
    MCUCTRL->SCRATCH1 = MCUCTRL->SCRATCH1;   // Preserve the reset counter across this path
 
-   // Persist the faulting address as well, but only when it differs from what is already stored
-   mram_boot_record_t stored_record;
-   mram_get_boot_record(&stored_record);
-   if (stored_record.fault_address != faulting_address)
-      mram_store_fault(RESET_REASON_HARD_FAULT, SCB->CFSR, faulting_address);
+   // Persist where the fault happened and what the processor said about it
+   mram_store_fault(RESET_REASON_HARD_FAULT, SCB->CFSR, faulting_address);
    NVIC_SystemReset();
    while (true) {}
 #endif

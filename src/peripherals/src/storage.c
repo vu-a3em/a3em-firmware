@@ -820,7 +820,7 @@ void storage_deinit(void)
    audio_directory_timestamp = 0;
 
    // De-initialize and power down the SD card host
-   if (sd_card_host)
+   if (sd_card_host && sd_card_host->ops && sd_card_host->ops->deinit)
    {
       am_hal_card_pwrctrl_wakeup(&sd_card);
       sd_card_host->ops->deinit(sd_card_host->pHandle);
