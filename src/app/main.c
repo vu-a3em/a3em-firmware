@@ -148,14 +148,15 @@ static void handle_magnetic_field(bool store_activated_result, bool store_deacti
 
 int main(void)
 {
+   // Arm the watchdog before anything that can block
+   system_enable_watchdog();
+
    // Set up the system hardware, retrieve the device ID, and initialize all peripherals
    setup_hardware();
    static uint8_t device_id[DEVICE_ID_LEN];
    system_read_ID(device_id, sizeof(device_id));
    system_initialize_peripherals();
-
-   // Arm the watchdog for the whole life of the application
-   system_enable_watchdog();
+   system_feed_watchdog();
 
    print("\nINFO: System hardware initialized, UID = ");
    for (size_t i = DEVICE_ID_LEN - 1; i > 0; --i)
