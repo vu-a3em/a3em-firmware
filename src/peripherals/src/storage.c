@@ -765,13 +765,28 @@ void storage_init(void)
    configASSERT0(am_hal_gpio_pinconfig(PIN_SD_CARD_DAT2, g_AM_BSP_GPIO_SDIO_DAT2));
    configASSERT0(am_hal_gpio_pinconfig(PIN_SD_CARD_DAT3, g_AM_BSP_GPIO_SDIO_DAT3));
 
-   // Ensure that the SD card is initially enabled and powered on
+   // Power the SD card up cleanly before asking it for anything
    const am_hal_gpio_pincfg_t enable_pin_config = AM_HAL_GPIO_PINCFG_OUTPUT;
    configASSERT0(am_hal_gpio_pinconfig(PIN_SD_CARD_ENABLE, enable_pin_config));
+   am_hal_gpio_output_clear(PIN_SD_CARD_ENABLE);
+   system_delay(SD_CARD_POWER_OFF_SETTLE_US);
    am_hal_gpio_output_set(PIN_SD_CARD_ENABLE);
+   system_delay(SD_CARD_POWER_ON_SETTLE_US);
 
    // Mount and initialize the file system on the SD card
    FRESULT res = f_mount(&file_system, "", 1);
+
+   // A card that did not answer gets one more full power cycle before it is written off
+   if ((res != FR_OK) && (res != FR_NO_FILESYSTEM))
+   {
+      printonly("WARNING: SD card did not mount on the first attempt - power cycling and retrying\n");
+      sd_disk_status = STA_NOINIT;
+      am_hal_gpio_output_clear(PIN_SD_CARD_ENABLE);
+      system_delay(SD_CARD_POWER_OFF_SETTLE_US);
+      am_hal_gpio_output_set(PIN_SD_CARD_ENABLE);
+      system_delay(SD_CARD_POWER_ON_SETTLE_US);
+      res = f_mount(&file_system, "", 1);
+   }
    if (res == FR_NO_FILESYSTEM)
    {
       const MKFS_PARM opts = { .fmt = FM_EXFAT, .n_fat = 0, .align = 0, .n_root = 0, .au_size = SD_CARD_ALLOCATION_UNIT_BYTES };

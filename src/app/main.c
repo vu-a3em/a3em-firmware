@@ -200,12 +200,13 @@ int main(void)
       }
    }
    const bool use_magnetic_activation = config_awake_on_magnet();
+   const bool configuration_usable = success && !storage_sd_card_error();
    if (storage_sd_card_error())
       led_indicate_sd_card_error();
    else if (!success)
       led_indicate_missing_config_file();
    led_pattern_wait();
-   leds_enable(config_get_leds_enabled());
+   leds_enable(config_get_leds_enabled() || !configuration_usable);
 
    // Ensure that the RTC has a usable (but "invalid") time so that it can function for sleeping/wake-up
    if (!rtc_is_valid())

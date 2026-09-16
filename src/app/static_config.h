@@ -42,6 +42,8 @@
 #define AUDIO_BUFFER_MAX_SIZE                       65536
 #define NUM_SECONDS_PER_AUDIO_DIRECTORY             (NUM_HOURS_PER_AUDIO_DIRECTORY * 60 * 60)
 #define SD_CARD_ALLOCATION_UNIT_BYTES               (32 * 1024)
+#define SD_CARD_POWER_OFF_SETTLE_US                 20000
+#define SD_CARD_POWER_ON_SETTLE_US                  10000
 #define WAV_STAGING_BUFFER_SIZE                     (512 * 1024)
 
 #define CONFIG_FILE_NAME                            "_a3em.cfg"
