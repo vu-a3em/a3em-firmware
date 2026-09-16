@@ -617,9 +617,8 @@ void system_reset_with_reason(uint32_t reason)
    am_hal_sysctrl_bus_write_flush();
    storage_flush_early_log();
    system_deinitialize_peripherals();
+   __set_FAULTMASK(1);
    am_hal_reset_control(AM_HAL_RESET_CONTROL_SWPOR, NULL);
-
-   // Writing the SWPOR key only *requests* the reset; the core keeps executing until the reset generator asserts
    am_hal_sysctrl_bus_write_flush();
    while (true) {}
 }
