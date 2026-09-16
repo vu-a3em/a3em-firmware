@@ -16,14 +16,25 @@ extern void active_main(volatile bool*, int32_t);
 extern void pre_active_main(volatile bool*);
 extern uint32_t active_main_get_end_reason(void);
 
+static uint32_t plausible_timestamp(uint32_t timestamp)
+{
+   if (timestamp)
+   {
+      datetime_t datetime;
+      datetime_from_timestamp(timestamp, &datetime);
+      return datetime_is_plausible(&datetime) ? timestamp : 0;
+   }
+   return 0;
+}
+
 static uint32_t recover_clock_from_records(void)
 {
    // Three independent records of when the device was last alive, in increasing order of freshness
    char label[1 + MAX_DEVICE_LABEL_LEN] = { 0 };
    config_get_device_label(label, sizeof(label));
-   const uint32_t mram_timestamp = mram_get_last_known_timestamp();
-   const uint32_t card_timestamp = storage_get_recorded_timestamp();
-   const uint32_t audio_timestamp = storage_get_latest_audio_timestamp(label);
+   const uint32_t mram_timestamp = plausible_timestamp(mram_get_last_known_timestamp());
+   const uint32_t card_timestamp = plausible_timestamp(storage_get_recorded_timestamp());
+   const uint32_t audio_timestamp = plausible_timestamp(storage_get_latest_audio_timestamp(label));
    uint32_t chosen = mram_timestamp;
    const char *source = "MRAM";
    if (card_timestamp > chosen) { chosen = card_timestamp; source = "device file"; }
