@@ -19,12 +19,13 @@
 
 #define SCRATCH_MAGIC_MASK          0xFFFF0000
 #define SCRATCH_MAGIC               0xA3E30000
-#define SCRATCH0_REASON_MASK        0x000000FF
-#define SCRATCH0_STAGE_MASK         0x0000FF00
-#define SCRATCH0_STAGE_SHIFT        8
+#define SCRATCH0_REASON_MASK        0x0000FF00
+#define SCRATCH0_REASON_SHIFT       8
+#define SCRATCH0_BOOTLOADER_MASK    0x000000FF
+#define SCRATCH0_CANARY             0x000000A5
 #define SCRATCH1_RESET_COUNT_MASK   0x000000FF
-#define SCRATCH1_VECTACTIVE_MASK    0x0000FF00
-#define SCRATCH1_VECTACTIVE_SHIFT   8
+#define SCRATCH1_STAGE_MASK         0x0000FF00
+#define SCRATCH1_STAGE_SHIFT        8
 
 extern uint8_t _uid_base_address;
 
@@ -119,9 +120,8 @@ void system_hard_fault_handler(sContextStateFrame *frame)
 #else
    // Record where the fault happened before restarting
    const uint32_t faulting_address = frame ? frame->return_address : 0;
-   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (MCUCTRL->SCRATCH0 & SCRATCH0_STAGE_MASK) | RESET_REASON_HARD_FAULT;
-   const uint32_t active_exception = SCB->ICSR & SCB_ICSR_VECTACTIVE_Msk;
-   MCUCTRL->SCRATCH1 = (MCUCTRL->SCRATCH1 & ~SCRATCH1_VECTACTIVE_MASK) | ((active_exception << SCRATCH1_VECTACTIVE_SHIFT) & SCRATCH1_VECTACTIVE_MASK);
+   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | ((RESET_REASON_HARD_FAULT << SCRATCH0_REASON_SHIFT) & SCRATCH0_REASON_MASK);
+   MCUCTRL->SCRATCH1 = MCUCTRL->SCRATCH1;   // Keep the reset counter and stage marker across this path
 
    // Persist where the fault happened and what the processor said about it
    const uint32_t configurable_status = SCB->CFSR;
@@ -145,7 +145,7 @@ void vAssertCalled(const char * const pcFileName, unsigned long ulLine)
 static void note_teardown_stage(uint32_t stage)
 {
    // Record progress without disturbing the magic or the reason already stored alongside it
-   MCUCTRL->SCRATCH0 = (MCUCTRL->SCRATCH0 & ~SCRATCH0_STAGE_MASK) | ((stage << SCRATCH0_STAGE_SHIFT) & SCRATCH0_STAGE_MASK);
+   MCUCTRL->SCRATCH1 = (MCUCTRL->SCRATCH1 & ~SCRATCH1_STAGE_MASK) | ((stage << SCRATCH1_STAGE_SHIFT) & SCRATCH1_STAGE_MASK);
    am_hal_sysctrl_bus_write_flush();
 }
 
@@ -243,9 +243,9 @@ static void system_capture_boot_info(void)
    boot_info.resets_this_epoch = scratch_valid ? ((scratch1 & SCRATCH1_RESET_COUNT_MASK) + 1) : 0;
    if ((scratch0 & SCRATCH_MAGIC_MASK) == SCRATCH_MAGIC)
    {
-      boot_info.software_reason = scratch0 & SCRATCH0_REASON_MASK;
-      boot_info.teardown_stage = (scratch0 & SCRATCH0_STAGE_MASK) >> SCRATCH0_STAGE_SHIFT;
-      boot_info.fault_exception = (scratch1 & SCRATCH1_VECTACTIVE_MASK) >> SCRATCH1_VECTACTIVE_SHIFT;
+      boot_info.software_reason = (scratch0 & SCRATCH0_REASON_MASK) >> SCRATCH0_REASON_SHIFT;
+      boot_info.scratch0_canary = scratch0 & SCRATCH0_BOOTLOADER_MASK;
+      boot_info.teardown_stage = (scratch1 & SCRATCH1_STAGE_MASK) >> SCRATCH1_STAGE_SHIFT;
    }
    else
       boot_info.software_reason = scratch_valid ? RESET_REASON_UNKNOWN : RESET_REASON_NONE;
@@ -262,8 +262,8 @@ static void system_capture_boot_info(void)
    boot_info.fault_status = (boot_info.software_reason == RESET_REASON_HARD_FAULT) ? stored_record.hardware_status : 0;
 
    // Re-stamp the scratch registers for the next boot
-   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (MCUCTRL->SCRATCH0 & SCRATCH0_STAGE_MASK) | RESET_REASON_UNKNOWN;
-   MCUCTRL->SCRATCH1 = SCRATCH_MAGIC | (boot_info.resets_this_epoch & SCRATCH1_RESET_COUNT_MASK);
+   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | ((RESET_REASON_UNKNOWN << SCRATCH0_REASON_SHIFT) & SCRATCH0_REASON_MASK);
+   MCUCTRL->SCRATCH1 = SCRATCH_MAGIC | (MCUCTRL->SCRATCH1 & SCRATCH1_STAGE_MASK) | (boot_info.resets_this_epoch & SCRATCH1_RESET_COUNT_MASK);
    system_mark_boot_stage(BOOT_STAGE_BOOT_INFO);
 }
 
@@ -675,7 +675,7 @@ void system_reset(void)
 void system_reset_with_reason(uint32_t reason)
 {
    // Record why the device is restarting so that the next boot can report it
-   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (reason & SCRATCH0_REASON_MASK);
+   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | ((reason << SCRATCH0_REASON_SHIFT) & SCRATCH0_REASON_MASK) | SCRATCH0_CANARY;
    am_hal_sysctrl_bus_write_flush();
    storage_flush_early_log();
    system_deinitialize_peripherals();

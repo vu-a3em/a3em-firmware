@@ -69,12 +69,12 @@ static void log_boot_reason(void)
    hardware_bits |= hw->bBOLPCOREStat ? (1u << 11) : 0;
    print("INFO: A3EM firmware %s, built %s\n", _FW_VERSION, _DATETIME);
    print("INFO: Restart #%u of power-on epoch %u, reason %s (hardware bits 0x%03X, scratch 0x%08X/0x%08X)\n", boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), hardware_bits, boot->scratch0_raw, boot->scratch1_raw);
-   log_event("BOOT", "fw=%s,hw=%s,built=%s,resets=%u,epoch=%u,last_stop=%s,scratch0=0x%08X,scratch1=0x%08X", _FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), boot->scratch0_raw, boot->scratch1_raw);
+   log_event("BOOT", "fw=%s,hw=%s,built=%s,resets=%u,epoch=%u,last_stop=%s,scratch0=0x%08X,scratch1=0x%08X,canary=0x%02X", _FW_VERSION, _STRINGIFY(_HW_REVISION), _DATETIME, boot->resets_this_epoch, boot->boot_epoch, reset_reason_name(boot->software_reason), boot->scratch0_raw, boot->scratch1_raw, boot->scratch0_canary);
    if (boot->software_reason == RESET_REASON_HARD_FAULT)
    {
       // The teardown stage is the useful half when the address is zero
-      print("ERROR: Previous run ended in a hard fault at address 0x%08X (status 0x%08X, stage %s, exception %u)\n", boot->fault_address, boot->fault_status, system_teardown_stage_name(boot->teardown_stage), boot->fault_exception);
-      log_event("HARD_FAULT", "address=0x%08X,cfsr=0x%08X,teardown=%s,exc=%u", boot->fault_address, boot->fault_status, system_teardown_stage_name(boot->teardown_stage), boot->fault_exception);
+      print("ERROR: Previous run ended in a hard fault at address 0x%08X (status 0x%08X, stage %s)\n", boot->fault_address, boot->fault_status, system_teardown_stage_name(boot->teardown_stage));
+      log_event("HARD_FAULT", "address=0x%08X,cfsr=0x%08X,teardown=%s", boot->fault_address, boot->fault_status, system_teardown_stage_name(boot->teardown_stage));
    }
    if (hw->bWDTStat)
       print("ERROR: Previous run was terminated by the watchdog\n");
