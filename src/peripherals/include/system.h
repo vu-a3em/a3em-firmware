@@ -20,7 +20,14 @@ typedef struct
    uint32_t scratch0_raw;       // Scratch registers exactly as the previous run left them, so that a
    uint32_t scratch1_raw;       //   disagreement with the decoded reason can be seen in the log
    bool was_power_on;
+   uint32_t teardown_stage;
 } system_boot_info_t;
+
+typedef enum {
+   TEARDOWN_STAGE_NONE = 0, TEARDOWN_STAGE_MRAM, TEARDOWN_STAGE_STORAGE, TEARDOWN_STAGE_AUDIO,
+   TEARDOWN_STAGE_TRACKER, TEARDOWN_STAGE_IMU, TEARDOWN_STAGE_MAGNET, TEARDOWN_STAGE_BATTERY,
+   TEARDOWN_STAGE_LEDS, TEARDOWN_STAGE_LOGGING, TEARDOWN_STAGE_COMPLETE
+} system_teardown_stage_t;
 
 typedef enum {
    SELF_TEST_PASS = 0,
@@ -58,6 +65,7 @@ const char* reset_reason_name(uint32_t reason);
 bool reset_reason_is_error(uint32_t reason);
 uint32_t system_get_hal_failure_count(void);
 const char* system_get_first_hal_failure(uint32_t *line, uint32_t *status);
+const char* system_teardown_stage_name(uint32_t stage);
 
 // Watchdog functionality
 void system_enable_watchdog(void);

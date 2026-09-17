@@ -20,6 +20,8 @@
 #define SCRATCH_MAGIC_MASK          0xFFFF0000
 #define SCRATCH_MAGIC               0xA3E30000
 #define SCRATCH0_REASON_MASK        0x000000FF
+#define SCRATCH0_STAGE_MASK         0x0000FF00
+#define SCRATCH0_STAGE_SHIFT        8
 #define SCRATCH1_RESET_COUNT_MASK   0x0000FFFF
 
 extern uint8_t _uid_base_address;
@@ -115,11 +117,12 @@ void system_hard_fault_handler(sContextStateFrame *frame)
 #else
    // Record where the fault happened before restarting
    const uint32_t faulting_address = frame ? frame->return_address : 0;
-   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | RESET_REASON_HARD_FAULT;
+   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (MCUCTRL->SCRATCH0 & SCRATCH0_STAGE_MASK) | RESET_REASON_HARD_FAULT;
    MCUCTRL->SCRATCH1 = MCUCTRL->SCRATCH1;   // Preserve the reset counter across this path
 
    // Persist where the fault happened and what the processor said about it
-   mram_store_fault(RESET_REASON_HARD_FAULT, SCB->CFSR, faulting_address);
+   const uint32_t configurable_status = SCB->CFSR;
+   mram_store_fault(RESET_REASON_HARD_FAULT, configurable_status ? configurable_status : SCB->HFSR, faulting_address);
    NVIC_SystemReset();
    while (true) {}
 #endif
@@ -134,6 +137,13 @@ void vAssertCalled(const char * const pcFileName, unsigned long ulLine)
 {
    volatile uint32_t ulSetToNonZeroInDebuggerToContinue = 0;
    while (ulSetToNonZeroInDebuggerToContinue == 0);
+}
+
+static void note_teardown_stage(uint32_t stage)
+{
+   // Record progress without disturbing the magic or the reason already stored alongside it
+   MCUCTRL->SCRATCH0 = (MCUCTRL->SCRATCH0 & ~SCRATCH0_STAGE_MASK) | ((stage << SCRATCH0_STAGE_SHIFT) & SCRATCH0_STAGE_MASK);
+   am_hal_sysctrl_bus_write_flush();
 }
 
 void system_note_hal_failure(const char *file, uint32_t line, uint32_t status)
@@ -164,6 +174,24 @@ const char* system_get_first_hal_failure(uint32_t *line, uint32_t *status)
    return first_hal_failure_file;
 }
 
+const char* teardown_stage_name(uint32_t stage)
+{
+   switch (stage)
+   {
+      case TEARDOWN_STAGE_MRAM:     return "MRAM";
+      case TEARDOWN_STAGE_STORAGE:  return "STORAGE";
+      case TEARDOWN_STAGE_AUDIO:    return "AUDIO";
+      case TEARDOWN_STAGE_TRACKER:  return "TRACKER";
+      case TEARDOWN_STAGE_IMU:      return "IMU";
+      case TEARDOWN_STAGE_MAGNET:   return "MAGNET";
+      case TEARDOWN_STAGE_BATTERY:  return "BATTERY";
+      case TEARDOWN_STAGE_LEDS:     return "LEDS";
+      case TEARDOWN_STAGE_LOGGING:  return "LOGGING";
+      case TEARDOWN_STAGE_COMPLETE: return "COMPLETE";
+      default:                      return "NONE";
+   }
+}
+
 
 // Private Helper Functions --------------------------------------------------------------------------------------------
 
@@ -189,7 +217,10 @@ static void system_capture_boot_info(void)
    boot_info.was_power_on = !scratch_valid;
    boot_info.resets_this_epoch = scratch_valid ? ((scratch1 & SCRATCH1_RESET_COUNT_MASK) + 1) : 0;
    if ((scratch0 & SCRATCH_MAGIC_MASK) == SCRATCH_MAGIC)
+   {
       boot_info.software_reason = scratch0 & SCRATCH0_REASON_MASK;
+      boot_info.teardown_stage = (scratch0 & SCRATCH0_STAGE_MASK) >> SCRATCH0_STAGE_SHIFT;
+   }
    else
       boot_info.software_reason = scratch_valid ? RESET_REASON_UNKNOWN : RESET_REASON_NONE;
 
@@ -700,15 +731,16 @@ void system_deinitialize_peripherals(void)
    am_hal_interrupt_master_disable();
 
    // De-initialize all peripherals except for RTC and VHF
-   mram_deinit();
-   storage_deinit();
-   audio_deinit();
-   tracker_deinit();
-   imu_deinit();
-   magnet_sensor_deinit();
-   battery_monitor_deinit();
-   leds_deinit();
-   logging_disable();
+   note_teardown_stage(TEARDOWN_STAGE_MRAM);     mram_deinit();
+   note_teardown_stage(TEARDOWN_STAGE_STORAGE);  storage_deinit();
+   note_teardown_stage(TEARDOWN_STAGE_AUDIO);    audio_deinit();
+   note_teardown_stage(TEARDOWN_STAGE_TRACKER);  tracker_deinit();
+   note_teardown_stage(TEARDOWN_STAGE_IMU);      imu_deinit();
+   note_teardown_stage(TEARDOWN_STAGE_MAGNET);   magnet_sensor_deinit();
+   note_teardown_stage(TEARDOWN_STAGE_BATTERY);  battery_monitor_deinit();
+   note_teardown_stage(TEARDOWN_STAGE_LEDS);     leds_deinit();
+   note_teardown_stage(TEARDOWN_STAGE_LOGGING);  logging_disable();
+   note_teardown_stage(TEARDOWN_STAGE_COMPLETE);
 }
 
 void system_enable_interrupts(bool enabled)
