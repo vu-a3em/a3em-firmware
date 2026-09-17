@@ -125,7 +125,11 @@ void system_hard_fault_handler(sContextStateFrame *frame)
 
    // Persist where the fault happened and what the processor said about it
    const uint32_t configurable_status = SCB->CFSR;
-   mram_store_fault(RESET_REASON_HARD_FAULT, configurable_status ? configurable_status : SCB->HFSR, faulting_address);
+   const uint32_t fault_status = configurable_status ? configurable_status : SCB->HFSR;
+   mram_boot_record_t stored_record;
+   mram_get_boot_record(&stored_record);
+   if ((stored_record.fault_address != faulting_address) || (stored_record.hardware_status != fault_status) || (stored_record.software_reason != RESET_REASON_HARD_FAULT))
+      mram_store_fault(RESET_REASON_HARD_FAULT, fault_status, faulting_address);
    NVIC_SystemReset();
    while (true) {}
 #endif
@@ -182,13 +186,6 @@ const char* system_teardown_stage_name(uint32_t stage)
    switch (stage)
    {
       case BOOT_STAGE_ENTERED:     return "BOOT:entered";
-      case BOOT_STAGE_LOW_POWER:   return "BOOT:low-power";
-      case BOOT_STAGE_MEMORY:      return "BOOT:memory";
-      case BOOT_STAGE_CACHE:       return "BOOT:cache";
-      case BOOT_STAGE_PINS:        return "BOOT:pins";
-      case BOOT_STAGE_MRAM:        return "BOOT:mram";
-      case BOOT_STAGE_BOOT_INFO:   return "BOOT:boot-info";
-      case BOOT_STAGE_PERIPHERALS: return "BOOT:peripherals";
       case BOOT_STAGE_RUNNING:     return "RUNNING";
       case TEARDOWN_STAGE_MRAM:     return "MRAM";
       case TEARDOWN_STAGE_STORAGE:  return "STORAGE";
@@ -264,7 +261,6 @@ static void system_capture_boot_info(void)
    // Re-stamp the scratch registers for the next boot
    MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | ((RESET_REASON_UNKNOWN << SCRATCH0_REASON_SHIFT) & SCRATCH0_REASON_MASK);
    MCUCTRL->SCRATCH1 = SCRATCH_MAGIC | (MCUCTRL->SCRATCH1 & SCRATCH1_STAGE_MASK) | (boot_info.resets_this_epoch & SCRATCH1_RESET_COUNT_MASK);
-   system_mark_boot_stage(BOOT_STAGE_BOOT_INFO);
 }
 
 static bool test_storage(uint32_t *bytes_verified)
@@ -549,7 +545,6 @@ void setup_hardware(void)
    // Configure the board to operate in low-power mode
    am_hal_pwrctrl_low_power_init();
    am_hal_pwrctrl_control(AM_HAL_PWRCTRL_CONTROL_SIMOBUCK_INIT, NULL);
-   system_mark_boot_stage(BOOT_STAGE_LOW_POWER);
 #ifndef AM_DEBUG_PRINTF
    am_hal_pwrctrl_control(AM_HAL_PWRCTRL_CONTROL_CRYPTO_POWERDOWN, NULL);
 #endif
@@ -605,7 +600,6 @@ void setup_hardware(void)
    };
    configASSERT0(am_hal_cachectrl_config(&cache_config));
    configASSERT0(am_hal_cachectrl_enable());
-   system_mark_boot_stage(BOOT_STAGE_CACHE);
 
 #if ENABLE_CACHE_MONITOR
    // Turn on the cache hit/miss counters so the chosen cache size can be judged from measurement rather than argument
@@ -615,10 +609,8 @@ void setup_hardware(void)
 
    // Initialize all unused GPIO pins to a known state
    system_initialize_unused_pins();
-   system_mark_boot_stage(BOOT_STAGE_PINS);
 
    // Set up persistent storage and determine why the device restarted
-   system_mark_boot_stage(BOOT_STAGE_MRAM);
    mram_init();
    system_capture_boot_info();
    logging_init();

@@ -158,7 +158,7 @@ int main(void)
    static uint8_t device_id[DEVICE_ID_LEN];
    system_read_ID(device_id, sizeof(device_id));
    system_initialize_peripherals();
-   system_mark_boot_stage(BOOT_STAGE_PERIPHERALS);
+   system_mark_boot_stage(BOOT_STAGE_RUNNING);
    system_feed_watchdog();
 
    print("\nINFO: System hardware initialized, UID = ");
