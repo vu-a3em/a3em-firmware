@@ -150,10 +150,10 @@ static void handle_magnetic_field(bool store_activated_result, bool store_deacti
 int main(void)
 {
    // Arm the watchdog before anything that can block
+   system_latch_reset_scratch();
    system_enable_watchdog();
 
    // Set up the system hardware, retrieve the device ID, and initialize all peripherals
-   system_latch_reset_scratch();
    setup_hardware();
    static uint8_t device_id[DEVICE_ID_LEN];
    system_read_ID(device_id, sizeof(device_id));
@@ -383,8 +383,11 @@ int main(void)
                led_pattern_wait();
                system_reset_with_reason(RESET_REASON_MAGNET_DEACTIVATED);
             }
+            const uint32_t phase_end_reason = active_main_get_end_reason();
+            print("INFO: Phase ended - restarting with reason %s (0x%02X)\n", reset_reason_name(phase_end_reason), phase_end_reason);
+            log_event("PHASE_END", "reason=%s,code=0x%02X", reset_reason_name(phase_end_reason), phase_end_reason);
             storage_flush_log();
-            system_reset_with_reason(active_main_get_end_reason());
+            system_reset_with_reason(phase_end_reason);
          }
          else if (vhf_enable_timestamp && (vhf_enable_timestamp > current_timestamp))
          {
