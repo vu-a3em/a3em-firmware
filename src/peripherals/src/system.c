@@ -174,7 +174,7 @@ const char* system_get_first_hal_failure(uint32_t *line, uint32_t *status)
    return first_hal_failure_file;
 }
 
-const char* teardown_stage_name(uint32_t stage)
+const char* system_teardown_stage_name(uint32_t stage)
 {
    switch (stage)
    {
