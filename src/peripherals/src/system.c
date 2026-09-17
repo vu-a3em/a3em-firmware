@@ -647,8 +647,8 @@ void system_reset_with_reason(uint32_t reason)
    MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (reason & SCRATCH0_REASON_MASK);
    am_hal_sysctrl_bus_write_flush();
    storage_flush_early_log();
-   system_deinitialize_peripherals();
    __set_FAULTMASK(1);
+   system_deinitialize_peripherals();
    am_hal_reset_control(AM_HAL_RESET_CONTROL_SWPOR, NULL);
    am_hal_sysctrl_bus_write_flush();
    while (true) {}
