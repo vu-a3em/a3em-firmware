@@ -29,7 +29,7 @@ extern uint8_t _uid_base_address;
 static system_boot_info_t boot_info;
 static volatile uint32_t hal_failure_count;
 static const char *first_hal_failure_file;
-static uint32_t first_hal_failure_line, first_hal_failure_status;
+static uint32_t first_hal_failure_line, first_hal_failure_status, latched_scratch0, latched_scratch1;
 static bool watchdog_running, sram_active_in_deep_sleep;
 static uint8_t storage_pattern[SELF_TEST_STORAGE_BYTES];
 
@@ -178,6 +178,15 @@ const char* system_teardown_stage_name(uint32_t stage)
 {
    switch (stage)
    {
+      case BOOT_STAGE_ENTERED:     return "BOOT:entered";
+      case BOOT_STAGE_LOW_POWER:   return "BOOT:low-power";
+      case BOOT_STAGE_MEMORY:      return "BOOT:memory";
+      case BOOT_STAGE_CACHE:       return "BOOT:cache";
+      case BOOT_STAGE_PINS:        return "BOOT:pins";
+      case BOOT_STAGE_MRAM:        return "BOOT:mram";
+      case BOOT_STAGE_BOOT_INFO:   return "BOOT:boot-info";
+      case BOOT_STAGE_PERIPHERALS: return "BOOT:peripherals";
+      case BOOT_STAGE_RUNNING:     return "RUNNING";
       case TEARDOWN_STAGE_MRAM:     return "MRAM";
       case TEARDOWN_STAGE_STORAGE:  return "STORAGE";
       case TEARDOWN_STAGE_AUDIO:    return "AUDIO";
@@ -190,6 +199,19 @@ const char* system_teardown_stage_name(uint32_t stage)
       case TEARDOWN_STAGE_COMPLETE: return "COMPLETE";
       default:                      return "NONE";
    }
+}
+
+void system_latch_reset_scratch(void)
+{
+   // Take a copy before any of the boot path can overwrite it
+   latched_scratch0 = MCUCTRL->SCRATCH0;
+   latched_scratch1 = MCUCTRL->SCRATCH1;
+   system_mark_boot_stage(BOOT_STAGE_ENTERED);
+}
+
+void system_mark_boot_stage(uint32_t stage)
+{
+   note_teardown_stage(stage);
 }
 
 
@@ -210,7 +232,7 @@ static void system_capture_boot_info(void)
 
    // Recover the software reset reason handed over by the previous run.
    // A missing magic tag means the scratch register lost its contents, which only happens on a real power cycle.
-   const uint32_t scratch0 = MCUCTRL->SCRATCH0, scratch1 = MCUCTRL->SCRATCH1;
+   const uint32_t scratch0 = latched_scratch0, scratch1 = latched_scratch1;
    boot_info.scratch0_raw = scratch0;
    boot_info.scratch1_raw = scratch1;
    const bool scratch_valid = ((scratch1 & SCRATCH_MAGIC_MASK) == SCRATCH_MAGIC);
@@ -236,8 +258,9 @@ static void system_capture_boot_info(void)
    boot_info.fault_status = (boot_info.software_reason == RESET_REASON_HARD_FAULT) ? stored_record.hardware_status : 0;
 
    // Re-stamp the scratch registers for the next boot
-   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | RESET_REASON_UNKNOWN;
+   MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (MCUCTRL->SCRATCH0 & SCRATCH0_STAGE_MASK) | RESET_REASON_UNKNOWN;
    MCUCTRL->SCRATCH1 = SCRATCH_MAGIC | (boot_info.resets_this_epoch & SCRATCH1_RESET_COUNT_MASK);
+   system_mark_boot_stage(BOOT_STAGE_BOOT_INFO);
 }
 
 static bool test_storage(uint32_t *bytes_verified)
@@ -522,6 +545,7 @@ void setup_hardware(void)
    // Configure the board to operate in low-power mode
    am_hal_pwrctrl_low_power_init();
    am_hal_pwrctrl_control(AM_HAL_PWRCTRL_CONTROL_SIMOBUCK_INIT, NULL);
+   system_mark_boot_stage(BOOT_STAGE_LOW_POWER);
 #ifndef AM_DEBUG_PRINTF
    am_hal_pwrctrl_control(AM_HAL_PWRCTRL_CONTROL_CRYPTO_POWERDOWN, NULL);
 #endif
@@ -577,6 +601,7 @@ void setup_hardware(void)
    };
    configASSERT0(am_hal_cachectrl_config(&cache_config));
    configASSERT0(am_hal_cachectrl_enable());
+   system_mark_boot_stage(BOOT_STAGE_CACHE);
 
 #if ENABLE_CACHE_MONITOR
    // Turn on the cache hit/miss counters so the chosen cache size can be judged from measurement rather than argument
@@ -586,8 +611,10 @@ void setup_hardware(void)
 
    // Initialize all unused GPIO pins to a known state
    system_initialize_unused_pins();
+   system_mark_boot_stage(BOOT_STAGE_PINS);
 
    // Set up persistent storage and determine why the device restarted
+   system_mark_boot_stage(BOOT_STAGE_MRAM);
    mram_init();
    system_capture_boot_info();
    logging_init();
@@ -647,7 +674,6 @@ void system_reset_with_reason(uint32_t reason)
    MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (reason & SCRATCH0_REASON_MASK);
    am_hal_sysctrl_bus_write_flush();
    storage_flush_early_log();
-   __set_FAULTMASK(1);
    system_deinitialize_peripherals();
    am_hal_reset_control(AM_HAL_RESET_CONTROL_SWPOR, NULL);
    am_hal_sysctrl_bus_write_flush();
