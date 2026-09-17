@@ -22,7 +22,9 @@
 #define SCRATCH0_REASON_MASK        0x000000FF
 #define SCRATCH0_STAGE_MASK         0x0000FF00
 #define SCRATCH0_STAGE_SHIFT        8
-#define SCRATCH1_RESET_COUNT_MASK   0x0000FFFF
+#define SCRATCH1_RESET_COUNT_MASK   0x000000FF
+#define SCRATCH1_VECTACTIVE_MASK    0x0000FF00
+#define SCRATCH1_VECTACTIVE_SHIFT   8
 
 extern uint8_t _uid_base_address;
 
@@ -118,7 +120,8 @@ void system_hard_fault_handler(sContextStateFrame *frame)
    // Record where the fault happened before restarting
    const uint32_t faulting_address = frame ? frame->return_address : 0;
    MCUCTRL->SCRATCH0 = SCRATCH_MAGIC | (MCUCTRL->SCRATCH0 & SCRATCH0_STAGE_MASK) | RESET_REASON_HARD_FAULT;
-   MCUCTRL->SCRATCH1 = MCUCTRL->SCRATCH1;   // Preserve the reset counter across this path
+   const uint32_t active_exception = SCB->ICSR & SCB_ICSR_VECTACTIVE_Msk;
+   MCUCTRL->SCRATCH1 = (MCUCTRL->SCRATCH1 & ~SCRATCH1_VECTACTIVE_MASK) | ((active_exception << SCRATCH1_VECTACTIVE_SHIFT) & SCRATCH1_VECTACTIVE_MASK);
 
    // Persist where the fault happened and what the processor said about it
    const uint32_t configurable_status = SCB->CFSR;
@@ -242,6 +245,7 @@ static void system_capture_boot_info(void)
    {
       boot_info.software_reason = scratch0 & SCRATCH0_REASON_MASK;
       boot_info.teardown_stage = (scratch0 & SCRATCH0_STAGE_MASK) >> SCRATCH0_STAGE_SHIFT;
+      boot_info.fault_exception = (scratch1 & SCRATCH1_VECTACTIVE_MASK) >> SCRATCH1_VECTACTIVE_SHIFT;
    }
    else
       boot_info.software_reason = scratch_valid ? RESET_REASON_UNKNOWN : RESET_REASON_NONE;

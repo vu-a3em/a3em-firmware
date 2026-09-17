@@ -73,8 +73,8 @@ static void log_boot_reason(void)
    if (boot->software_reason == RESET_REASON_HARD_FAULT)
    {
       // The teardown stage is the useful half when the address is zero
-      print("ERROR: Previous run ended in a hard fault at address 0x%08X (status 0x%08X, teardown stage %s)\n", boot->fault_address, boot->fault_status, system_teardown_stage_name(boot->teardown_stage));
-      log_event("HARD_FAULT", "address=0x%08X,cfsr=0x%08X,teardown=%s", boot->fault_address, boot->fault_status, system_teardown_stage_name(boot->teardown_stage));
+      print("ERROR: Previous run ended in a hard fault at address 0x%08X (status 0x%08X, stage %s, exception %u)\n", boot->fault_address, boot->fault_status, system_teardown_stage_name(boot->teardown_stage), boot->fault_exception);
+      log_event("HARD_FAULT", "address=0x%08X,cfsr=0x%08X,teardown=%s,exc=%u", boot->fault_address, boot->fault_status, system_teardown_stage_name(boot->teardown_stage), boot->fault_exception);
    }
    if (hw->bWDTStat)
       print("ERROR: Previous run was terminated by the watchdog\n");

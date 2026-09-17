@@ -23,6 +23,7 @@ typedef struct
    uint32_t scratch1_raw;       //   disagreement with the decoded reason can be seen in the log
    bool was_power_on;
    uint32_t teardown_stage;
+   uint32_t fault_exception;
 } system_boot_info_t;
 
 typedef enum {
