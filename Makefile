@@ -264,6 +264,7 @@ SRC += mram.c
 SRC += datetime.c
 SRC += rtc.c
 SRC += runtime_config.c
+SRC += solar.c
 SRC += storage.c
 SRC += system.c
 SRC += tracker.c

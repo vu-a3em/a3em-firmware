@@ -10,6 +10,7 @@
 #include "opus_config.h"
 #include "rtc.h"
 #include "silence.h"
+#include "solar.h"
 #include "storage.h"
 #include "system.h"
 #include "tracker.h"
@@ -41,6 +42,61 @@ static uint32_t seconds_until_next_scheduled_recording(uint32_t num_schedules, s
    if (current_index < num_schedules)
       return (schedule[current_index].start_time <= current_seconds_of_day) ? 0 : (schedule[current_index].start_time - current_seconds_of_day);
    return num_schedules ? (86400 - current_seconds_of_day + schedule[0].start_time) : 0;
+}
+
+static uint32_t wrap_day_seconds(int32_t seconds)
+{
+   int32_t wrapped = seconds % 86400;
+   if (wrapped < 0)
+      wrapped += 86400;
+   return (uint32_t)wrapped;
+}
+
+static uint32_t resolve_solar_schedule(const solar_window_t *windows, uint32_t num_windows, uint32_t current_time, start_end_time_t *out)
+{
+   // If the sun's position is not available, we cannot resolve a solar schedule
+   if (!config_has_position())
+      return 0;
+
+   // Compute the solar day for the current time
+   solar_day_t day;
+   solar_compute(config_get_latitude(), config_get_longitude(), current_time, config_get_utc_offset_seconds(), &day);
+
+   // Rebuild the listening schedule based on the computed solar day
+   uint32_t count = 0;
+   for (uint32_t i = 0; i < num_windows; ++i)
+   {
+      // Resolve the start and end times for this solar window based on the solar day
+      const solar_anchor_t start_anchor = (solar_anchor_t)windows[i].start_anchor;
+      const solar_anchor_t end_anchor = (solar_anchor_t)windows[i].end_anchor;
+      if (!day.available[start_anchor] || !day.available[end_anchor])
+         continue;
+      const uint32_t start = wrap_day_seconds(day.seconds_of_day[start_anchor] + windows[i].start_offset_seconds);
+      const uint32_t end = wrap_day_seconds(day.seconds_of_day[end_anchor] + windows[i].end_offset_seconds);
+
+      // A window running past midnight cannot be expressed
+      if (end <= start)
+         continue;
+      out[count].start_time = start;
+      out[count].end_time = end;
+      ++count;
+   }
+
+   // Sort ascending according to start time
+   for (uint32_t i = 1; i < count; ++i)
+   {
+      const start_end_time_t window = out[i];
+      uint32_t j = i;
+      while (j && (out[j - 1].start_time > window.start_time))
+      {
+         out[j] = out[j - 1];
+         --j;
+      }
+      out[j] = window;
+   }
+
+   // Return the number of valid windows found
+   return count;
 }
 
 static void report_microphone_health(void)
@@ -408,11 +464,15 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
    storage_close_audio();
 }
 
-static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule, bool ogg_encode)
+static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule, uint32_t num_solar_windows, solar_window_t *solar_windows, bool ogg_encode)
 {
    // Initialize all necessary local variables
    audio_samples_per_dma = audio_num_seconds_per_dma() * sampling_rate;
    bool audio_clip_in_progress = false, reading_audio = false, awaiting_audio_start = false;
+   start_end_time_t resolved_schedule[MAX_AUDIO_TRIGGER_TIMES];
+   start_end_time_t *fallback_schedule = schedule;
+   const uint32_t num_fallback_schedules = num_schedules;
+   int64_t resolved_local_day = INT64_MIN;
    uint32_t num_audio_reads = 0;
    int16_t *audio_buffer;
 
@@ -442,6 +502,30 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          new_imu_stream = false;
       }
       storage_handle_imu_data();
+
+      // Rebuild a sun-anchored schedule whenever the local day turns over
+      if (num_solar_windows)
+      {
+         const int64_t local_seconds = (int64_t)current_time + (int64_t)config_get_utc_offset_seconds();
+         const int64_t local_day = (local_seconds < 0) ? ((local_seconds - 86399) / 86400) : (local_seconds / 86400);
+         if (local_day != resolved_local_day)
+         {
+            resolved_local_day = local_day;
+            const uint32_t resolved = resolve_solar_schedule(solar_windows, num_solar_windows, current_time, resolved_schedule);
+            schedule = resolved ? resolved_schedule : fallback_schedule;
+            num_schedules = resolved ? resolved : num_fallback_schedules;
+            if (resolved)
+            {
+               log_event("SOLAR_SCHEDULE", "windows=%u,first_start=%u,first_end=%u", resolved, schedule[0].start_time, schedule[0].end_time);
+               print("INFO: Solar schedule for today: %u window(s), first %u-%u\n", resolved, schedule[0].start_time, schedule[0].end_time);
+            }
+            else
+            {
+               log_event("SOLAR_SCHEDULE", "windows=0,fallback=%u", num_fallback_schedules);
+               print("WARNING: The sun gives no usable windows here today - falling back to %u fixed window(s)\n", num_fallback_schedules);
+            }
+         }
+      }
 
       // Determine if time to create a new WAV file
       const uint32_t seconds_til_next_scheduled_recording = seconds_until_next_scheduled_recording(num_schedules, schedule, (uint32_t)((int32_t)current_time + config_get_utc_offset_seconds()) % 86400);
@@ -813,7 +897,9 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated) :
                audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db())))
             break;
-         process_audio_scheduled(audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), false, 0, num_schedules, schedule, encoding_bitrate > 0);
+         solar_window_t *solar_windows;
+         const uint32_t num_solar_windows = config_get_audio_solar_schedule(phase_index, &solar_windows);
+         process_audio_scheduled(audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), false, 0, num_schedules, schedule, num_solar_windows, solar_windows, encoding_bitrate > 0);
          break;
       }
       case INTERVAL:
@@ -841,7 +927,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
                audio_analog_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db(), AUDIO_MIC_BIAS_VOLTAGE, IMMEDIATE, 0.0, device_activated) :
                audio_digital_init(AUDIO_NUM_CHANNELS, audio_sampling_rate_hz, audio_clip_length_seconds, config_get_mic_amplification_db())))
             break;
-         process_audio_scheduled(audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), true, (int32_t)audio_recording_interval, 0, NULL, encoding_bitrate > 0);
+         process_audio_scheduled(audio_sampling_rate_hz, audio_clip_length_seconds / audio_num_seconds_per_dma(), true, (int32_t)audio_recording_interval, 0, NULL, 0, NULL, encoding_bitrate > 0);
          break;
       }
       case CONTINUOUS:  // Intentional fall-through

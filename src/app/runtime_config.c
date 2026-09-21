@@ -1,5 +1,6 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
+#include <math.h>
 #include <stdio.h>
 #include "logging.h"
 #include "mram.h"
@@ -18,6 +19,9 @@ typedef struct {
    uint32_t max_audio_clips, audio_trigger_interval, audio_sampling_rate;
    uint32_t audio_clip_length, imu_sampling_rate, num_audio_trigger_times;
    time_scale_t max_clips_time_scale, audio_trigger_interval_time_scale;
+   audio_schedule_type_t audio_schedule_type;
+   uint32_t num_solar_trigger_times;
+   solar_window_t solar_trigger_times[MAX_AUDIO_TRIGGER_TIMES];
    start_end_time_t phase_time, audio_trigger_times[MAX_AUDIO_TRIGGER_TIMES];
    frequency_range_t frequencies_of_interest, audio_filter_range;
    audio_filter_type_t audio_filter_type;
@@ -29,10 +33,12 @@ typedef struct {
 // Static Global Variables ---------------------------------------------------------------------------------------------
 
 static char device_label[1 + MAX_DEVICE_LABEL_LEN];
+static double deployment_latitude, deployment_longitude;
 static uint32_t leds_active_seconds, vhf_start_timestamp, battery_level_low;
-static uint32_t magnetic_field_validation_length_ms, deactivation_forbidden_length_seconds, current_activation_number;
-static bool set_rtc_at_magnet_detect, vhf_enabled, leds_enabled, device_activated, gps_available, awake_on_magnet, config_corrected;
 static deployment_phase_t deployment_phases[MAX_NUM_DEPLOYMENT_PHASES], discarded_phase;
+static uint32_t magnetic_field_validation_length_ms, deactivation_forbidden_length_seconds, current_activation_number;
+static bool set_rtc_at_magnet_detect, vhf_enabled, leds_enabled, device_activated;
+static bool gps_available, awake_on_magnet, config_corrected, position_available;
 static int32_t num_deployment_phases, utc_offset;
 static float microphone_amplification_db;
 static start_end_time_t deployment_time;
@@ -203,6 +209,10 @@ static void log_effective_configuration(void)
    print("   Device Label: %s\n", device_label);
    print("   UTC Offset (s): %d\n", (int)utc_offset);
    print("   Deployment: %u to %u\n", deployment_time.start_time, deployment_time.end_time);
+   if (position_available)
+      print("   Position: %d.%04d, %d.%04d\n", (int)deployment_latitude, (int)fabs((deployment_latitude - (int)deployment_latitude) * 10000.0), (int)deployment_longitude, (int)fabs((deployment_longitude - (int)deployment_longitude) * 10000.0));
+   else
+      print("   Position: not configured - solar schedules will use their fallback windows\n");
    print("   Microphone: %s @ %d.%02d dB\n", (microphone_type == MIC_ANALOG) ? "ANALOG" : "DIGITAL", (int)microphone_amplification_db, (int)((microphone_amplification_db - (int)microphone_amplification_db) * 100.0f));
    print("   Magnet Activation: %s (validation %u ms, lockout %u s)\n", awake_on_magnet ? "True" : "False", magnetic_field_validation_length_ms, deactivation_forbidden_length_seconds);
    print("   LEDs: %s (%u s)\n", leds_enabled ? "True" : "False", leds_active_seconds);
@@ -224,9 +234,19 @@ static void log_effective_configuration(void)
          print("      Interval: every %u s\n", phase->audio_trigger_interval * config_time_scale_seconds(phase->audio_trigger_interval_time_scale));
       else if (phase->audio_recording_mode == SCHEDULED)
       {
-         print("      Listening windows: %u\n", phase->num_audio_trigger_times);
-         for (uint32_t w = 0; w < phase->num_audio_trigger_times; ++w)
-            print("         %u-%u\n", phase->audio_trigger_times[w].start_time, phase->audio_trigger_times[w].end_time);
+         if (phase->audio_schedule_type == SCHEDULE_SOLAR)
+         {
+            print("      Listening windows: %u, recomputed daily from the sun\n", phase->num_solar_trigger_times);
+            for (uint32_t w = 0; w < phase->num_solar_trigger_times; ++w)
+               print("         %s%+d s to %s%+d s\n", solar_anchor_name((solar_anchor_t)phase->solar_trigger_times[w].start_anchor), (int)phase->solar_trigger_times[w].start_offset_seconds, solar_anchor_name((solar_anchor_t)phase->solar_trigger_times[w].end_anchor), (int)phase->solar_trigger_times[w].end_offset_seconds);
+            print("         Fallback if the sun does not oblige: %u fixed windows\n", phase->num_audio_trigger_times);
+         }
+         else
+         {
+            print("      Listening windows: %u\n", phase->num_audio_trigger_times);
+            for (uint32_t w = 0; w < phase->num_audio_trigger_times; ++w)
+               print("         %u-%u\n", phase->audio_trigger_times[w].start_time, phase->audio_trigger_times[w].end_time);
+         }
       }
       print("      Filter: %s %u-%u Hz\n", audio_filter_type_name(phase->audio_filter_type), phase->audio_filter_range.min_frequency, phase->audio_filter_range.max_frequency);
       if (phase->silence_threshold > 0.0f)
@@ -273,6 +293,62 @@ static bool parse_phase_setting(const char *key, char *value, deployment_phase_t
       phase->audio_trigger_interval_time_scale = parse_time_scale(value);
    else if (memcmp(key, "AUDIO_TRIGGER_INTERVAL", sizeof("AUDIO_TRIGGER_INTERVAL")-1) == 0)
       phase->audio_trigger_interval = parse_uint(value);
+   else if (memcmp(key, "AUDIO_TRIGGER_SCHEDULE_TYPE", sizeof("AUDIO_TRIGGER_SCHEDULE_TYPE")-1) == 0)
+      phase->audio_schedule_type = (memcmp(value, "SOLAR", sizeof("SOLAR")-1) == 0) ? SCHEDULE_SOLAR : SCHEDULE_CLOCK;
+   else if (memcmp(key, "AUDIO_SOLAR_SCHEDULE", sizeof("AUDIO_SOLAR_SCHEDULE")-1) == 0)
+   {
+      // Refuse to overflow the schedule array
+      if (phase->num_solar_trigger_times >= MAX_AUDIO_TRIGGER_TIMES)
+      {
+         note_correction("more AUDIO_SOLAR_SCHEDULE entries than the firmware supports - ignoring the extras");
+         return true;
+      }
+
+      // Split "START_ANCHOR,START_OFFSET,END_ANCHOR,END_OFFSET" in place
+      uint32_t num_fields = 1;
+      char *fields[4] = { value, NULL, NULL, NULL };
+      for (char *cursor = value; *cursor && (num_fields < 4); ++cursor)
+         if (*cursor == ',')
+         {
+            *cursor = 0;
+            fields[num_fields++] = cursor + 1;
+         }
+      if (num_fields < 4)
+      {
+         note_correction("AUDIO_SOLAR_SCHEDULE entry is not START_ANCHOR,START_OFFSET,END_ANCHOR,END_OFFSET - ignoring the entry");
+         return true;
+      }
+      for (char *cursor = fields[3]; *cursor; ++cursor)
+         if (*cursor == ',')
+         {
+            *cursor = 0;
+            break;
+         }
+
+      // Parse and validate the solar anchors and offsets
+      solar_anchor_t start_anchor, end_anchor;
+      if (!solar_parse_anchor(fields[0], &start_anchor) || !solar_parse_anchor(fields[2], &end_anchor))
+      {
+         note_correction("AUDIO_SOLAR_SCHEDULE entry names an unknown solar anchor - ignoring the entry");
+         return true;
+      }
+
+      // The stored offset is int16 seconds, so a value beyond that range cannot be held at all
+      const int32_t start_offset = parse_int(fields[1]), end_offset = parse_int(fields[3]);
+      if ((start_offset < INT16_MIN) || (start_offset > INT16_MAX) || (end_offset < INT16_MIN) || (end_offset > INT16_MAX))
+      {
+         note_correction("AUDIO_SOLAR_SCHEDULE offset is outside the range the firmware stores - ignoring the entry");
+         return true;
+      }
+
+      // Store the validated solar trigger time in the phase's array
+      const uint32_t index = phase->num_solar_trigger_times;
+      phase->solar_trigger_times[index].start_anchor = (uint8_t)start_anchor;
+      phase->solar_trigger_times[index].end_anchor = (uint8_t)end_anchor;
+      phase->solar_trigger_times[index].start_offset_seconds = (int16_t)start_offset;
+      phase->solar_trigger_times[index].end_offset_seconds = (int16_t)end_offset;
+      ++phase->num_solar_trigger_times;
+   }
    else if (memcmp(key, "AUDIO_TRIGGER_SCHEDULE", sizeof("AUDIO_TRIGGER_SCHEDULE")-1) == 0)
    {
       // Refuse to overflow the schedule array
@@ -394,6 +470,16 @@ static void parse_line(char *line, int32_t line_length)
       deployment_time.start_time = parse_uint(value);
    else if (memcmp(key, "DEPLOYMENT_END_TIME", sizeof("DEPLOYMENT_END_TIME")-1) == 0)
       deployment_time.end_time = parse_uint(value);
+   else if (memcmp(key, "DEPLOYMENT_LATITUDE", sizeof("DEPLOYMENT_LATITUDE")-1) == 0)
+   {
+      deployment_latitude = (double)parse_float(value);
+      position_available = solar_position_valid(deployment_latitude, deployment_longitude);
+   }
+   else if (memcmp(key, "DEPLOYMENT_LONGITUDE", sizeof("DEPLOYMENT_LONGITUDE")-1) == 0)
+   {
+      deployment_longitude = (double)parse_float(value);
+      position_available = solar_position_valid(deployment_latitude, deployment_longitude);
+   }
    else if (memcmp(key, "GPS_AVAILABLE", sizeof("GPS_AVAILABLE")-1) == 0)
       gps_available = (memcmp(value, "True", sizeof("True")) == 0);
    else if (memcmp(key, "AWAKE_ON_MAGNET", sizeof("AWAKE_ON_MAGNET")-1) == 0)
@@ -438,8 +524,13 @@ bool fetch_runtime_configuration(void)
    deactivation_forbidden_length_seconds = 0;
    memset(device_label, 0, sizeof(device_label));
    memset(&deployment_time, 0, sizeof(deployment_time));
+   deployment_latitude = deployment_longitude = 0.0;
+   position_available = false;
    for (int i = 0; i < MAX_NUM_DEPLOYMENT_PHASES; ++i)
    {
+      deployment_phases[i].num_solar_trigger_times = 0;
+      deployment_phases[i].audio_schedule_type = SCHEDULE_CLOCK;
+      memset(deployment_phases[i].solar_trigger_times, 0, sizeof(deployment_phases[i].solar_trigger_times));
       deployment_phases[i].audio_clip_length = AUDIO_DEFAULT_CLIP_LENGTH_SECONDS;
       deployment_phases[i].audio_recording_mode = AMPLITUDE;
       deployment_phases[i].audio_sampling_rate = AUDIO_DEFAULT_SAMPLING_RATE_HZ;
@@ -750,6 +841,33 @@ uint32_t config_get_audio_trigger_schedule(int32_t phase_index, start_end_time_t
    *schedule = deployment_phases[phase_index].audio_trigger_times;
    return (deployment_phases[phase_index].audio_recording_mode == SCHEDULED) ?
          deployment_phases[phase_index].num_audio_trigger_times : 0;
+}
+
+audio_schedule_type_t config_get_audio_schedule_type(int32_t phase_index)
+{
+   return deployment_phases[phase_index].audio_schedule_type;
+}
+
+uint32_t config_get_audio_solar_schedule(int32_t phase_index, solar_window_t **windows)
+{
+   *windows = deployment_phases[phase_index].solar_trigger_times;
+   return ((deployment_phases[phase_index].audio_recording_mode == SCHEDULED) &&
+           (deployment_phases[phase_index].audio_schedule_type == SCHEDULE_SOLAR)) ? deployment_phases[phase_index].num_solar_trigger_times : 0;
+}
+
+bool config_has_position(void)
+{
+   return position_available;
+}
+
+double config_get_latitude(void)
+{
+   return deployment_latitude;
+}
+
+double config_get_longitude(void)
+{
+   return deployment_longitude;
 }
 
 bool config_get_audio_trigger_interval(int32_t phase_index, uint32_t *interval, time_scale_t *unit_time)

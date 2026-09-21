@@ -4,13 +4,16 @@
 // Header Inclusions ---------------------------------------------------------------------------------------------------
 
 #include "static_config.h"
+#include "solar.h"
 
 
 // Configuration Type Definitions --------------------------------------------------------------------------------------
 
 typedef struct { uint32_t start_time, end_time; } start_end_time_t;
 typedef struct { uint32_t min_frequency, max_frequency; } frequency_range_t;
+typedef struct { uint8_t start_anchor, end_anchor; int16_t start_offset_seconds, end_offset_seconds; } solar_window_t;
 
+typedef enum { SCHEDULE_CLOCK, SCHEDULE_SOLAR } audio_schedule_type_t;
 typedef enum { FILTER_NONE, FILTER_LOW_PASS, FILTER_BAND_PASS, FILTER_HIGH_PASS } audio_filter_type_t;
 typedef enum { MIC_ANALOG, MIC_DIGITAL } audio_mic_type_t;
 typedef enum { AMPLITUDE, SCHEDULED, INTERVAL, CONTINUOUS } audio_recording_mode_t;
@@ -51,6 +54,11 @@ uint32_t config_time_scale_seconds(time_scale_t scale);
 bool config_get_max_audio_clips(int32_t phase_index, uint32_t *max_clips, time_scale_t *unit_time);
 float config_get_audio_trigger_threshold(int32_t phase_index);
 uint32_t config_get_audio_trigger_schedule(int32_t phase_index, start_end_time_t **schedule);
+audio_schedule_type_t config_get_audio_schedule_type(int32_t phase_index);
+uint32_t config_get_audio_solar_schedule(int32_t phase_index, solar_window_t **windows);
+bool config_has_position(void);
+double config_get_latitude(void);
+double config_get_longitude(void);
 bool config_get_audio_trigger_interval(int32_t phase_index, uint32_t *interval, time_scale_t *unit_time);
 uint32_t config_get_audio_clip_length_seconds(int32_t phase_index);
 bool config_extend_clip_for_continuous_audio(int32_t phase_index);
