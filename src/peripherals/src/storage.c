@@ -1213,20 +1213,14 @@ bool storage_open_audio_file(uint32_t activation_number, const char *device_labe
          storage_open_wav_file(activation_number, device_label, num_channels, sample_rate_hz, current_time);
 }
 
-bool storage_open_imu_file(uint32_t activation_number, const char *device_label, uint32_t current_time, uint32_t sample_rate_hz)
+bool storage_open_imu_file(uint32_t activation_number, const char *device_label, uint32_t file_time, uint32_t first_sample_time, uint32_t sample_rate_hz)
 {
    // Close an already-opened IMU file
    if (imu_file_open)
       storage_close_imu();
 
-   // Reset the IMU storage buffering details
-   AM_CRITICAL_BEGIN
-   imu_storage_index = 0;
-   imu_data_awaiting_storage = NULL;
-   AM_CRITICAL_END
-
    // Determine if time to create a new audio storage directory, rotating the log if so
-   if (ensure_audio_directory(activation_number, device_label, current_time))
+   if (ensure_audio_directory(activation_number, device_label, file_time))
       storage_setup_logs();
 
    // Open the requested file
@@ -1234,11 +1228,20 @@ bool storage_open_imu_file(uint32_t activation_number, const char *device_label,
    snprintf(file_name, sizeof(file_name), "%s/%s.imu", audio_directory, time_string);
    imu_file_open = (f_open(&imu_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
 
-   // Write the sample rate and starting timestamp
+   // Write the sample rate and the timestamp when the first sample was taken
    UINT data_written = 0;
    return imu_file_open &&
           (f_write(&imu_file, &sample_rate_hz, sizeof(sample_rate_hz), &data_written) == FR_OK) &&
-          (f_write(&imu_file, &current_time, sizeof(current_time), &data_written) == FR_OK);
+          (f_write(&imu_file, &first_sample_time, sizeof(first_sample_time), &data_written) == FR_OK);
+}
+
+void storage_discard_imu_data(void)
+{
+   // Throw away everything buffered but not yet written
+   AM_CRITICAL_BEGIN
+   imu_storage_index = 0;
+   imu_data_awaiting_storage = NULL;
+   AM_CRITICAL_END
 }
 
 uint32_t storage_get_current_activation_number(const char *device_label)
@@ -1438,18 +1441,15 @@ void storage_handle_imu_data(void)
 {
    // Check if the IMU data buffer is full and needs to be written to storage
    const uint8_t *pending = (const uint8_t*)imu_data_awaiting_storage;
-   if (pending)
+   if (pending && imu_file_open)
    {
-      if (imu_file_open)
-      {
-         UINT data_written = 0;
-         const uint32_t length = sizeof(float) * 3 * IMU_BUFFER_MAX_SAMPLES;
-         storage_sd_session_begin();
-         const bool imu_written_ok = (f_write(&imu_file, pending, length, &data_written) == FR_OK) && (data_written == length);
-         storage_sd_session_end();
-         if (!imu_written_ok)
-            note_write_failure();
-      }
+      UINT data_written = 0;
+      const uint32_t length = sizeof(float) * 3 * IMU_BUFFER_MAX_SAMPLES;
+      storage_sd_session_begin();
+      const bool imu_written_ok = (f_write(&imu_file, pending, length, &data_written) == FR_OK) && (data_written == length);
+      storage_sd_session_end();
+      if (!imu_written_ok)
+         note_write_failure();
       imu_data_awaiting_storage = NULL;
    }
 }
