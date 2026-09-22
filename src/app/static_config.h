@@ -61,7 +61,13 @@
 
 // Watchdog Definitions ------------------------------------------------------------------------------------------------
 
-#define WATCHDOG_TIMEOUT_SECONDS                    120
+#define WATCHDOG_TICK_SECONDS                       16
+#define WATCHDOG_TIMEOUT_SECONDS                    480
+#define WATCHDOG_TIMEOUT_TICKS                      (WATCHDOG_TIMEOUT_SECONDS / WATCHDOG_TICK_SECONDS)
+
+_Static_assert(WATCHDOG_TIMEOUT_SECONDS > MIN_LOG_DATA_INTERVAL_SECONDS, "The watchdog must outlast the periodic wake that feeds it");
+_Static_assert((WATCHDOG_TIMEOUT_SECONDS % WATCHDOG_TICK_SECONDS) == 0, "The watchdog timeout must be a whole number of ticks");
+_Static_assert(WATCHDOG_TIMEOUT_TICKS <= 255, "The watchdog reset-value register field is only 8 bits wide");
 
 #define RTC_PLACEHOLDER_TIMESTAMP                   1546300800
 

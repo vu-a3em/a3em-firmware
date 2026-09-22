@@ -1380,6 +1380,7 @@ void storage_write_event(const char *code, const char *fmt, ...)
       f_vprintf(&log_file, fmt, args);
       va_end(args);
       storage_write_log("\n");
+      storage_flush_log();
       return;
    }
 

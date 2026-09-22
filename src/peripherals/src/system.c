@@ -876,11 +876,11 @@ void system_enable_watchdog(void)
       return;
    }
    am_hal_wdt_config_t watchdog_config = {
-      .eClockSource = AM_HAL_WDT_1HZ,
+      .eClockSource = AM_HAL_WDT_1_16HZ,
       .bInterruptEnable = false,
       .ui32InterruptValue = 0,
       .bResetEnable = true,
-      .ui32ResetValue = WATCHDOG_TIMEOUT_SECONDS,
+      .ui32ResetValue = WATCHDOG_TIMEOUT_TICKS,
       .bAlertOnDSPReset = false
    };
    configASSERT0(am_hal_wdt_config(AM_HAL_WDT_MCU, &watchdog_config));

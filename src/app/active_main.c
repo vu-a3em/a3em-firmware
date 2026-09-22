@@ -284,6 +284,8 @@ static void service_background_work(void)
       const bool subscribe = in_motion;
       if (subscribe)
          new_imu_stream = true;
+      else
+         storage_close_imu();
       imu_enable_raw_data_output(subscribe, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
    }
 
@@ -445,6 +447,8 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
             {
                // Finalize the current audio file
                storage_close_audio();
+               if (record_imu_with_audio)
+                  storage_close_imu();
                led_indicate_clip_end();
                audio_clip_in_progress = false;
                num_audio_reads = 0;
@@ -455,13 +459,17 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
          system_enter_deep_sleep_mode();
    }
 
-   // Stop reading IMU data if enabled
+   // Close the IMU file before the stream goes away
    if (record_imu_with_audio)
+   {
+      storage_close_imu();
       imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+   }
 
-   // Ensure that the most recent audio file has been gracefully closed
+   // Ensure that the most recent audio and IMU files have been gracefully closed
    led_indicate_clip_end();
    storage_close_audio();
+   storage_close_imu();
 }
 
 static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule, uint32_t num_solar_windows, solar_window_t *solar_windows, bool ogg_encode)
@@ -631,9 +639,12 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
                audio_clip_in_progress = false;
                num_audio_reads = 0;
 
-               // Stop reading IMU data if enabled
+               // Close the IMU file before the stream goes away
                if (record_imu_with_audio)
+               {
+                  storage_close_imu();
                   imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+               }
             }
          }
       }
@@ -641,9 +652,10 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          system_enter_deep_sleep_mode();
    }
 
-   // Ensure that the most recent audio file has been gracefully closed
+   // Ensure that the most recent audio and IMU files have been gracefully closed
    led_indicate_clip_end();
    storage_close_audio();
+   storage_close_imu();
 }
 
 static void process_audio_triggered(bool allow_extended_audio_clips, float trigger_threshold, uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, uint32_t max_clips, uint32_t per_num_seconds, bool ogg_encode)
@@ -757,9 +769,12 @@ static void process_audio_triggered(bool allow_extended_audio_clips, float trigg
                num_audio_reads = 0;
                storage_close_audio();
 
-               // Stop reading IMU data if enabled
+               // Close the IMU file before the stream goes away
                if (record_imu_with_audio)
+               {
+                  storage_close_imu();
                   imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+               }
             }
          }
       }
@@ -767,9 +782,10 @@ static void process_audio_triggered(bool allow_extended_audio_clips, float trigg
          system_enter_deep_sleep_mode();
    }
 
-   // Ensure that the most recent audio file has been gracefully closed
+   // Ensure that the most recent audio and IMU files have been gracefully closed
    led_indicate_clip_end();
    storage_close_audio();
+   storage_close_imu();
 }
 
 
