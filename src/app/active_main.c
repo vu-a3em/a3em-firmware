@@ -392,10 +392,10 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
    uint32_t num_audio_reads = 0;
    int16_t *audio_buffer;
 
-   // Begin reading audio data and IMU data if enabled
+   // Begin reading audio data
    audio_begin_reading();
-   if (record_imu_with_audio)
-      imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+   bool imu_streaming = false;
+   const uint32_t audio_starts_at = rtc_get_timestamp() + audio_start_delay_seconds();
 
    // Handling incoming audio clips until the phase has ended or the device has been deactivated
    while (!phase_ended && *device_active)
@@ -405,6 +405,11 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
       const uint32_t current_time = rtc_get_timestamp();
       if (validation_time)
          validate_device_settings(current_time);
+      if (record_imu_with_audio && !imu_streaming && (current_time >= audio_starts_at))
+      {
+         imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+         imu_streaming = true;
+      }
 
       // Check if time to open a new IMU file
       if (new_imu_stream)
@@ -484,7 +489,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
 {
    // Initialize all necessary local variables
    audio_samples_per_dma = audio_num_seconds_per_dma() * sampling_rate;
-   bool audio_clip_in_progress = false, reading_audio = false, awaiting_audio_start = false;
+   bool audio_clip_in_progress = false, reading_audio = false, awaiting_audio_start = false, imu_streaming = false;
    start_end_time_t resolved_schedule[MAX_AUDIO_TRIGGER_TIMES];
    start_end_time_t *fallback_schedule = schedule;
    const uint32_t num_fallback_schedules = num_schedules;
@@ -580,15 +585,22 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          audio_timer_triggered = false;
 
          // Start capturing but do not create a file yet in case a silence filter is in place
+         uint32_t start_delay = 0;
          if (!reading_audio)
          {
             audio_begin_reading();
             reading_audio = true;
-            if (record_imu_with_audio)
-               imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+            start_delay = audio_start_delay_seconds();
          }
-         clip_start_time = current_time;
+         clip_start_time = current_time + start_delay;
          awaiting_audio_start = true;
+      }
+
+      // Start the sensor once the microphone's own recording begins
+      if (record_imu_with_audio && !imu_streaming && (awaiting_audio_start || audio_clip_in_progress) && (current_time >= clip_start_time))
+      {
+         imu_enable_raw_data_output(true, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+         imu_streaming = true;
       }
 
       // Handle any newly available audio data
@@ -621,8 +633,11 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
                   // The next occurrence is not immediate, so shut both down until it arrives
                   audio_stop_reading();
                   reading_audio = false;
-                  if (record_imu_with_audio)
+                  if (imu_streaming)
+                  {
                      imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+                     imu_streaming = false;
+                  }
                }
                if (record_imu_with_audio)
                   storage_discard_imu_data();
@@ -652,8 +667,11 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
                {
                   audio_stop_reading();
                   reading_audio = false;
-                  if (record_imu_with_audio)
+                  if (imu_streaming)
+                  {
                      imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+                     imu_streaming = false;
+                  }
                }
                led_indicate_clip_end();
                audio_clip_in_progress = false;

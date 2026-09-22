@@ -45,7 +45,7 @@ static audio_trigger_t trigger_criterion;
 static uint64_t rate_window_start_centis, rate_window_samples;
 static uint32_t health_num_samples, health_num_rms_samples, health_stride_phase, dma_period_ms, num_audio_channels;
 static uint32_t sampling_rate_hz, dc_offset, num_samples_per_dma, actual_sample_rate_hz, dma_period_limit_samples;
-static uint32_t measured_sample_rate_hz, pdm_total_divider, rate_previous_estimate, rate_stable_count;
+static uint32_t measured_sample_rate_hz, pdm_total_divider, rate_previous_estimate, rate_stable_count, start_skip_buffers;
 static volatile bool dma_complete = false, dma_error = false, adc_awake, tail_window_open, backstop_running;
 static volatile uint32_t stat_buffers_captured, stat_buffers_dropped, stat_missed_completions;
 static volatile uint32_t dma_buffers_pending, dcmp_confidence, skip_samples;
@@ -211,6 +211,7 @@ void audio_adc_start(void)
       if (!adc_awake)
          am_hal_pdm_power_control(audio_handle, AM_HAL_PDM_POWER_ON, true);
       skip_samples = (sampling_rate_hz <= AUDIO_BUFFER_MAX_SAMPLES) ? 1 : (sampling_rate_hz / AUDIO_BUFFER_MAX_SAMPLES);
+      start_skip_buffers = skip_samples;
       configASSERT0(am_hal_pdm_configure(audio_handle, &pdm_config));
       configASSERT0(am_hal_pdm_fifo_threshold_setup(audio_handle, 24));
       configASSERT0(am_hal_pdm_interrupt_enable(audio_handle, (AM_HAL_PDM_INT_DERR | AM_HAL_PDM_INT_DCMP | AM_HAL_PDM_INT_UNDFL | AM_HAL_PDM_INT_OVF)));
@@ -372,7 +373,7 @@ bool audio_digital_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t
 
    // Initialize the PDM peripheral
    adc_awake = true;
-   skip_samples = 0;
+   skip_samples = start_skip_buffers = 0;
    is_digital_mic = true;
    num_audio_channels = num_channels;
    sampling_rate_hz = sample_rate_hz;
@@ -516,7 +517,7 @@ bool audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
    am_hal_gpio_output_set(PIN_MICROPHONE_ENABLE);
 
    // Power up two programmable gain amplifiers per requested channel
-   skip_samples = 0;
+   skip_samples = start_skip_buffers = 0;
    num_audio_channels = num_channels;
    configASSERT0(am_hal_audadc_refgen_powerup());
    for (uint32_t i = 0; i < num_channels; ++i)
@@ -933,6 +934,12 @@ int16_t* audio_read_data_direct(void)
       return buffer;
    }
    return NULL;
+}
+
+uint32_t audio_start_delay_seconds(void)
+{
+   // The PDM front end throws its first buffers away while it settles
+   return start_skip_buffers * audio_num_seconds_per_dma();
 }
 
 uint32_t audio_num_seconds_per_dma(void)
