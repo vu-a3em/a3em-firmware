@@ -33,7 +33,7 @@
 #define DEVICE_ID_LEN                               6
 #define MAX_DEVICE_LABEL_LEN                        31
 #define MAX_AUDIO_TRIGGER_TIMES                     12
-#define MAX_NUM_DEPLOYMENT_PHASES                   6
+#define MAX_NUM_DEPLOYMENT_PHASES                   20
 #define MAX_CFG_FILE_LINE_LENGTH                    80
 #define MIN_LOG_DATA_INTERVAL_SECONDS               300
 

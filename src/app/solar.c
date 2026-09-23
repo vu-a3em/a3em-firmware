@@ -144,6 +144,7 @@ void solar_compute(double latitude_deg, double longitude_deg, uint32_t utc_times
 
       const int64_t event_utc = utc_day * SECONDS_PER_DAY + (int64_t)floor(minutes * 60.0 + 0.5);
       int64_t seconds_of_day = event_utc + (int64_t)utc_offset_seconds - local_day * SECONDS_PER_DAY;
+      result->seconds_from_midnight[anchor] = (int32_t)seconds_of_day;
 
       // Fold onto the local day
       seconds_of_day %= SECONDS_PER_DAY;

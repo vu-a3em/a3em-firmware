@@ -52,9 +52,17 @@ static uint32_t wrap_day_seconds(int32_t seconds)
    return (uint32_t)wrapped;
 }
 
-static uint32_t resolve_solar_schedule(const solar_window_t *windows, uint32_t num_windows, uint32_t current_time, start_end_time_t *out)
+static uint32_t add_resolved_window(start_end_time_t *out, uint32_t count, uint32_t start_time, uint32_t end_time)
+{
+   out[count].start_time = start_time;
+   out[count].end_time = end_time;
+   return count + 1;
+}
+
+static uint32_t resolve_solar_schedule(const solar_window_t *windows, uint32_t num_windows, uint32_t current_time, start_end_time_t *out, uint32_t *num_reversed)
 {
    // If the sun's position is not available, we cannot resolve a solar schedule
+   *num_reversed = 0;
    if (!config_has_position())
       return 0;
 
@@ -62,7 +70,7 @@ static uint32_t resolve_solar_schedule(const solar_window_t *windows, uint32_t n
    solar_day_t day;
    solar_compute(config_get_latitude(), config_get_longitude(), current_time, config_get_utc_offset_seconds(), &day);
 
-   // Rebuild the listening schedule based on the computed solar day
+   // Rebuild the listening schedule based on the computed solar day (the output holds two entries per window)
    uint32_t count = 0;
    for (uint32_t i = 0; i < num_windows; ++i)
    {
@@ -71,15 +79,28 @@ static uint32_t resolve_solar_schedule(const solar_window_t *windows, uint32_t n
       const solar_anchor_t end_anchor = (solar_anchor_t)windows[i].end_anchor;
       if (!day.available[start_anchor] || !day.available[end_anchor])
          continue;
-      const uint32_t start = wrap_day_seconds(day.seconds_of_day[start_anchor] + windows[i].start_offset_seconds);
-      const uint32_t end = wrap_day_seconds(day.seconds_of_day[end_anchor] + windows[i].end_offset_seconds);
 
-      // A window running past midnight cannot be expressed
+      // Work in unfolded time so that the order of the two ends is still meaningful
+      const int32_t start = day.seconds_from_midnight[start_anchor] + windows[i].start_offset_seconds;
+      const int32_t end = day.seconds_from_midnight[end_anchor] + windows[i].end_offset_seconds;
       if (end <= start)
+      {
+         // Ends before it starts, indicating a configuration mistake rather than a window across midnight
+         ++*num_reversed;
          continue;
-      out[count].start_time = start;
-      out[count].end_time = end;
-      ++count;
+      }
+
+      // A window across midnight becomes the two entries on either side of it
+      const uint32_t duration = (uint32_t)(end - start), from = wrap_day_seconds(start);
+      if (duration >= 86400)
+         count = add_resolved_window(out, count, 0, 86400);
+      else if ((from + duration) <= 86400)
+         count = add_resolved_window(out, count, from, from + duration);
+      else
+      {
+         count = add_resolved_window(out, count, from, 86400);
+         count = add_resolved_window(out, count, 0, from + duration - 86400);
+      }
    }
 
    // Sort ascending according to start time
@@ -488,13 +509,13 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
 static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_reads_per_clip, bool interval_based, int32_t clip_interval_seconds, uint32_t num_schedules, start_end_time_t *schedule, uint32_t num_solar_windows, solar_window_t *solar_windows, bool ogg_encode)
 {
    // Initialize all necessary local variables
-   audio_samples_per_dma = audio_num_seconds_per_dma() * sampling_rate;
-   bool audio_clip_in_progress = false, reading_audio = false, awaiting_audio_start = false, imu_streaming = false;
-   start_end_time_t resolved_schedule[MAX_AUDIO_TRIGGER_TIMES];
-   start_end_time_t *fallback_schedule = schedule;
    const uint32_t num_fallback_schedules = num_schedules;
+   const uint32_t clip_seconds = num_audio_reads_per_clip * audio_num_seconds_per_dma();
+   bool audio_clip_in_progress = false, reading_audio = false, awaiting_audio_start = false, imu_streaming = false;
+   start_end_time_t resolved_schedule[2 * MAX_AUDIO_TRIGGER_TIMES], *fallback_schedule = schedule;
+   uint32_t num_audio_reads = 0, clip_start_time = 0, occurrence_listen_until = 0;
+   audio_samples_per_dma = audio_num_seconds_per_dma() * sampling_rate;
    int64_t resolved_local_day = INT64_MIN;
-   uint32_t num_audio_reads = 0, clip_start_time = 0;
    int16_t *audio_buffer;
 
    // Start the clip creation timer if interval-based
@@ -531,10 +552,16 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          const int64_t local_day = (local_seconds < 0) ? ((local_seconds - 86399) / 86400) : (local_seconds / 86400);
          if (local_day != resolved_local_day)
          {
+            uint32_t reversed = 0;
             resolved_local_day = local_day;
-            const uint32_t resolved = resolve_solar_schedule(solar_windows, num_solar_windows, current_time, resolved_schedule);
+            const uint32_t resolved = resolve_solar_schedule(solar_windows, num_solar_windows, current_time, resolved_schedule, &reversed);
             schedule = resolved ? resolved_schedule : fallback_schedule;
             num_schedules = resolved ? resolved : num_fallback_schedules;
+            if (reversed)
+            {
+               print("WARNING: %u solar window(s) end before they start today and were skipped\n", reversed);
+               log_event("SOLAR_REVERSED", "windows=%u", reversed);
+            }
             if (resolved)
             {
                log_event("SOLAR_SCHEDULE", "windows=%u,first_start=%u,first_end=%u", resolved, schedule[0].start_time, schedule[0].end_time);
@@ -553,7 +580,8 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
       if (!audio_clip_in_progress && !awaiting_audio_start)
       {
          // Go to sleep if time remains until the next scheduled audio recording
-         if (interval_based && !audio_timer_triggered)
+         const bool still_listening = interval_based && reading_audio && (current_time < occurrence_listen_until);
+         if (interval_based && !audio_timer_triggered && !still_listening)
          {
             while (!audio_timer_triggered && !phase_ended && !validation_time && *device_active)
             {
@@ -582,6 +610,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
                continue;
             }
          }
+         const bool new_occurrence = audio_timer_triggered;
          audio_timer_triggered = false;
 
          // Start capturing but do not create a file yet in case a silence filter is in place
@@ -594,6 +623,8 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          }
          clip_start_time = current_time + start_delay;
          awaiting_audio_start = true;
+         if (interval_based && new_occurrence)
+            occurrence_listen_until = clip_start_time + clip_seconds;
       }
 
       // Start the sensor once the microphone's own recording begins
@@ -628,7 +659,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
             else
             {
                // Nothing worth keeping here, so the samples taken while deciding belong to nothing
-               if (interval_based || (num_schedules && seconds_til_next_scheduled_recording))
+               if (interval_based ? (current_time >= occurrence_listen_until) : (num_schedules && seconds_til_next_scheduled_recording))
                {
                   // The next occurrence is not immediate, so shut both down until it arrives
                   audio_stop_reading();

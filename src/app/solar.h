@@ -13,6 +13,7 @@ typedef enum { SOLAR_DAWN = 0, SOLAR_SUNRISE = 1, SOLAR_SUNSET = 2, SOLAR_DUSK =
 typedef struct {
    bool available[SOLAR_NUM_ANCHORS];
    int32_t seconds_of_day[SOLAR_NUM_ANCHORS];
+   int32_t seconds_from_midnight[SOLAR_NUM_ANCHORS];
    bool polar_day, polar_night;
 } solar_day_t;
 

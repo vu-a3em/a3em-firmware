@@ -626,11 +626,17 @@ bool fetch_runtime_configuration(void)
          phase->max_audio_clips = 1;
          config_corrected = true;
       }
-      if ((phase->audio_recording_mode == SCHEDULED) && !phase->num_audio_trigger_times)
+
+      // An empty clock schedule is only a problem when the clock schedule IS the schedule: a solar phase with windows
+      // of its own uses these entries purely as a fallback, and having none is a legitimate choice
+      const bool solar_windows_present = (phase->audio_schedule_type == SCHEDULE_SOLAR) && phase->num_solar_trigger_times;
+      if ((phase->audio_recording_mode == SCHEDULED) && !phase->num_audio_trigger_times && !solar_windows_present)
       {
          print("WARNING: Phase #%d is schedule triggered but has no schedule entries - it will record continuously\n", i+1);
          config_corrected = true;
       }
+      else if ((phase->audio_recording_mode == SCHEDULED) && !phase->num_audio_trigger_times)
+         print("INFO: Phase #%d has no fallback schedule - on any day without a usable solar window it will record continuously\n", i+1);
 
       // Validate the frequency band used by the silence filter
       const uint32_t nyquist_margin = (phase->audio_sampling_rate / 2) > 200 ? ((phase->audio_sampling_rate / 2) - 200) : (phase->audio_sampling_rate / 2);
