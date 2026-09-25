@@ -46,7 +46,8 @@
 #define SD_CARD_POWER_ON_SETTLE_US                  10000
 #define WAV_STAGING_BUFFER_SIZE                     (512 * 1024)
 
-#define CONFIG_FILE_NAME                            "_a3em.cfg"
+#define CONFIG_FILE_NAME                            "_conf.a3m"
+#define LEGACY_CONFIG_FILE_NAME                     "_a3em.cfg"
 #define DEVICE_INFO_FILE_NAME                       "_a3em.dev"
 #define DEVICE_INFO_TEMP_FILE_NAME                  "_a3em.dev.tmp"
 #define LOG_FILE_NAME                               "a3em.log"

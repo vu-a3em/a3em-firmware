@@ -567,6 +567,8 @@ bool fetch_runtime_configuration(void)
    config_corrected = false;
    bool success = storage_open(CONFIG_FILE_NAME, false);
    if (!success)
+      success = storage_open(LEGACY_CONFIG_FILE_NAME, false);
+   if (!success)
       print("ERROR: Unable to open the configuration file %s\n", CONFIG_FILE_NAME);
    while (success && (line_length = storage_read_line(line_buffer, sizeof(line_buffer))) >= 0)
       parse_line(line_buffer, line_length);
