@@ -1227,6 +1227,8 @@ bool storage_open_imu_file(uint32_t activation_number, const char *device_label,
    static char file_name[FF_MAX_LFN] = { 0 };
    snprintf(file_name, sizeof(file_name), "%s/%s.imu", audio_directory, time_string);
    imu_file_open = (f_open(&imu_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+   if (imu_file_open)
+      ++health.imu_files_opened;
 
    // Write the sample rate and the timestamp when the first sample was taken
    UINT data_written = 0;
@@ -1509,6 +1511,7 @@ void storage_close_imu(void)
       // Close the currently open IMU file
       f_close(&imu_file);
       imu_file_open = false;
+      ++health.imu_files_closed;
    }
 }
 

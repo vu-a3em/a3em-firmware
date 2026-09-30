@@ -22,7 +22,8 @@
 static volatile uint32_t num_clips_stored, audio_samples_per_dma;
 static volatile bool *device_active, phase_ended, audio_timer_triggered;
 static volatile bool in_motion, new_imu_stream, validation_time, motion_change_pending;
-static uint32_t phase_end_timestamp, vhf_enable_timestamp, led_active_seconds, imu_sampling_rate_hz, activation_number;
+static uint32_t motion_change_count, mic_left_on_count, phase_end_timestamp, vhf_enable_timestamp;
+static uint32_t led_active_seconds, imu_sampling_rate_hz, activation_number;
 static uint32_t end_of_phase_reason = RESET_REASON_PHASE_COMPLETE;
 static float last_lat = 0.0, last_lon = 0.0, last_height = 0.0;
 static am_hal_timer_config_t audio_processing_timer_config;
@@ -206,6 +207,7 @@ static void validate_device_settings(uint32_t current_timestamp)
    log_event("TELEM", "time=%u,batt_mv=%u,temp_c=%0.2f,lat=%0.6f,lon=%0.6f,alt=%0.2f,"
                       "leds=%u,vhf=%u,sd_free_mb=%u,sd_write_fail=%u,sd_reopen=%u,sd_remount=%u,"
                       "imu_dropped=%u,audio_dropped=%u,audio_buffers=%u,dcmp=%s,"
+                      "imu_opens=%u,imu_closes=%u,motion_changes=%u,mic_left_on=%u,"
                       "icache_accesses=%llu,icache_served=%llu,icache_hit_pct=%0.2f,rate_est_hz=%u,rate_settled=%u",
              current_timestamp, battery_details.millivolts, battery_details.celcius, last_lat, last_lon, last_height,
              leds_are_enabled() ? 1u : 0u, vhf_activated() ? 1u : 0u,
@@ -213,6 +215,7 @@ static void validate_device_settings(uint32_t current_timestamp)
              storage_health.reopen_recoveries, storage_health.remount_recoveries,
              storage_health.imu_buffers_dropped, audio_stats.buffers_dropped, audio_stats.buffers_captured,
              !audio_stats.dcmp_applicable ? "n/a" : (audio_stats.dcmp_trusted ? "trusted" : "unproven"),
+             storage_health.imu_files_opened, storage_health.imu_files_closed, motion_change_count, mic_left_on_count,
              cache_valid ? cache_accesses : 0ull, cache_valid ? cache_served : 0ull,
              cache_valid ? cache_hit_rate : 0.0f,
              audio_get_rate_estimate(), audio_rate_is_settled() ? 1u : 0u);
@@ -344,6 +347,7 @@ void imu_motion_change_callback(bool new_in_motion)
    {
       in_motion = new_in_motion;
       motion_change_pending = true;
+      ++motion_change_count;
    }
 }
 
@@ -599,6 +603,19 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
             uint32_t seconds_to_sleep = MIN(seconds_til_next_scheduled_recording, seconds_until_phase_end);
             if (seconds_to_sleep)
             {
+               // Nothing is scheduled until the timer fires so nothing should still be converting
+               if (reading_audio)
+               {
+                  ++mic_left_on_count;
+                  audio_stop_reading();
+                  reading_audio = false;
+                  if (imu_streaming)
+                  {
+                     imu_enable_raw_data_output(false, LIS2DU12_2g, imu_sampling_rate_hz, LIS2DU12_ODR_div_2, storage_write_imu_data);
+                     imu_streaming = false;
+                  }
+                  storage_discard_imu_data();
+               }
                audio_timer_triggered = false;
                audio_processing_timer_config.ui32Compare0 = (uint32_t)(seconds_to_sleep * TIMER_AUDIO_PROCESSING_TICK_RATE);
                am_hal_timer_config(TIMER_NUMBER_AUDIO_PROCESSING, &audio_processing_timer_config);
@@ -922,6 +939,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
       tracker_register_data_callback(tracker_data_available);
 
    // Enable IMU detection and recording functionality
+   motion_change_count = mic_left_on_count = 0;
    in_motion = new_imu_stream = record_imu_with_audio = motion_change_pending = false;
    imu_degrees_of_freedom = config_get_imu_degrees_of_freedom(phase_index);
    imu_sampling_rate_hz = config_get_imu_sampling_rate_hz(phase_index);

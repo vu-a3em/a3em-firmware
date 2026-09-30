@@ -14,6 +14,8 @@ typedef struct
    uint32_t reopen_recoveries;     // Files successfully reopened after a failure
    uint32_t remount_recoveries;    // Volumes successfully remounted after a failure
    uint32_t imu_buffers_dropped;   // IMU buffers discarded because storage could not keep up
+   uint32_t imu_files_opened;      // IMU files created; a run ending with more opens than
+   uint32_t imu_files_closed;      // closes left one behind with a zero-byte directory entry
    uint32_t consecutive_failures;  // Failures since the last successful write
 } storage_health_t;
 
