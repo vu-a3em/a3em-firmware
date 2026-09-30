@@ -465,6 +465,8 @@ static void process_audio_continuous(uint32_t sampling_rate, uint32_t num_audio_
                   led_indicate_clip_begin();
                }
             }
+            else if (record_imu_with_audio)
+               storage_discard_imu_data();
          }
 
          // Write the audio clip to storage if currently in-progress
