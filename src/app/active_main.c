@@ -45,6 +45,13 @@ static uint32_t seconds_until_next_scheduled_recording(uint32_t num_schedules, s
    return num_schedules ? (86400 - current_seconds_of_day + schedule[0].start_time) : 0;
 }
 
+static uint32_t seconds_until_next_scheduled_recording_now(uint32_t num_schedules, start_end_time_t *schedule)
+{
+   // Return the number of seconds until the next scheduling recording phase according to the clock now
+   const uint32_t seconds_of_day = (uint32_t)((int32_t)rtc_get_timestamp() + config_get_utc_offset_seconds()) % 86400;
+   return seconds_until_next_scheduled_recording(num_schedules, schedule, seconds_of_day);
+}
+
 static uint32_t wrap_day_seconds(int32_t seconds)
 {
    int32_t wrapped = seconds % 86400;
@@ -187,9 +194,14 @@ static void validate_device_settings(uint32_t current_timestamp)
    }
 
    // Ensure that the RTC is still ticking
+   static uint32_t repeated_timestamp_count = 0;
    if (current_timestamp && (current_timestamp == previous_timestamp))
+      ++repeated_timestamp_count;
+   else
+      repeated_timestamp_count = 0;
+   if (repeated_timestamp_count >= RTC_STOPPED_CONSECUTIVE_READINGS)
    {
-      print("ERROR: RTC appears to have stopped ticking...resetting device\n");
+      print("ERROR: RTC appears to have stopped ticking (%u identical readings)...resetting device\n", repeated_timestamp_count + 1);
       phase_ended = true;
       end_of_phase_reason = RESET_REASON_RTC_STOPPED;
    }
@@ -256,9 +268,9 @@ static void validate_device_settings(uint32_t current_timestamp)
    storage_flush_log();
 
    // Restart the RTC alarm for the next wakeup time
-   validation_time = false;
    if (!phase_ended && *device_active)
       rtc_set_wakeup_timestamp(wakeup_timestamp);
+   validation_time = false;
 }
 
 static bool recover_from_audio_write_failure(uint32_t sampling_rate, uint32_t current_time)
@@ -678,7 +690,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
             else
             {
                // Nothing worth keeping here, so the samples taken while deciding belong to nothing
-               if (interval_based ? (current_time >= occurrence_listen_until) : (num_schedules && seconds_til_next_scheduled_recording))
+               if (interval_based ? (current_time >= occurrence_listen_until) : (num_schedules && seconds_until_next_scheduled_recording_now(num_schedules, schedule)))
                {
                   // The next occurrence is not immediate, so shut both down until it arrives
                   audio_stop_reading();
@@ -713,7 +725,7 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
                storage_close_audio();
                if (record_imu_with_audio)
                   storage_close_imu();
-               if (interval_based || (num_schedules && seconds_til_next_scheduled_recording))
+               if (interval_based || (num_schedules && seconds_until_next_scheduled_recording_now(num_schedules, schedule)))
                {
                   audio_stop_reading();
                   reading_audio = false;

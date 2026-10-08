@@ -348,7 +348,17 @@ int main(void)
          print("INFO: Deployment is COMPLETED\n");
          system_enter_power_off_mode(use_magnetic_activation ? PIN_MAG_SENSOR_INP : 0, (current_timestamp >= vhf_enable_timestamp) ? 0 : vhf_enable_timestamp, use_magnetic_activation);
          if (use_magnetic_activation)
+         {
             handle_magnetic_field(false, true);
+            if (!device_activated)
+            {
+               print("INFO: Device was magnetically deactivated after the deployment completed\n");
+               log_event("DEACTIVATED", "reason=MAGNET");
+               storage_flush_log();
+               led_pattern_wait();
+               system_reset_with_reason(RESET_REASON_MAGNET_DEACTIVATED);
+            }
+         }
       }
       else
       {

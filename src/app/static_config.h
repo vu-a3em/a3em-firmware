@@ -71,6 +71,7 @@ _Static_assert((WATCHDOG_TIMEOUT_SECONDS % WATCHDOG_TICK_SECONDS) == 0, "The wat
 _Static_assert(WATCHDOG_TIMEOUT_TICKS <= 255, "The watchdog reset-value register field is only 8 bits wide");
 
 #define RTC_PLACEHOLDER_TIMESTAMP                   1546300800
+#define RTC_STOPPED_CONSECUTIVE_READINGS            3
 
 #define GPS_TIME_MAX_ATTEMPTS                       60
 #define LED_PATTERN_MAX_WAIT_WAKEUPS                200
