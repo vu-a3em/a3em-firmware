@@ -4,6 +4,7 @@
 #include "logging.h"
 #include "magnet.h"
 #include "mram.h"
+#include "power_marker.h"
 #include "rtc.h"
 #include "storage.h"
 #include "system.h"
@@ -171,6 +172,7 @@ int main(void)
    print("INFO: Fetching runtime configuration...%s\n", success ? "SUCCESS" : "FAILURE");
    log_event("CONFIG", "result=%s,phases=%d", !success ? "FAIL" : (config_was_corrected() ? "CORRECTED" : "OK"),
              (int)config_get_num_deployment_phases());
+   power_marker_point(POWER_MARK_BOOT);
 
    // Recover the clock before anything writes a timestamp
    if (!rtc_is_valid() && !config_gps_available())
@@ -397,6 +399,7 @@ int main(void)
             print("INFO: Phase ended - restarting with reason %s (0x%02X)\n", reset_reason_name(phase_end_reason), phase_end_reason);
             log_event("PHASE_END", "reason=%s,code=0x%02X", reset_reason_name(phase_end_reason), phase_end_reason);
             storage_flush_log();
+            power_marker_point(POWER_MARK_PHASE_END);
             system_reset_with_reason(phase_end_reason);
          }
          else if (vhf_enable_timestamp && (vhf_enable_timestamp > current_timestamp))

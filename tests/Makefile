@@ -33,9 +33,14 @@ DEFINES += -D_DATETIME="\"$(shell date -u)\""
 DEFINES += -D_FW_VERSION="\"$(FW_VERSION)+$(GIT_HASH)$(GIT_DIRTY)\""
 DEFINES += -DPART_$(PART)
 DEFINES += -D$(PART_DEF)
-DEFINES += -D'SEGGER_RTT_SECTION=".segger"'
 DEFINES += -DAM_PACKAGE_BGA
+ifdef POWER_BUILD
+DEFINES += -DNDEBUG
+DEFINES += -DPOWER_MARKERS
+else
+DEFINES += -D'SEGGER_RTT_SECTION=".segger"'
 DEFINES += -DAM_DEBUG_PRINTF
+endif
 DEFINES += -DDISABLEFLOAT16
 DEFINES += -DTF_LITE_STATIC_MEMORY
 DEFINES += -DTF_LITE_DISABLE_X86_NEON
@@ -273,8 +278,10 @@ SRC += logging.c
 SRC += magnet.c
 SRC += mram.c
 SRC += datetime.c
+SRC += power_marker.c
 SRC += rtc.c
 SRC += runtime_config.c
+SRC += solar.c
 SRC += storage.c
 SRC += system.c
 SRC += tracker.c
@@ -289,12 +296,12 @@ SRC += silence.c
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/mcu/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-.PHONY: all program clean ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc silence storage system tracker tracker2 tracker_bus tracker_master vhf
+.PHONY: all program clean ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power power_build power_off rtc_set rtc silence storage system tracker tracker2 tracker_bus tracker_master vhf
 .PRECIOUS: $(CONFIG)/%.axf
 .SECONDEXPANSION:
 
 all:
-	$(error Make targets include: ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power_off rtc_set rtc silence storage system tracker tracker2 tracker_bus tracker_master vhf)
+	$(error Make targets include: ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power power_off rtc_set rtc silence storage system tracker tracker2 tracker_bus tracker_master vhf)
 
 program:
 ifneq ($(BUILT_BY), eclipse)
@@ -382,6 +389,13 @@ opus: TARGET = TestOpus
 opus: SRC += test_opus.c
 opus: $(CONFIG) $(CONFIG)/test_opus.o $(CONFIG)/$$(TARGET).bin program
 
+power:
+	@$(MAKE) --no-print-directory POWER_BUILD=1 CONFIG=bin/power power_build
+
+power_build: TARGET = TestPower
+power_build: SRC += test_power.c
+power_build: $(CONFIG) $(CONFIG)/test_power.o $(CONFIG)/$$(TARGET).bin program
+
 power_off: TARGET = TestPowerOff
 power_off: SRC += test_power_off.c
 power_off: $(CONFIG) $(CONFIG)/test_power_off.o $(CONFIG)/$$(TARGET).bin program
@@ -444,7 +458,11 @@ LIBS += ../AmbiqSDK/mcu/$(PART)/hal/mcu/gcc/bin/libam_hal.a
 
 CFLAGS = -mthumb -mcpu=$(CPU) -mfpu=$(FPU) -mfloat-abi=$(FABI)
 CFLAGS+= -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-exceptions -fmessage-length=0 -funsigned-char
+ifdef POWER_BUILD
+CFLAGS+= -fomit-frame-pointer -fno-strict-aliasing -MMD -MP -Wall -Ofast
+else
 CFLAGS+= -fno-omit-frame-pointer -MMD -MP -Wall -g -Og
+endif
 CFLAGS+= $(DEFINES)
 CFLAGS+= $(INCLUDES)
 

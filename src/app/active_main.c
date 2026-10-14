@@ -8,6 +8,7 @@
 #include "magnet.h"
 #include "mram.h"
 #include "opus_config.h"
+#include "power_marker.h"
 #include "rtc.h"
 #include "silence.h"
 #include "solar.h"
@@ -211,8 +212,13 @@ static void validate_device_settings(uint32_t current_timestamp)
    mram_set_last_known_timestamp(current_timestamp);
    audio_stats_t audio_stats;
    storage_health_t storage_health;
+   storage_activity_t storage_activity;
+   uint64_t awake_ms = 0;
+   uint32_t deep_sleeps = 0;
    audio_get_stats(&audio_stats);
    storage_get_health(&storage_health);
+   storage_get_activity(&storage_activity);
+   system_get_activity_stats(&awake_ms, &deep_sleeps);
    uint64_t cache_accesses = 0, cache_served = 0;
    float cache_hit_rate = 0.0f;
    const bool cache_valid = system_get_cache_stats(&cache_accesses, &cache_served, &cache_hit_rate);
@@ -220,7 +226,9 @@ static void validate_device_settings(uint32_t current_timestamp)
                       "leds=%u,vhf=%u,sd_free_mb=%u,sd_write_fail=%u,sd_reopen=%u,sd_remount=%u,"
                       "imu_dropped=%u,audio_dropped=%u,audio_buffers=%u,dcmp=%s,"
                       "imu_opens=%u,imu_closes=%u,motion_changes=%u,mic_left_on=%u,"
-                      "icache_accesses=%llu,icache_served=%llu,icache_hit_pct=%0.2f,rate_est_hz=%u,rate_settled=%u",
+                      "icache_accesses=%llu,icache_served=%llu,icache_hit_pct=%0.2f,rate_est_hz=%u,rate_settled=%u,"
+                      "card_wakes=%u,sd_writes=%u,sd_kb=%u,audio_opens=%u,audio_closes=%u,mic_starts=%u,"
+                      "opus_ms=%llu,awake_ms=%llu,sleeps=%u",
              current_timestamp, battery_details.millivolts, battery_details.celcius, last_lat, last_lon, last_height,
              leds_are_enabled() ? 1u : 0u, vhf_activated() ? 1u : 0u,
              storage_get_free_space_mb(), storage_health.write_failures,
@@ -230,7 +238,10 @@ static void validate_device_settings(uint32_t current_timestamp)
              storage_health.imu_files_opened, storage_health.imu_files_closed, motion_change_count, mic_left_on_count,
              cache_valid ? cache_accesses : 0ull, cache_valid ? cache_served : 0ull,
              cache_valid ? cache_hit_rate : 0.0f,
-             audio_get_rate_estimate(), audio_rate_is_settled() ? 1u : 0u);
+             audio_get_rate_estimate(), audio_rate_is_settled() ? 1u : 0u,
+             storage_activity.card_wakes, storage_activity.write_transactions, storage_activity.sectors_written / 2u,
+             storage_activity.audio_files_opened, storage_activity.audio_files_closed, audio_stats.mic_starts,
+             (storage_activity.opus_encode_ticks * 1000u) / SYSTEM_ACTIVITY_TICKS_PER_SECOND, awake_ms, deep_sleeps);
 
    // Report the cumulative health counters when one of them actually moves
    static uint32_t last_reported_health[6];
@@ -910,6 +921,7 @@ void active_main(volatile bool *device_activated, int32_t phase_index)
    validate_device_settings(rtc_get_timestamp());
 
    log_event("PHASE_START", "phase=%d", (int)(phase_index + 1));
+   power_marker_point(POWER_MARK_PHASE_START);
 
    // Set up band-limiting of the recorded audio
    const uint32_t audio_sampling_rate_hz = config_get_audio_sampling_rate_hz(phase_index);

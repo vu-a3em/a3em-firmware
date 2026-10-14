@@ -9,7 +9,8 @@
 
 // Peripheral Type Definitions -----------------------------------------------------------------------------------------
 
-#define BOOT_STAGE_BASE            0x80u
+#define BOOT_STAGE_BASE                      0x80u
+#define SYSTEM_ACTIVITY_TICKS_PER_SECOND     32768u
 
 typedef struct
 {
@@ -75,6 +76,8 @@ const char* system_get_first_hal_failure(uint32_t *line, uint32_t *status);
 const char* system_teardown_stage_name(uint32_t stage);
 void system_latch_reset_scratch(void);
 void system_mark_boot_stage(uint32_t stage);
+uint32_t system_get_activity_ticks(void);
+void system_get_activity_stats(uint64_t *awake_ms, uint32_t *deep_sleeps);
 
 // Watchdog functionality
 void system_enable_watchdog(void);

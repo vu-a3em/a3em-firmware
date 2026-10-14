@@ -15,6 +15,7 @@ typedef struct
    uint32_t buffers_captured;    // DMA buffers handed to the application
    uint32_t buffers_dropped;     // DMA buffers overwritten before the application read them
    uint32_t missed_completions;  // Times the DMA-complete interrupt had to be recovered by the backstop
+   uint32_t mic_starts;          // Times the microphone was powered up and sampling started since boot
    bool dcmp_trusted;            // Whether the DMA-complete interrupt has proven reliable
    bool dcmp_applicable;         // Only the analog path tracks DCMP confidence, so only it can report it
 } audio_stats_t;

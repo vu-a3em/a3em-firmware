@@ -19,6 +19,16 @@ typedef struct
    uint32_t consecutive_failures;  // Failures since the last successful write
 } storage_health_t;
 
+typedef struct
+{
+   uint32_t card_wakes;            // Times the card was brought out of sleep to service a transfer
+   uint32_t write_transactions;    // Block-write commands issued to the card
+   uint32_t sectors_written;       // Sectors written across all of those commands
+   uint32_t audio_files_opened;    // Audio files created
+   uint32_t audio_files_closed;    // Audio files finalized
+   uint64_t opus_encode_ticks;     // Time spent in the Opus encoder, in system activity ticks
+} storage_activity_t;
+
 
 // Public API Functions ------------------------------------------------------------------------------------------------
 
@@ -53,6 +63,7 @@ void storage_close_imu(void);
 // Storage recovery functionality
 bool storage_recover_audio(uint32_t activation_number, const char *device_label, uint32_t num_channels, uint32_t sample_rate_hz, uint32_t current_time);
 void storage_get_health(storage_health_t *health);
+void storage_get_activity(storage_activity_t *activity);
 uint32_t storage_get_free_space_mb(void);
 uint32_t storage_get_total_space_mb(void);
 uint32_t storage_get_allocation_unit_bytes(void);

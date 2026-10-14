@@ -8,6 +8,7 @@
 #include "logging.h"
 #include "magnet.h"
 #include "mram.h"
+#include "power_marker.h"
 #include "rtc.h"
 #include "storage.h"
 #include "system.h"
@@ -32,9 +33,11 @@ extern uint8_t _uid_base_address;
 static system_boot_info_t boot_info;
 static volatile uint32_t hal_failure_count;
 static const char *first_hal_failure_file;
+static uint32_t deep_sleep_count, last_wake_tick;
 static uint32_t first_hal_failure_line, first_hal_failure_status, latched_scratch0, latched_scratch1;
 static bool watchdog_running, sram_active_in_deep_sleep;
 static uint8_t storage_pattern[SELF_TEST_STORAGE_BYTES];
+static uint64_t awake_ticks;
 
 __attribute__((section(".shared"), aligned(32)))
 static int16_t self_test_audio[SELF_TEST_AUDIO_BUFFER_SAMPLES];
@@ -170,6 +173,33 @@ void system_note_hal_failure(const char *file, uint32_t line, uint32_t status)
 uint32_t system_get_hal_failure_count(void)
 {
    return hal_failure_count;
+}
+
+uint32_t system_get_activity_ticks(void)
+{
+   return am_hal_stimer_counter_get();
+}
+
+void system_get_activity_stats(uint64_t *awake_ms, uint32_t *deep_sleeps)
+{
+   // Include the interval the caller is currently awake in
+   uint64_t ticks;
+   AM_CRITICAL_BEGIN
+   ticks = awake_ticks + (uint32_t)(am_hal_stimer_counter_get() - last_wake_tick);
+   *deep_sleeps = deep_sleep_count;
+   AM_CRITICAL_END
+   *awake_ms = (ticks * 1000u) / SYSTEM_ACTIVITY_TICKS_PER_SECOND;
+}
+
+static void activity_sleep_begin(void)
+{
+   awake_ticks += (uint32_t)(am_hal_stimer_counter_get() - last_wake_tick);
+   ++deep_sleep_count;
+}
+
+static void activity_sleep_end(void)
+{
+   last_wake_tick = am_hal_stimer_counter_get();
 }
 
 const char* system_get_first_hal_failure(uint32_t *line, uint32_t *status)
@@ -610,6 +640,10 @@ void setup_hardware(void)
    // Initialize all unused GPIO pins to a known state
    system_initialize_unused_pins();
 
+   // Start the free-running activity counter from the 32 kHz crystal
+   am_hal_stimer_config(AM_HAL_STIMER_XTAL_32KHZ);
+   last_wake_tick = am_hal_stimer_counter_get();
+
    // Set up persistent storage and determine why the device restarted
    mram_init();
    system_capture_boot_info();
@@ -679,6 +713,7 @@ void system_reset_with_reason(uint32_t reason)
 self_test_result_t system_run_self_test(void)
 {
    log_event("SELF_TEST_START", "fw=%s", _FW_VERSION);
+   power_marker_point(POWER_MARK_SELF_TEST_START);
 
    // Force the LEDs on for the duration regardless of configuration
    const bool leds_were_enabled = leds_are_enabled();
@@ -718,6 +753,7 @@ self_test_result_t system_run_self_test(void)
       result = SELF_TEST_FAIL_POWER_OR_CLOCK;
    write_results(result, &health, storage_bytes, imu_magnitude_mg, battery, rtc_after);
    log_event("SELF_TEST_END", "result=%s,failed_subsystem=%d", (result == SELF_TEST_PASS) ? "PASS" : "FAIL", (int)result);
+   power_marker_point(POWER_MARK_SELF_TEST_END);
    storage_flush_log();
    static const char *const subsystem_names[] = { "none", "MICROPHONE", "STORAGE", "IMU", "POWER/CLOCK" };
    if (result == SELF_TEST_PASS)
@@ -778,7 +814,9 @@ void system_enter_deep_sleep_mode(void)
 {
    // Only enter Deep Sleep mode if not streaming audio for download
 #if !defined(ENABLE_AUDIO_DL) || (7-ENABLE_AUDIO_DL-7 == 14) || (7-ENABLE_AUDIO_DL-7 == 0)
+   activity_sleep_begin();
    am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);
+   activity_sleep_end();
 #endif
 }
 
@@ -821,8 +859,11 @@ void system_enter_power_off_mode(uint32_t wake_on_magnet, uint32_t wake_on_times
       rtc_set_wakeup_timestamp(wake_on_timestamp);
 
    // Enable interrupts and enter Deep Sleep mode
+   power_marker_point(POWER_MARK_POWER_OFF);
    am_hal_interrupt_master_enable();
+   activity_sleep_begin();
    am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);
+   activity_sleep_end();
 
    // Reinitialize peripherals upon waking from Deep Sleep mode, if requested
    if (reinit_on_wakeup)

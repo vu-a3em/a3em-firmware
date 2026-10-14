@@ -47,6 +47,11 @@ DEFINES += -D"ARMCM4"
 DEFINES += -DNDEBUG
 DEFINES += -Dgcc
 
+ifdef POWER_MARKERS
+DEFINES += -DPOWER_MARKERS
+CONFIG := bin/power_markers
+endif
+
 LINKER_FILE := ./AmbiqSDK/bsp/$(BSP)/linker/a3em.ld
 STARTUP_FILE := ./AmbiqSDK/bsp/$(BSP)/linker/startup_gcc.c
 
@@ -262,6 +267,7 @@ SRC += logging.c
 SRC += magnet.c
 SRC += mram.c
 SRC += datetime.c
+SRC += power_marker.c
 SRC += rtc.c
 SRC += runtime_config.c
 SRC += solar.c

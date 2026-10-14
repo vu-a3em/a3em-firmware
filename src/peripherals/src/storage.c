@@ -63,6 +63,7 @@ static uint8_t work_buf[FF_MAX_SS];
 static ogg_data_packet_t ogg_packet;
 static ogg_writer_t ogg_writer;
 static storage_health_t health;
+static storage_activity_t activity;
 
 // The audio staging buffer and the IMU double buffer live in the shared SRAM group.
 __attribute__((section(".shared"), aligned(32)))
@@ -203,6 +204,7 @@ static bool sd_wake(void)
       return false;
    }
    sd_card_awake = true;
+   ++activity.card_wakes;
    return true;
 }
 
@@ -290,6 +292,8 @@ DRESULT disk_write(BYTE, const BYTE *buff, LBA_t sector, UINT count)
 
    // Call the appropriate synchronous or asynchronous write API
    DRESULT result = RES_OK;
+   ++activity.write_transactions;
+   activity.sectors_written += count;
    if (!STORAGE_USE_ASYNC_TRANSFERS)
    {
       uint32_t status = am_hal_sd_card_block_write_sync(&sd_card, sector, count, (uint8_t*)buff);
@@ -534,7 +538,9 @@ static bool storage_write_ogg_opus_audio(const void *data, uint32_t num_samples,
       return false;
 
    // Encode the audio data into Opus data frames
+   const uint32_t encode_start = system_get_activity_ticks();
    opusenc_encode(data, num_samples, &result_begin, &result_end);
+   activity.opus_encode_ticks += (uint32_t)(system_get_activity_ticks() - encode_start);
 
    // Encapsulate each Opus frame into an Ogg page and store
    for (const opus_frame_t *frame = result_begin; frame != result_end; frame = frame->next)
@@ -610,6 +616,7 @@ static void storage_close_wav_audio(void)
       storage_write_audio_raw(&payload_size, 4);
       f_close(&audio_file);
       audio_file_open = false;
+      ++activity.audio_files_closed;
    }
 }
 
@@ -644,6 +651,7 @@ static void storage_close_ogg_opus_audio(void)
       opus_audio_buffer_idx = 0;
       f_close(&audio_file);
       audio_file_open = false;
+      ++activity.audio_files_closed;
    }
 }
 
@@ -696,6 +704,8 @@ static bool storage_open_wav_file(uint32_t activation_number, const char *device
    static char file_name[FF_MAX_LFN] = { 0 };
    snprintf(file_name, sizeof(file_name), "%s/%s.wav", audio_directory, time_string);
    audio_file_open = (f_open(&audio_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+   if (audio_file_open)
+      ++activity.audio_files_opened;
 
    return storage_write_wav_header(num_channels, sample_rate_hz);
 }
@@ -716,6 +726,8 @@ static bool storage_open_ogg_opus_file(uint32_t activation_number, const char *d
    static char file_name[FF_MAX_LFN] = { 0 };
    snprintf(file_name, sizeof(file_name), "%s/%s.opus", audio_directory, time_string);
    audio_file_open = (f_open(&audio_file, file_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+   if (audio_file_open)
+      ++activity.audio_files_opened;
 
    // Reset the Ogg writer and write the Ogg header
    if (audio_file_open)
@@ -925,6 +937,8 @@ bool storage_open_named_wav_file(const char *file_path, uint32_t num_channels, u
    using_ogg = false;
    data_size = wav_staging_used = 0;
    audio_file_open = (f_open(&audio_file, file_path, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+   if (audio_file_open)
+      ++activity.audio_files_opened;
    return storage_write_wav_header(num_channels, sample_rate_hz);
 }
 
@@ -1335,6 +1349,11 @@ bool storage_recover_audio(uint32_t activation_number, const char *device_label,
 void storage_get_health(storage_health_t *health_out)
 {
    *health_out = health;
+}
+
+void storage_get_activity(storage_activity_t *activity_out)
+{
+   *activity_out = activity;
 }
 
 void storage_write_log(const char *fmt, ...)
