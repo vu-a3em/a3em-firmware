@@ -382,20 +382,25 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
              sample_rate, audio_get_actual_sample_rate(), samples_per_buffer,
              sample_rate ? ((samples_per_buffer * 1000u) / sample_rate) : 0u);
 
-   // Announce the listening window: three quick green flashes mean "tap the housing now"
-   print("INFO: Self test - listening for %u seconds, tap the microphone now\n", (uint32_t)SELF_TEST_AUDIO_SECONDS);
-   for (uint32_t flash = 0; flash < 3; ++flash)
-   {
-      led_on(LED_GREEN);
-      system_delay(120000);
-      led_off(LED_GREEN);
-      system_delay(120000);
-   }
-   led_off(LED_ALL);
-
-   // Save the clip so the microphone port can be confirmed open by ear
+   // Start the converter before announcing the window: three quick green flashes mean "tap the housing now"
    const bool file_open = storage_open_named_wav_file(SELF_TEST_CLIP_FILE_NAME, AUDIO_NUM_CHANNELS, audio_get_actual_sample_rate());
    audio_begin_reading();
+   print("INFO: Self test - listening for %u seconds, tap the microphone now\n", (uint32_t)SELF_TEST_AUDIO_SECONDS);
+   for (uint32_t toggles = 0; (toggles < 6) && !audio_error_encountered(); )
+   {
+      if (audio_data_available() && audio_read_data(self_test_audio))
+      {
+         if (toggles % 2)
+            led_off(LED_GREEN);
+         else
+            led_on(LED_GREEN);
+         ++toggles;
+      }
+      else
+         system_enter_deep_sleep_mode();
+   }
+   led_off(LED_ALL);
+   audio_health_reset();
    bool audio_failed = false;
    uint32_t hold_remaining = 0;
    for (uint32_t captured = 0; captured < total_samples_wanted; )

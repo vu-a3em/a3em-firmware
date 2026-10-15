@@ -43,13 +43,13 @@ static void *audio_handle;
 static float pga_gain_db;
 static audio_trigger_t trigger_criterion;
 static uint64_t rate_window_start_centis, rate_window_samples;
-static uint32_t health_num_samples, health_num_rms_samples, health_stride_phase, dma_period_ms, num_audio_channels;
+static uint32_t health_num_samples, health_num_rms_samples, health_stride_phase, dma_period_ms, num_audio_channels, mic_power_tick;
 static uint32_t sampling_rate_hz, dc_offset, num_samples_per_dma, actual_sample_rate_hz, dma_period_limit_samples, stat_mic_starts;
 static uint32_t measured_sample_rate_hz, pdm_total_divider, rate_previous_estimate, rate_stable_count, start_skip_buffers;
 static volatile bool dma_complete = false, dma_error = false, adc_awake, tail_window_open, backstop_running;
 static volatile uint32_t stat_buffers_captured, stat_buffers_dropped, stat_missed_completions;
 static volatile uint32_t dma_buffers_pending, dcmp_confidence, skip_samples;
-static bool measured_rate_reported, measured_rate_settled, is_digital_mic;
+static bool mic_powered, measured_rate_reported, measured_rate_settled, is_digital_mic;
 static int16_t health_min_sample, health_max_sample;
 static int64_t health_sum, health_sum_squares;
 static am_hal_timer_config_t audio_dma_timer_config;
@@ -142,6 +142,16 @@ static void handle_dma_completion(void)
    AUDADCn(0)->DMASTAT_b.DMACPL = 0;
    am_hal_audadc_interrupt_service(audio_handle, &audadc_dma_config);
 
+   // Discard a buffer captured while the front end was still settling
+   if (skip_samples)
+   {
+      --skip_samples;
+      if (dcmp_confidence < AUDIO_DMA_DCMP_CONFIDENCE)
+         ++dcmp_confidence;
+      rearm_dma_backstop();
+      return;
+   }
+
    // Count a dropped buffer if the application had not yet consumed the previous one
    if (dma_buffers_pending)
       ++stat_buffers_dropped;
@@ -186,6 +196,47 @@ static void audio_health_accumulate(const int16_t *samples, uint32_t num_samples
    ++health_stride_phase;
 }
 
+static void analog_mic_power(bool on)
+{
+   // Switch the analog front end, noting when it came on so that a start knows how long it has had to settle
+   if (on)
+   {
+      if (!mic_powered)
+         mic_power_tick = system_get_activity_ticks();
+      am_hal_gpio_output_set(PIN_MICROPHONE_ENABLE);
+   }
+   else
+      am_hal_gpio_output_clear(PIN_MICROPHONE_ENABLE);
+   mic_powered = on;
+}
+
+static uint32_t analog_settle_buffers(void)
+{
+   // Throw away whole buffers before the analog front end has been powered for AUDIO_ANALOG_SETTLE_MS
+   if (!dma_period_ms)
+      return 0;
+   uint32_t remaining_ms = AUDIO_ANALOG_SETTLE_MS;
+   if (mic_powered)
+   {
+      const uint32_t powered_ms = (uint32_t)(((uint64_t)(system_get_activity_ticks() - mic_power_tick) * 1000u) / SYSTEM_ACTIVITY_TICKS_PER_SECOND);
+      remaining_ms = (powered_ms >= AUDIO_ANALOG_SETTLE_MS) ? 0 : (AUDIO_ANALOG_SETTLE_MS - powered_ms);
+   }
+   return (remaining_ms + dma_period_ms - 1) / dma_period_ms;
+}
+
+static uint32_t digital_skip_buffers(void)
+{
+   // The PDM front end throws its first buffers away while it settles
+   return (sampling_rate_hz <= AUDIO_BUFFER_MAX_SAMPLES) ? 1 : (sampling_rate_hz / AUDIO_BUFFER_MAX_SAMPLES);
+}
+
+static inline int16_t analog_sample(uint32_t raw, uint32_t offset)
+{
+   // Clip to the 16-bit range rather than wrapping
+   const int32_t centered = (int32_t)raw - (int32_t)offset;
+   return (int16_t)((centered > INT16_MAX) ? INT16_MAX : ((centered < INT16_MIN) ? INT16_MIN : centered));
+}
+
 void audio_dma_backstop_isr(void)
 {
    am_hal_timer_interrupt_clear(AM_HAL_TIMER_MASK(TIMER_NUMBER_AUDIO_DMA, AM_HAL_TIMER_COMPARE_BOTH));
@@ -212,8 +263,7 @@ void audio_adc_start(void)
       // Wake up the PDM peripheral
       if (!adc_awake)
          am_hal_pdm_power_control(audio_handle, AM_HAL_PDM_POWER_ON, true);
-      skip_samples = (sampling_rate_hz <= AUDIO_BUFFER_MAX_SAMPLES) ? 1 : (sampling_rate_hz / AUDIO_BUFFER_MAX_SAMPLES);
-      start_skip_buffers = skip_samples;
+      skip_samples = start_skip_buffers = digital_skip_buffers();
       configASSERT0(am_hal_pdm_configure(audio_handle, &pdm_config));
       configASSERT0(am_hal_pdm_fifo_threshold_setup(audio_handle, 24));
       configASSERT0(am_hal_pdm_interrupt_enable(audio_handle, (AM_HAL_PDM_INT_DERR | AM_HAL_PDM_INT_DCMP | AM_HAL_PDM_INT_UNDFL | AM_HAL_PDM_INT_OVF)));
@@ -228,6 +278,9 @@ void audio_adc_start(void)
          configASSERT0(am_hal_audadc_power_control(audio_handle, AM_HAL_SYSCTRL_WAKE, true));
       AUDADCn(0)->DATAOFFSET = 0x0000UL;
       adc_awake = true;
+
+      // Throw away what arrives while the front end is still settling
+      skip_samples = start_skip_buffers = analog_settle_buffers();
 
       // Configure the AUDADC trigger timer
       configASSERT0(am_hal_audadc_configure_irtt(audio_handle, &audadc_irtt_config));
@@ -516,7 +569,7 @@ bool audio_analog_init(uint32_t num_channels, uint32_t sample_rate_hz, uint32_t 
    // Turn on the external microphone
    const am_hal_gpio_pincfg_t mic_en_config = AM_HAL_GPIO_PINCFG_OUTPUT;
    configASSERT0(am_hal_gpio_pinconfig(PIN_MICROPHONE_ENABLE, mic_en_config));
-   am_hal_gpio_output_set(PIN_MICROPHONE_ENABLE);
+   analog_mic_power(true);
 
    // Power up two programmable gain amplifiers per requested channel
    skip_samples = start_skip_buffers = 0;
@@ -711,7 +764,7 @@ void audio_deinit(void)
    else
    {
       comparator_deinit();
-      am_hal_gpio_output_clear(PIN_MICROPHONE_ENABLE);
+      analog_mic_power(false);
       if (audio_handle)
       {
          NVIC_DisableIRQ(AUDADC0_IRQn);
@@ -758,7 +811,7 @@ void audio_begin_reading(void)
 
    // Restore power to the analog front end if it was shut down between clips
    if (!is_digital_mic)
-      am_hal_gpio_output_set(PIN_MICROPHONE_ENABLE);
+      analog_mic_power(true);
    else
       am_hal_gpio_output_set(PIN_DIGITAL_MIC_PWR);
 
@@ -801,7 +854,7 @@ void audio_stop_reading(void)
 
       // In amplitude-triggered mode the comparator needs a live PGA output to watch
       if (trigger_criterion != COMPARATOR_THRESHOLD)
-         am_hal_gpio_output_clear(PIN_MICROPHONE_ENABLE);
+         analog_mic_power(false);
    }
    adc_awake = false;
 
@@ -880,7 +933,7 @@ bool audio_read_data(int16_t *buffer)
          // Read and calibrate the audio samples from the AUDADC DMA buffer
          const uint32_t *data = (uint32_t*)am_hal_audadc_dma_get_buffer(audio_handle);
          for (uint32_t i = 0; i < num_samples_per_dma; ++i)
-            buffer[i] = (int16_t)((data[i] >> 16UL) - dc_offset);
+            buffer[i] = analog_sample(data[i] >> 16UL, dc_offset);
       }
       audio_health_accumulate(buffer, num_samples_per_dma);
       audio_filter_apply(buffer, num_samples_per_dma);
@@ -916,7 +969,7 @@ int16_t* audio_read_data_direct(void)
          {
             const uint32_t raw = data[i] >> 16UL;
             raw_total += raw;
-            buffer[i] = (int16_t)(raw - dc_offset);
+            buffer[i] = analog_sample(raw, dc_offset);
          }
 
          // Nudge the offset toward the measured mean of this buffer
@@ -945,8 +998,9 @@ int16_t* audio_read_data_direct(void)
 
 uint32_t audio_start_delay_seconds(void)
 {
-   // The PDM front end throws its first buffers away while it settles
-   return start_skip_buffers * audio_num_seconds_per_dma();
+   // How long the first kept buffer comes after a start
+   const uint32_t buffers = adc_awake ? start_skip_buffers : (is_digital_mic ? digital_skip_buffers() : analog_settle_buffers());
+   return (uint32_t)((((uint64_t)buffers * dma_period_ms) + 999u) / 1000u);
 }
 
 uint32_t audio_num_seconds_per_dma(void)

@@ -755,7 +755,7 @@ int32_t config_get_num_deployment_phases(void)
 int32_t config_get_active_deployment_phase_index(uint32_t current_time)
 {
    for (int32_t i = 0; (num_deployment_phases != -1) && (i < num_deployment_phases); ++i)
-      if ((deployment_phases[i].phase_time.start_time <= current_time) && (current_time <= deployment_phases[i].phase_time.end_time))
+      if ((deployment_phases[i].phase_time.start_time <= current_time) && (current_time < deployment_phases[i].phase_time.end_time))
          return i;
    return -1;
 }

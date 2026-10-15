@@ -236,6 +236,7 @@ extern void vAssertCalled(const char * const pcFileName, unsigned long ulLine);
 
 #define AUDIO_DMA_BACKSTOP_MARGIN_MS                    8
 #define AUDIO_DMA_DCMP_CONFIDENCE                       16
+#define AUDIO_ANALOG_SETTLE_MS                          6000
 
 #define DC_OFFSET_RECAL_DELTA_C                         10.0f
 #define DC_OFFSET_TRACK_MAX_STEP                        2

@@ -622,8 +622,11 @@ static void process_audio_scheduled(uint32_t sampling_rate, uint32_t num_audio_r
          }
          else if (!interval_based)
          {
+            // Wake early enough to start the converter before the window opens
+            const uint32_t prewarm_seconds = reading_audio ? 0 : audio_start_delay_seconds();
+            const uint32_t seconds_until_start = (seconds_til_next_scheduled_recording > prewarm_seconds) ? (seconds_til_next_scheduled_recording - prewarm_seconds) : 0;
             const uint32_t seconds_until_phase_end = (phase_end_timestamp > current_time) ? (phase_end_timestamp - current_time) : 0;
-            uint32_t seconds_to_sleep = MIN(seconds_til_next_scheduled_recording, seconds_until_phase_end);
+            uint32_t seconds_to_sleep = MIN(seconds_until_start, seconds_until_phase_end);
             if (seconds_to_sleep)
             {
                // Nothing is scheduled until the timer fires so nothing should still be converting
