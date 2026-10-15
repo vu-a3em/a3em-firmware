@@ -23,8 +23,8 @@ typedef struct
 typedef struct {
    int16_t min_sample, max_sample;
    int32_t mean;                 // DC bias remaining after offset removal
-   uint32_t rms;                 // signal level
-   uint32_t peak;                // largest absolute excursion
+   uint32_t rms;                 // signal level about the mean, so a leftover offset does not count as sound
+   uint32_t peak;                // largest excursion from the mean
    uint32_t num_samples;
    uint32_t num_rms_samples;    // Samples actually folded into rms/mean; equals num_samples at stride 1
    bool constant_output;         // every sample identical: a stuck or dead signal path

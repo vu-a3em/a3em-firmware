@@ -1078,9 +1078,13 @@ audio_health_t audio_health_get(void)
    health.max_sample = health_max_sample;
    const int64_t rms_count = health_num_rms_samples ? (int64_t)health_num_rms_samples : 1;
    health.mean = (int32_t)(health_sum / rms_count);
-   health.rms = (uint32_t)sqrtf((float)(health_sum_squares / rms_count));
-   const int32_t neg_excursion = (health_min_sample < 0) ? -(int32_t)health_min_sample : 0;
-   health.peak = (uint32_t)MAX((int32_t)health_max_sample, neg_excursion);
+
+   // Level and peak are measured about the mean
+   const double mean = (double)health_sum / (double)rms_count;
+   const double variance = ((double)health_sum_squares / (double)rms_count) - (mean * mean);
+   health.rms = (uint32_t)sqrt((variance > 0.0) ? variance : 0.0);
+   const int32_t above = (int32_t)health_max_sample - health.mean, below = health.mean - (int32_t)health_min_sample;
+   health.peak = (uint32_t)MAX(MAX(above, below), 0);
 
    // A signal path that is dead, unpowered, or disconnected produces the same value forever
    health.constant_output = (health_min_sample == health_max_sample);

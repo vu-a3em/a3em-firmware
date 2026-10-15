@@ -465,8 +465,9 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
       return false;
    }
 
-   // A window this hot is not a recording
-   if (health->rms >= SELF_TEST_MIC_MAX_PLAUSIBLE_RMS)
+   // A window swinging rail to rail or sitting far from the center is not a recording
+   const uint64_t level_squared = ((uint64_t)health->rms * health->rms) + ((uint64_t)((int64_t)health->mean * health->mean));
+   if (level_squared >= ((uint64_t)SELF_TEST_MIC_MAX_PLAUSIBLE_RMS * SELF_TEST_MIC_MAX_PLAUSIBLE_RMS))
    {
       print("ERROR: Microphone level implausible (rms %u, peak %u) - signal path is not delivering audio\n",
             health->rms, health->peak);
