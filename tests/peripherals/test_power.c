@@ -843,10 +843,10 @@ static const power_step_t steps[] =
    S(0x0F, "SLEEP_VHF_ENABLED",    SUITE_CORE, 0, 0, 0, 0, setup_vhf_on, NULL, teardown_vhf_on),
    S(0x10, "SLEEP_APP_IDLE",       SUITE_CORE, 0, 0, 0, 0, setup_app_idle, NULL, teardown_app_idle),
    S(0x11, "CPU_ACTIVE",           SUITE_CORE, STEP_BUSY, 0, 0, 0, NULL, service_cpu_work, NULL),
-   S(0x12, "OFF_RTC",              SUITE_CORE, STEP_POWER_OFF, 0, 0, 0, NULL, NULL, NULL),
-   S(0x13, "OFF_MAGNET",           SUITE_CORE, STEP_POWER_OFF | STEP_MAGNET_WAKE, 0, 0, 0, NULL, NULL, NULL),
    S(0x18, "EVT_WAKE",             SUITE_CORE, STEP_EVENT, 64, 0, 0x04, NULL, service_tick, NULL),
    S(0x19, "EVT_BATTERY_READ",     SUITE_CORE, STEP_EVENT, 1, 0, 0x07, setup_adc, service_battery_read, teardown_adc),
+   S(0x12, "OFF_RTC",              SUITE_CORE, STEP_POWER_OFF, 0, 0, 0, NULL, NULL, NULL),
+   S(0x13, "OFF_MAGNET",           SUITE_CORE, STEP_POWER_OFF | STEP_MAGNET_WAKE, 0, 0, 0, NULL, NULL, NULL),
 
    // SD card: run once per card model, since all of these belong to the card rather than the board
    S(0x20, "SD_IDLE",              SUITE_SD, STEP_NEEDS_CARD, 0, 0, 0, NULL, NULL, NULL),
@@ -1129,10 +1129,11 @@ int main(void)
    for (uint32_t i = 0; i < (sizeof(steps) / sizeof(steps[0])); ++i)
       num_steps += (steps[i].suite == suite) ? 1 : 0;
    append_results("RUN|format=%u,fw=%s,suite=%s,steps=%u,window_s=%u,repeat=%u,start_delay_s=%u,label=%s,card=%s,"
-                  "mic=%s,battery=%s,temperature=%s,t=%u\n",
+                  "card_mb=%u,card_au=%u,mic=%s,battery=%s,temperature=%s,t=%u\n",
                   POWER_RESULTS_FORMAT_VERSION, _FW_VERSION, settings.suite, (unsigned)num_steps,
                   (unsigned)settings.window_seconds, (unsigned)settings.repeat, (unsigned)settings.start_delay_seconds,
-                  settings.label, settings.card, settings.mic, settings.battery, settings.temperature,
+                  settings.label, settings.card, (unsigned)storage_get_total_space_mb(),
+                  (unsigned)storage_get_allocation_unit_bytes(), settings.mic, settings.battery, settings.temperature,
                   (unsigned)rtc_get_timestamp());
 
    // An unknown suite is reported on the LEDs rather than silently running something else
