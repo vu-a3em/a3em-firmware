@@ -414,11 +414,16 @@ static bool test_microphone(uint32_t activation_number, const char *device_label
       // Take a private copy of the buffer first
       if (audio_data_available() && audio_read_data(self_test_audio))
       {
-         // Live level feedback: the LED follows the loudest sample in this buffer
+         // Live level feedback: the LED follows the loudest sample in this buffer relative to the DC offset
+         int64_t sum = 0;
+         for (uint32_t i = 0; i < samples_per_buffer; ++i)
+            sum += self_test_audio[i];
+         const int32_t mean = (int32_t)(sum / (int64_t)samples_per_buffer);
          int32_t peak = 0;
          for (uint32_t i = 0; i < samples_per_buffer; ++i)
          {
-            const int32_t magnitude = (self_test_audio[i] < 0) ? -(int32_t)self_test_audio[i] : (int32_t)self_test_audio[i];
+            const int32_t excursion = (int32_t)self_test_audio[i] - mean;
+            const int32_t magnitude = (excursion < 0) ? -excursion : excursion;
             if (magnitude > peak)
                peak = magnitude;
          }
