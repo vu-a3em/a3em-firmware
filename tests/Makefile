@@ -26,8 +26,8 @@ ID_FLASH_LOCATION = 0x001FFFF8
 
 DEFINES  = -D_HW_REVISION=$(REVISION)
 FW_VERSION := testing
-GIT_HASH := $(shell git -C $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST))))) rev-parse --short HEAD 2>/dev/null || echo nogit)
-GIT_DIRTY := $(shell git -C $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST))))) diff --quiet HEAD 2>/dev/null || echo -dirty)
+GIT_HASH := $(shell git -C "$(CURDIR)" rev-parse --short HEAD 2>/dev/null || echo nogit)
+GIT_DIRTY := $(shell git -C "$(CURDIR)" diff --quiet HEAD 2>/dev/null || echo -dirty)
 
 DEFINES += -D_DATETIME="\"$(shell date -u)\""
 DEFINES += -D_FW_VERSION="\"$(FW_VERSION)+$(GIT_HASH)$(GIT_DIRTY)\""
@@ -296,7 +296,7 @@ SRC += silence.c
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 #SRC += $(foreach SOURCE,$(wildcard ../AmbiqSDK/mcu/$(PART)/hal/mcu/*.c),$(patsubst %.c,%.c,$(notdir $(SOURCE))))
 
-.PHONY: all program clean ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power power_build power_off rtc_set rtc silence storage system tracker tracker2 tracker_bus tracker_master vhf
+.PHONY: all program clean FORCE ai ai_live app_magnet_no_gps audio audio_continuous battery clustering comparator configuration digipot fft full imu led logging magnet mfcc nn power power_build power_off rtc_set rtc silence storage system tracker tracker2 tracker_bus tracker_master vhf
 .PRECIOUS: $(CONFIG)/%.axf
 .SECONDEXPANSION:
 
@@ -524,6 +524,10 @@ clean:
 	@echo "Cleaning..." ;\
 	$(RM) -rf $(CONFIG)
 $(CONFIG)/%.d: ;
+
+# Objects that embed the version and the build time, so they are rebuilt on every build
+FORCE:
+$(CONFIG)/main.o $(CONFIG)/system.o $(CONFIG)/rtc.o $(CONFIG)/test_power.o: FORCE
 
 # Include JTag flashing Makefile
 include ../Jtag.mk

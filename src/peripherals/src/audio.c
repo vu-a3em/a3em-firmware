@@ -138,6 +138,8 @@ static void stop_dma_backstop(void)
 
 static void handle_dma_completion(void)
 {
+   // Claim the completion and service it
+   AUDADCn(0)->DMASTAT_b.DMACPL = 0;
    am_hal_audadc_interrupt_service(audio_handle, &audadc_dma_config);
 
    // Count a dropped buffer if the application had not yet consumed the previous one
