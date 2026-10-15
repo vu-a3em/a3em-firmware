@@ -742,6 +742,10 @@ void audio_deinit(void)
 
 void audio_begin_reading(void)
 {
+   // Start from a clean DMA slate
+   dma_complete = false;
+   dma_buffers_pending = 0;
+
    // Arm the rate measurement
    rate_window_start_centis = 0;
    rate_window_samples = 0;
