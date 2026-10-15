@@ -426,10 +426,10 @@ static void teardown_scratch_file(uint32_t param)
 
 static uint32_t service_sd_session(uint32_t bytes)
 {
-   // One wake of the card that writes the requested amount, as a deployment's staged flushes do
+   // One wake of the card that writes the requested amount, as a deployment's staged flushes do. The card goes back
+   // to sleep when the processor next does, which is inside the window.
    if (!take_tick())
       return 0;
-   storage_sd_session_begin();
    for (uint32_t written = 0; written < bytes; )
    {
       const uint32_t chunk = MIN(bytes - written, (uint32_t)SCRATCH_BUFFER_BYTES);
@@ -438,7 +438,6 @@ static uint32_t service_sd_session(uint32_t bytes)
       if (vbat_min_mv)
          note_vbat();
    }
-   storage_sd_session_end();
    return 1;
 }
 
@@ -492,15 +491,13 @@ static void teardown_log_file(uint32_t param)
 
 static uint32_t service_log_line(uint32_t param)
 {
-   // An event line followed by a sync of the log inside one session, which is what every logged event costs
+   // An event line followed by a sync of the log, which is what every logged event costs
    (void)param;
    if (!take_tick())
       return 0;
    f_printf(&log_file, "[%u] EVT|POWER_TEST|t=%u,batt_mv=3600,temp_c=21.00,n=%u\n",
             (unsigned)rtc_get_timestamp(), (unsigned)rtc_get_timestamp(), (unsigned)cycle_ticks++);
-   storage_sd_session_begin();
    f_sync(&log_file);
-   storage_sd_session_end();
    return 1;
 }
 
@@ -801,10 +798,8 @@ static uint32_t service_brownout(uint32_t param)
    if (!take_tick())
       return 0;
    bool written = true;
-   storage_sd_session_begin();
    for (uint32_t done = 0; done < (512u * 1024u); done += SCRATCH_BUFFER_BYTES)
       written = storage_write(scratch.bytes, SCRATCH_BUFFER_BYTES) && written;
-   storage_sd_session_end();
    const battery_result_t battery = battery_monitor_get_details();
    storage_close();
    written = append_results("BROWNOUT|cycle=%u,vbat_mv=%u,written=%u,t=%u\n", (unsigned)cycle_ticks++,
@@ -999,6 +994,9 @@ static bool hold(const power_step_t *step, uint32_t seconds, uint32_t *events)
       }
    }
    rtc_clear_wakeup();
+
+   // Settle the card inside the window, so the last event pays for putting it back to sleep
+   storage_sleep_card();
    return true;
 }
 

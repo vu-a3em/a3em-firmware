@@ -37,8 +37,7 @@ void storage_init(void);
 void storage_deinit(void);
 bool storage_sd_card_error(void);
 
-void storage_sd_session_begin(void);
-void storage_sd_session_end(void);
+void storage_sleep_card(void);
 bool storage_mkdir(const char *directory);
 bool storage_open(const char *file_path, bool writeable);
 uint32_t storage_get_current_activation_number(const char *device_label);

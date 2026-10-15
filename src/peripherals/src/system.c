@@ -492,6 +492,7 @@ static void indicate_result(self_test_result_t result)
 {
    // Communicate the verdict without a computer: solid green for a pass, otherwise one
    // red blink per subsystem number so a failure can be identified at the bench.
+   storage_sleep_card();
    led_off(LED_ALL);
    if (result == SELF_TEST_PASS)
    {
@@ -812,6 +813,9 @@ void system_enable_interrupts(bool enabled)
 
 void system_enter_deep_sleep_mode(void)
 {
+   // Put the SD card to sleep here so that a burst costs only one wake
+   storage_sleep_card();
+
    // Only enter Deep Sleep mode if not streaming audio for download
 #if !defined(ENABLE_AUDIO_DL) || (7-ENABLE_AUDIO_DL-7 == 14) || (7-ENABLE_AUDIO_DL-7 == 0)
    activity_sleep_begin();
